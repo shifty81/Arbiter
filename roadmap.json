@@ -1,0 +1,149 @@
+{
+  "project": "ArbiterAI",
+  "description": "Self-hosted, fully offline AI-powered development platform — Monaco IDE + WPF Windows client + Arbiter Engine agentic backend.",
+  "version": "0.3.0",
+  "last_updated": "2026-03-22",
+  "milestones": [
+    {
+      "id": "M0",
+      "title": "Foundation",
+      "description": "Core WPF shell, Python bridge, chat, voice, personas, projects, git, build/run/test.",
+      "status": "done",
+      "tasks": [
+        { "id": "M0-1",  "title": "WPF application shell (MainWindow, ProjectWindow, WorkspaceWindow)", "status": "done" },
+        { "id": "M0-2",  "title": "FastAPI Python bridge (fastapi_bridge.py) on port 8000", "status": "done" },
+        { "id": "M0-3",  "title": "ChatGPT-style web chat UI (static/index.html)", "status": "done" },
+        { "id": "M0-4",  "title": "Hardware-aware LLM loading (GGUF + Ollama + stub)", "status": "done" },
+        { "id": "M0-5",  "title": "TTS voice output (pyttsx3 / System.Speech)", "status": "done" },
+        { "id": "M0-6",  "title": "STT voice input (Whisper / Windows Speech)", "status": "done" },
+        { "id": "M0-7",  "title": "Persona system (Arbiter / Coder / Teacher / Organizer)", "status": "done" },
+        { "id": "M0-8",  "title": "Per-project SQLite conversation history", "status": "done" },
+        { "id": "M0-9",  "title": "Project workspace management + file tree", "status": "done" },
+        { "id": "M0-10", "title": "Git integration (LibGit2Sharp — commit, push, pull, branch, log)", "status": "done" },
+        { "id": "M0-11", "title": "Build / run / test loop with auto-command detection", "status": "done" },
+        { "id": "M0-12", "title": "Automated model download (HuggingFace Hub)", "status": "done" },
+        { "id": "M0-13", "title": "Dark theme (VS Code-inspired) across all WPF windows", "status": "done" }
+      ]
+    },
+    {
+      "id": "M1",
+      "title": "IDE Integration — Monaco Editor + WebView2",
+      "description": "Embed Monaco IDE (from SwissAgent) into the WPF client via WebView2. All AI features connect directly to the editor.",
+      "status": "in_progress",
+      "tasks": [
+        { "id": "M1-1",  "title": "PDF viewer window (WebView2, read-only)", "status": "done" },
+        { "id": "M1-2",  "title": "LauncherWindow — startup picker (ArbiterAI vs Arbiter Engine)", "status": "done" },
+        { "id": "M1-3",  "title": "AppConfig static class — mode + API URL shared across all windows", "status": "done" },
+        { "id": "M1-4",  "title": "Auto-open web chat in browser on app launch", "status": "done" },
+        { "id": "M1-5",  "title": "SwissAgent Monaco GUI downloaded, renamed Arbiter, served from /gui/", "status": "done" },
+        { "id": "M1-6",  "title": "File CRUD API endpoints (/files, /files/read, /files/write, /files/delete, /files/rename)", "status": "done" },
+        { "id": "M1-7",  "title": "AI code action endpoints (/ai/complete, /ai/action, /ai/propose)", "status": "done" },
+        { "id": "M1-8",  "title": "WebSocket streaming endpoints (/ws/run, /ws/terminal, /ws/pty)", "status": "done" },
+        { "id": "M1-9",  "title": "Git API endpoints (/git/clone, /git/status, /git/stage, /git/commit, /git/log, /git/diff)", "status": "done" },
+        { "id": "M1-10", "title": "Assistant chat endpoints for IDE (/assistant/chat, /assistant/chat/agentic)", "status": "done" },
+        { "id": "M1-11", "title": "Scaffold / template / refactor / brainstorm / docgen endpoints", "status": "done" },
+        { "id": "M1-12", "title": "Stub endpoints for all 40+ advanced module features", "status": "done" },
+        { "id": "M1-13", "title": "IdeWindow.xaml — WPF window hosting Monaco IDE via WebView2", "status": "pending" },
+        { "id": "M1-14", "title": "IdeWindow.xaml.cs — native tool-call bridge (WPF ↔ Monaco JS postMessage)", "status": "pending" },
+        { "id": "M1-15", "title": "IDE toolbar: open project, save, build, run, test buttons in WPF chrome", "status": "pending" },
+        { "id": "M1-16", "title": "WPF file picker integration (open/save dialogs called from IDE JS)", "status": "pending" },
+        { "id": "M1-17", "title": "LauncherWindow updated to open IDE window as main interface", "status": "pending" }
+      ]
+    },
+    {
+      "id": "M2",
+      "title": "Arbiter Engine — Full Agentic Backend",
+      "description": "Complete Python agent engine with 200+ tools, 12 LLM backends, plugin/module system, and self-build loop. Rewritten from SwissAgent with Arbiter naming.",
+      "status": "in_progress",
+      "tasks": [
+        { "id": "M2-1",  "title": "Core engine: agent, config_loader, logger, permission, task_runner, tool_registry", "status": "done" },
+        { "id": "M2-2",  "title": "AgenticChatEngine: plan → file-edit → diff → summarise loop", "status": "done" },
+        { "id": "M2-3",  "title": "SelfBuildLoop: roadmap-driven autonomous patch → test → commit cycle", "status": "done" },
+        { "id": "M2-4",  "title": "LLM factory + 12 backends (Ollama, OpenAI, Anthropic, Gemini, llama.cpp, LM Studio, LocalAI, Open WebUI, Tabby, local stub)", "status": "done" },
+        { "id": "M2-5",  "title": "Module loader (module.json + tools.json discovery)", "status": "done" },
+        { "id": "M2-6",  "title": "Plugin loader (plugin.json + dynamic tool registration)", "status": "done" },
+        { "id": "M2-7",  "title": "ArbiterEngine bridge server (server.py, port 8001, same API contract as bridge)", "status": "done" },
+        { "id": "M2-8",  "title": "setup_modules.py — sparse-clone 42-module toolset", "status": "done" },
+        { "id": "M2-9",  "title": "configs/config.toml — full runtime configuration", "status": "done" },
+        { "id": "M2-10", "title": "Module installation and validation (run setup_modules.py)", "status": "pending" },
+        { "id": "M2-11", "title": "Hot-reload plugins without server restart", "status": "pending" },
+        { "id": "M2-12", "title": "Tool call streaming (SSE / WebSocket) for long-running tools", "status": "pending" },
+        { "id": "M2-13", "title": "Multi-agent orchestration (spawn sub-agents per task)", "status": "pending" },
+        { "id": "M2-14", "title": "Self-build: integrate with IDE roadmap panel for live progress display", "status": "pending" }
+      ]
+    },
+    {
+      "id": "M3",
+      "title": "Archive & Library — Living Knowledge Codex",
+      "description": "Configurable library folders that Arbiter monitors, indexes, and builds into a searchable Archive (the Codex). Used as persistent AI context.",
+      "status": "pending",
+      "tasks": [
+        { "id": "M3-1",  "title": "library_manager.py — library path CRUD stored in Memory/library_config.json", "status": "pending" },
+        { "id": "M3-2",  "title": "archive_manager.py — ArchiveEntry dataclass, Archive class, JSON persistence", "status": "pending" },
+        { "id": "M3-3",  "title": "Code extraction: Python AST (functions/classes/docstrings), regex for JS/TS/C#/Go/Rust", "status": "pending" },
+        { "id": "M3-4",  "title": "Doc extraction: Markdown section + fenced code blocks, plain text chunking", "status": "pending" },
+        { "id": "M3-5",  "title": "AI-generated summaries: LLM writes one-line summary per Archive entry", "status": "pending" },
+        { "id": "M3-6",  "title": "Background file watcher: scan library folders every 30s, re-index changed files", "status": "pending" },
+        { "id": "M3-7",  "title": "Keyword search: score entries by query term frequency across title/summary/content/tags", "status": "pending" },
+        { "id": "M3-8",  "title": "Archive context injection: top-k relevant entries prepended to AI system prompt", "status": "pending" },
+        { "id": "M3-9",  "title": "Markdown export: GET /archive/export → full Archive as a .md codex document", "status": "pending" },
+        { "id": "M3-10", "title": "Archive REST API: GET /archive, POST /archive/rebuild, GET /archive/search, DELETE /archive/entry/{id}", "status": "pending" },
+        { "id": "M3-11", "title": "Library REST API: GET/POST/DELETE /library, GET /library/files, GET /library/file", "status": "pending" },
+        { "id": "M3-12", "title": "Library & Archive sidebar panel in Monaco IDE web UI", "status": "pending" },
+        { "id": "M3-13", "title": "Archive viewer: search box, entry list, content preview, rebuild button", "status": "pending" }
+      ]
+    },
+    {
+      "id": "M4",
+      "title": "WPF IDE — Full Native Client",
+      "description": "The WPF Windows client becomes a full IDE: Monaco editor embedded via WebView2, native tool dispatch, drag-and-drop workspace, WPF-native panels.",
+      "status": "pending",
+      "tasks": [
+        { "id": "M4-1",  "title": "IdeWindow.xaml — full-screen WebView2 hosting Monaco IDE", "status": "pending" },
+        { "id": "M4-2",  "title": "IdeWindow: WebMessageReceived handler — dispatch native tool calls from JS", "status": "pending" },
+        { "id": "M4-3",  "title": "Native tools: open file/folder dialogs, system notifications, clipboard, drag-drop", "status": "pending" },
+        { "id": "M4-4",  "title": "WPF status bar: server status, LLM backend, current file, line/col", "status": "pending" },
+        { "id": "M4-5",  "title": "WPF menu bar: File, Edit, View, Git, Build, Run, AI, Help", "status": "pending" },
+        { "id": "M4-6",  "title": "Settings panel: library paths, LLM backend, voice, theme, ports", "status": "pending" },
+        { "id": "M4-7",  "title": "WPF build progress panel: real-time output streamed from /ws/run", "status": "pending" },
+        { "id": "M4-8",  "title": "Keyboard shortcuts: Ctrl+Shift+P (command palette), Ctrl+B (build), F5 (run)", "status": "pending" },
+        { "id": "M4-9",  "title": "Multi-window: IDE + Chat side-by-side (dockable WPF windows)", "status": "pending" },
+        { "id": "M4-10", "title": "Tray icon: run Arbiter in background, restore from system tray", "status": "pending" }
+      ]
+    },
+    {
+      "id": "M5",
+      "title": "Advanced AI Capabilities",
+      "description": "Multi-agent orchestration, RAG knowledge retrieval, autonomous self-improvement, voice-in-IDE, and AI-powered code review.",
+      "status": "pending",
+      "tasks": [
+        { "id": "M5-1",  "title": "RAG search over Archive entries (vector embeddings or BM25)", "status": "pending" },
+        { "id": "M5-2",  "title": "Multi-agent: spawn specialist sub-agents (DevOps, Security, Docs) per task", "status": "pending" },
+        { "id": "M5-3",  "title": "Autonomous self-build: AI resolves next roadmap task, patches, tests, commits", "status": "pending" },
+        { "id": "M5-4",  "title": "Voice in IDE: push-to-talk STT → chat input, TTS reads AI responses aloud", "status": "pending" },
+        { "id": "M5-5",  "title": "AI code review panel: review open file or diff against AI-style guidelines", "status": "pending" },
+        { "id": "M5-6",  "title": "Context-aware completions: inject open-file + Archive + project profile into completion", "status": "pending" },
+        { "id": "M5-7",  "title": "Session memory (key-value) persisted in .arbiter/session_memory.json", "status": "pending" },
+        { "id": "M5-8",  "title": "Project profile: AI reads project tech stack, conventions, README for context", "status": "pending" },
+        { "id": "M5-9",  "title": "Automated dependency vulnerability scanning (pip audit / npm audit via AI summary)", "status": "pending" },
+        { "id": "M5-10", "title": "Image & diagram generation (Mermaid diagrams via AI, rendered in IDE)", "status": "pending" }
+      ]
+    },
+    {
+      "id": "M6",
+      "title": "Distribution & Extensibility",
+      "description": "Packaging, installer, auto-update, plugin marketplace, and optional cloud sync.",
+      "status": "pending",
+      "tasks": [
+        { "id": "M6-1",  "title": "NSIS / Inno Setup installer: bundles WPF app + Python + bridge", "status": "pending" },
+        { "id": "M6-2",  "title": "Auto-update: check GitHub releases, download and install new version", "status": "pending" },
+        { "id": "M6-3",  "title": "Plugin marketplace: browse, install, rate community plugins", "status": "pending" },
+        { "id": "M6-4",  "title": "VS Code extension: Arbiter chat sidebar accessible from VS Code", "status": "pending" },
+        { "id": "M6-5",  "title": "Cross-platform: Linux / macOS support via Avalonia or .NET MAUI", "status": "pending" },
+        { "id": "M6-6",  "title": "Optional cloud sync: encrypted project backup to user-owned S3 / Backblaze", "status": "pending" },
+        { "id": "M6-7",  "title": "CLI: arbiter build / arbiter chat / arbiter archive rebuild from terminal", "status": "pending" },
+        { "id": "M6-8",  "title": "Docker image: one-command self-hosted Arbiter server", "status": "pending" }
+      ]
+    }
+  ]
+}

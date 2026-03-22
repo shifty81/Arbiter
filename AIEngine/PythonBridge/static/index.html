@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbiter AI</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            background: #212121;
+            color: #ececec;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+                         "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            overflow: hidden;
+        }
+
+        /* ── App shell ── */
+        .app { display: flex; height: 100vh; }
+
+        /* ════════════════════════════════════
+           SIDEBAR
+        ════════════════════════════════════ */
+        .sidebar {
+            width: 260px;
+            min-width: 260px;
+            background: #171717;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 8px;
+        }
+
+        .sidebar-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 2px 8px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 8px;
+            font-size: 15px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.01em;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            color: #8a8a8a;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .15s, color .15s;
+        }
+        .icon-btn:hover { background: #2a2a2a; color: #ececec; }
+
+        .new-chat-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 9px 10px;
+            background: transparent;
+            border: none;
+            color: #ececec;
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 13.5px;
+            text-align: left;
+            transition: background .15s;
+            margin-bottom: 4px;
+        }
+        .new-chat-btn:hover { background: #2a2a2a; }
+
+        /* Sidebar scrollable area */
+        .sidebar-scroll {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #444; }
+
+        .sidebar-section {
+            padding: 14px 10px 5px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #5e5e5e;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+
+        .project-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: #c8c8c8;
+            font-size: 13.5px;
+            transition: background .15s;
+            white-space: nowrap;
+            overflow: hidden;
+            user-select: none;
+        }
+        .project-item:hover  { background: #232323; }
+        .project-item.active { background: #2d2d2d; color: #fff; }
+        .project-item svg    { flex-shrink: 0; opacity: .65; }
+        .project-item span   { overflow: hidden; text-overflow: ellipsis; }
+
+        /* Sidebar footer */
+        .sidebar-footer {
+            flex-shrink: 0;
+            padding: 8px 2px 4px;
+            border-top: 1px solid #242424;
+            margin-top: 6px;
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            color: #8a8a8a;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #555;
+            flex-shrink: 0;
+            transition: background .3s;
+        }
+        .status-dot.online   { background: #22c55e; }
+        .status-dot.offline  { background: #ef4444; }
+        .status-dot.checking { background: #f59e0b; animation: blink 1.4s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+        /* ── LLM status pill in sidebar footer ── */
+        .llm-status {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 7px 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #8a8a8a;
+            cursor: default;
+        }
+        .llm-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #555; flex-shrink: 0; transition: background .3s;
+        }
+        .llm-dot.ready   { background: #22c55e; }
+        .llm-dot.stub    { background: #ef4444; }
+        .llm-dot.loading { background: #f59e0b; animation: blink 1.4s infinite; }
+
+        /* ── Persona selector ── */
+        .persona-section {
+            padding: 14px 10px 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #5e5e5e;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+
+        .persona-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 0 4px;
+        }
+
+        .persona-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 8px 10px;
+            background: transparent;
+            border: none;
+            color: #c8c8c8;
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 13px;
+            text-align: left;
+            transition: background .15s, color .15s;
+        }
+        .persona-btn:hover { background: #232323; color: #fff; }
+        .persona-btn.active {
+            background: #1a2d3f;
+            color: #60b0ff;
+            font-weight: 600;
+        }
+        .persona-badge {
+            width: 20px; height: 20px; border-radius: 50%;
+            background: #2d2d2d;
+            border: 1px solid #3d3d3d;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; flex-shrink: 0;
+        }
+        .persona-btn.active .persona-badge {
+            background: #0a2040;
+            border-color: #007acc;
+            color: #60b0ff;
+        }
+        .persona-name { font-size: 13px; }
+        .persona-desc { font-size: 10px; color: #5e5e5e; margin-top: 1px; }
+
+        /* ── Model setup banner (shown when stub) ── */
+        .model-banner {
+            margin: 6px 4px 2px;
+            padding: 12px 12px 10px;
+            background: #1e1e1e;
+            border: 1px solid #3a2a00;
+            border-radius: 10px;
+            font-size: 12px;
+            color: #c8a84b;
+            display: none;
+        }
+        .model-banner.visible { display: block; }
+        .model-banner p { margin-bottom: 8px; line-height: 1.5; }
+        .model-banner strong { color: #e8c46b; }
+        .banner-actions { display: flex; flex-direction: column; gap: 5px; }
+        .banner-btn {
+            width: 100%;
+            padding: 7px 10px;
+            border: none;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .15s, opacity .15s;
+        }
+        .banner-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .banner-btn.primary {
+            background: #007acc; color: #fff;
+        }
+        .banner-btn.primary:hover:not(:disabled) { background: #009af0; }
+        .banner-btn.secondary {
+            background: #2a2a2a; color: #bbb; border: 1px solid #3a3a3a;
+        }
+        .banner-btn.secondary:hover:not(:disabled) { background: #333; }
+
+        /* Download progress bar */
+        .dl-progress { display: none; margin-top: 8px; }
+        .dl-progress.visible { display: block; }
+        .dl-bar-track {
+            height: 4px; background: #333; border-radius: 2px; overflow: hidden;
+            margin-bottom: 5px;
+        }
+        .dl-bar-fill {
+            height: 100%; background: #007acc; border-radius: 2px;
+            transition: width .4s ease;
+        }
+        .dl-msg { font-size: 11px; color: #8a8a8a; }
+
+        /* ════════════════════════════════════
+           MAIN AREA
+        ════════════════════════════════════ */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            background: #212121;
+            position: relative;
+        }
+
+        /* Active project badge */
+        .main-header {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 20px;
+            min-height: 52px;
+        }
+
+        .project-badge {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 16px;
+            background: #2a2a2a;
+            border: 1px solid #363636;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #ccc;
+        }
+
+        /* ── Welcome state ── */
+        .welcome-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 36px;
+            padding: 40px 20px 100px;
+        }
+
+        .welcome-title {
+            font-size: 30px;
+            font-weight: 600;
+            color: #ececec;
+            text-align: center;
+            letter-spacing: -0.02em;
+        }
+
+        .welcome-input-wrap { width: 100%; max-width: 680px; }
+
+        /* ── Chat state ── */
+        .chat-scroll {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+        }
+        .chat-scroll::-webkit-scrollbar { width: 6px; }
+        .chat-scroll::-webkit-scrollbar-track { background: transparent; }
+        .chat-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        .chat-scroll::-webkit-scrollbar-thumb:hover { background: #444; }
+
+        .messages-inner {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 24px 20px 12px;
+        }
+
+        /* Message group */
+        .msg-group {
+            margin-bottom: 28px;
+            animation: msgFade .22s ease-out;
+        }
+        @keyframes msgFade {
+            from { opacity: 0; transform: translateY(7px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .msg-meta {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin-bottom: 8px;
+        }
+
+        .role-avatar {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .role-avatar.you-av {
+            background: linear-gradient(135deg, #0078d4, #004c9e);
+            color: #fff;
+        }
+        .role-avatar.ai-av {
+            background: #2d2d2d;
+            color: #bbb;
+            border: 1px solid #3d3d3d;
+        }
+
+        .role-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #aaa;
+        }
+
+        .msg-body {
+            padding-left: 35px;
+            font-size: 14.5px;
+            line-height: 1.78;
+            color: #e0e0e0;
+            word-break: break-word;
+        }
+        .msg-body.you-body { color: #d8eaff; }
+
+        .msg-body code {
+            background: #2a2a2a;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+            font-size: 12.5px;
+            color: #ce9178;
+        }
+
+        .msg-body pre {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 14px 16px;
+            overflow-x: auto;
+            margin: 10px 0;
+            font-family: 'Cascadia Code', Consolas, monospace;
+            font-size: 12.5px;
+            line-height: 1.6;
+        }
+        .msg-body pre code { background: transparent; padding: 0; color: #d4d4d4; }
+
+        /* Typing indicator */
+        .typing-wrap {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding-left: 35px;
+            margin-top: 2px;
+        }
+        .t-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #5a5a5a;
+            animation: typeBounce 1.3s infinite;
+        }
+        .t-dot:nth-child(2) { animation-delay: .18s; }
+        .t-dot:nth-child(3) { animation-delay: .36s; }
+        @keyframes typeBounce {
+            0%,60%,100% { transform: translateY(0); opacity: .4; }
+            30%          { transform: translateY(-6px); opacity: 1; }
+        }
+
+        /* ── Input area ── */
+        .input-area {
+            flex-shrink: 0;
+            padding: 10px 20px 20px;
+        }
+
+        .input-area-inner {
+            max-width: 680px;
+            margin: 0 auto;
+        }
+
+        .input-box {
+            display: flex;
+            align-items: flex-end;
+            background: #2f2f2f;
+            border: 1px solid #3e3e3e;
+            border-radius: 16px;
+            padding: 10px 10px 10px 16px;
+            gap: 8px;
+            transition: border-color .2s, box-shadow .2s;
+        }
+        .input-box:focus-within {
+            border-color: #4a4a4a;
+            box-shadow: 0 0 0 3px rgba(0,120,212,.14);
+        }
+
+        .input-box textarea {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #ececec;
+            font-size: 15px;
+            line-height: 1.55;
+            resize: none;
+            max-height: 180px;
+            min-height: 22px;
+            font-family: inherit;
+            padding: 2px 0;
+        }
+        .input-box textarea::placeholder { color: #5a5a5a; }
+        .input-box textarea:disabled     { opacity: .45; }
+
+        .send-btn {
+            width: 36px;
+            height: 36px;
+            background: #007acc;
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background .15s, opacity .15s;
+        }
+        .send-btn:hover:not(:disabled) { background: #009af0; }
+        .send-btn:disabled { background: #303030; color: #555; cursor: not-allowed; }
+
+        .input-note {
+            text-align: center;
+            font-size: 11px;
+            color: #4a4a4a;
+            margin-top: 8px;
+        }
+
+        /* ── Utilities ── */
+        .hidden { display: none !important; }
+        .hint   { padding: 8px 10px; font-size: 12px; color: #555; font-style: italic; }
+    </style>
+</head>
+<body>
+<div class="app">
+
+    <!-- ═══════════ SIDEBAR ═══════════ -->
+    <aside class="sidebar">
+
+        <div class="sidebar-top">
+            <div class="sidebar-logo">
+                <!-- Arbiter check-mark logo -->
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="11" stroke="#007acc" stroke-width="1.5"
+                            fill="rgba(0,122,204,.12)"/>
+                    <path d="M7 12l3.5 3.5L17 8" stroke="#007acc" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Arbiter AI
+            </div>
+            <!-- Collapse / new-chat shortcut icon -->
+            <button class="icon-btn" id="newChatIconBtn" title="New chat">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="sidebar-scroll">
+
+            <button class="new-chat-btn" id="newChatBtn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round"/>
+                </svg>
+                New chat
+            </button>
+
+            <div class="sidebar-section">Projects</div>
+            <div id="projectList"><div class="hint">Loading…</div></div>
+
+            <div class="persona-section">Persona</div>
+            <div class="persona-list" id="personaList">
+                <div class="hint">Loading…</div>
+            </div>
+
+        </div>
+
+        <div class="sidebar-footer">
+            <!-- LLM backend status -->
+            <div class="model-banner" id="modelBanner">
+                <p><strong>⚠ No LLM configured</strong><br>
+                   Arbiter is running in stub mode. To enable real AI responses:</p>
+                <div class="banner-actions">
+                    <button class="banner-btn primary" id="downloadModelBtn">
+                        ⬇ Download model automatically
+                    </button>
+                    <button class="banner-btn secondary" id="ollamaHintBtn"
+                            onclick="window.open('https://ollama.com','_blank')">
+                        🦙 Install Ollama (easier)
+                    </button>
+                </div>
+                <div class="dl-progress" id="dlProgress">
+                    <div class="dl-bar-track">
+                        <div class="dl-bar-fill" id="dlBarFill" style="width:0%"></div>
+                    </div>
+                    <div class="dl-msg" id="dlMsg">Starting…</div>
+                </div>
+            </div>
+            <div class="llm-status">
+                <div class="llm-dot loading" id="llmDot"></div>
+                <span id="llmText">LLM loading…</span>
+            </div>
+            <div class="server-status">
+                <div class="status-dot checking" id="statusDot"></div>
+                <span id="statusText">Connecting…</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ═══════════ MAIN ═══════════ -->
+    <main class="main">
+
+        <!-- Active project header (hidden until a project is chosen) -->
+        <div class="main-header hidden" id="mainHeader">
+            <div class="project-badge">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="4" width="20" height="16" rx="2.5"
+                          stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M2 9h20" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                <span id="headerProjectName">—</span>
+            </div>
+            <div class="project-badge" id="headerPersonaBadge"
+                 style="margin-left:8px;border-color:#1e3a5c;color:#60b0ff;">
+                <span id="headerPersonaName" style="font-size:12px;">Arbiter</span>
+            </div>
+        </div>
+
+        <!-- ── Welcome (no project selected) ── -->
+        <div class="welcome-state" id="welcomeState">
+            <div class="welcome-title">Ready when you are.</div>
+            <div class="welcome-input-wrap">
+                <div class="input-box">
+                    <textarea id="welcomeInput" rows="1"
+                              placeholder="Select a project from the sidebar to begin…"
+                              disabled></textarea>
+                    <button class="send-btn" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 4v16M4 12l8-8 8 8" stroke="currentColor"
+                                  stroke-width="2.5" stroke-linecap="round"
+                                  stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Chat messages ── -->
+        <div class="chat-scroll hidden" id="chatScroll">
+            <div class="messages-inner" id="messagesInner"></div>
+        </div>
+
+        <!-- ── Chat input ── -->
+        <div class="input-area hidden" id="inputArea">
+            <div class="input-area-inner">
+                <div class="input-box">
+                    <textarea id="chatInput" rows="1"
+                              placeholder="Message Arbiter…"
+                              disabled></textarea>
+                    <button class="send-btn" id="sendBtn" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 4v16M4 12l8-8 8 8" stroke="currentColor"
+                                  stroke-width="2.5" stroke-linecap="round"
+                                  stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <p class="input-note">
+                    Enter to send &nbsp;·&nbsp; Shift+Enter for new line
+                    &nbsp;·&nbsp; Arbiter can make mistakes — verify important outputs.
+                </p>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script>
+"use strict";
+
+const API = window.location.origin;
+let activeProject  = null;
+let activePersona  = 'Arbiter';
+let isSending      = false;
+
+// DOM refs
+const projectList      = document.getElementById('projectList');
+const personaList      = document.getElementById('personaList');
+const welcomeState     = document.getElementById('welcomeState');
+const chatScroll       = document.getElementById('chatScroll');
+const inputArea        = document.getElementById('inputArea');
+const messagesInner    = document.getElementById('messagesInner');
+const chatInput        = document.getElementById('chatInput');
+const sendBtn          = document.getElementById('sendBtn');
+const mainHeader       = document.getElementById('mainHeader');
+const headerName       = document.getElementById('headerProjectName');
+const headerPersonaName= document.getElementById('headerPersonaName');
+const statusDot        = document.getElementById('statusDot');
+const statusText       = document.getElementById('statusText');
+const llmDot           = document.getElementById('llmDot');
+const llmText          = document.getElementById('llmText');
+const modelBanner      = document.getElementById('modelBanner');
+const dlProgress       = document.getElementById('dlProgress');
+const dlBarFill        = document.getElementById('dlBarFill');
+const dlMsg            = document.getElementById('dlMsg');
+const downloadBtn      = document.getElementById('downloadModelBtn');
+
+/* ── Server health ──────────────────────────────────────────────────────────── */
+async function checkServer() {
+    try {
+        const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(5000) });
+        if (r.ok) {
+            statusDot.className = 'status-dot online';
+            statusText.textContent = 'Server online';
+        } else throw new Error();
+    } catch {
+        statusDot.className = 'status-dot offline';
+        statusText.textContent = 'Server offline';
+    }
+}
+checkServer();
+setInterval(checkServer, 15000);
+
+/* ── LLM backend status ─────────────────────────────────────────────────────── */
+let _dlPolling = false;
+
+async function checkLlmStatus() {
+    try {
+        const r = await fetch(`${API}/llm/status`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) return;
+        const { backend, detail } = await r.json();
+        switch (backend) {
+            case 'gguf':
+                llmDot.className = 'llm-dot ready';
+                llmText.textContent = 'GGUF model loaded';
+                modelBanner.classList.remove('visible');
+                break;
+            case 'ollama':
+                llmDot.className = 'llm-dot ready';
+                llmText.textContent = `Ollama: ${detail}`;
+                modelBanner.classList.remove('visible');
+                break;
+            case 'stub':
+                llmDot.className = 'llm-dot stub';
+                llmText.textContent = 'No LLM — stub mode';
+                modelBanner.classList.add('visible');
+                break;
+            default:
+                llmDot.className = 'llm-dot loading';
+                llmText.textContent = 'LLM loading…';
+        }
+    } catch {
+        llmDot.className = 'llm-dot loading';
+        llmText.textContent = 'LLM status unknown';
+    }
+}
+checkLlmStatus();
+setInterval(checkLlmStatus, 20000);
+
+/* ── Model download ─────────────────────────────────────────────────────────── */
+async function pollDownloadStatus() {
+    if (_dlPolling) return;
+    _dlPolling = true;
+    let running = true;
+    while (running) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+            const r = await fetch(`${API}/models/download/status`);
+            if (!r.ok) { running = false; break; }
+            const s = await r.json();
+            const pct = Math.round(s.progress || 0);
+            dlBarFill.style.width = pct + '%';
+            dlMsg.textContent = s.message || '';
+            running = !!s.running;
+            if (!running) {
+                if (s.error) {
+                    dlMsg.textContent = '⚠ ' + s.error;
+                } else {
+                    dlMsg.textContent = '✓ Download complete — restarting model…';
+                    setTimeout(checkLlmStatus, 2000);
+                }
+                downloadBtn.disabled = false;
+            }
+        } catch { running = false; }
+    }
+    _dlPolling = false;
+}
+
+downloadBtn.addEventListener('click', async () => {
+    downloadBtn.disabled = true;
+    dlProgress.classList.add('visible');
+    dlBarFill.style.width = '0%';
+    dlMsg.textContent = 'Starting download…';
+    try {
+        const r = await fetch(`${API}/models/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auto: true }),
+        });
+        const data = await r.json();
+        if (data.status === 'already_running') {
+            dlMsg.textContent = 'Download already in progress…';
+        }
+        pollDownloadStatus();
+    } catch (e) {
+        dlMsg.textContent = '⚠ Could not start download: ' + e.message;
+        downloadBtn.disabled = false;
+    }
+});
+
+/* ── Load project list ──────────────────────────────────────────────────────── */
+async function loadProjects() {
+    try {
+        const r = await fetch(`${API}/projects`);
+        const { projects } = await r.json();
+        projectList.innerHTML = '';
+        if (!projects || projects.length === 0) {
+            projectList.innerHTML = '<div class="hint">No projects found</div>';
+            return;
+        }
+        projects.forEach(p => {
+            const el = document.createElement('div');
+            el.className = 'project-item';
+            el.dataset.project = p;
+            el.innerHTML =
+                `<svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                     <rect x="2" y="4" width="20" height="16" rx="2.5"
+                           stroke="currentColor" stroke-width="1.5"/>
+                     <path d="M2 9h20" stroke="currentColor" stroke-width="1.5"/>
+                 </svg>
+                 <span>${esc(p)}</span>`;
+            el.addEventListener('click', () => selectProject(p));
+            projectList.appendChild(el);
+        });
+    } catch {
+        projectList.innerHTML = '<div class="hint">Could not load projects</div>';
+    }
+}
+loadProjects();
+
+/* ── Persona system ─────────────────────────────────────────────────────────── */
+
+// Emoji icons for each built-in persona
+const PERSONA_ICONS = {
+    'Arbiter':   '⚖',
+    'Coder':     '💻',
+    'Teacher':   '📚',
+    'Organizer': '📋',
+};
+
+let allPersonas = [];
+
+async function loadPersonas() {
+    try {
+        const r = await fetch(`${API}/personas`);
+        if (!r.ok) return;
+        const { personas } = await r.json();
+        allPersonas = personas;
+        renderPersonaList();
+    } catch {
+        personaList.innerHTML = '<div class="hint">Could not load personas</div>';
+    }
+}
+
+function renderPersonaList() {
+    personaList.innerHTML = '';
+    allPersonas.forEach(p => {
+        const btn = document.createElement('button');
+        btn.className = 'persona-btn' + (p.name === activePersona ? ' active' : '');
+        btn.dataset.persona = p.name;
+        const icon = PERSONA_ICONS[p.name] || '🤖';
+        btn.innerHTML =
+            `<div class="persona-badge">${icon}</div>
+             <div>
+                 <div class="persona-name">${esc(p.name)}</div>
+                 <div class="persona-desc">${esc(p.description)}</div>
+             </div>`;
+        btn.addEventListener('click', () => switchPersona(p.name));
+        personaList.appendChild(btn);
+    });
+}
+
+async function loadProjectPersona(project) {
+    try {
+        const r = await fetch(`${API}/persona/${encodeURIComponent(project)}`);
+        if (!r.ok) return;
+        const { persona } = await r.json();
+        setActivePersona(persona);
+    } catch { /* keep default */ }
+}
+
+async function switchPersona(name) {
+    if (!activeProject) return;
+    try {
+        const r = await fetch(`${API}/persona/${encodeURIComponent(activeProject)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ persona: name }),
+        });
+        if (r.ok) {
+            const { persona } = await r.json();
+            setActivePersona(persona);
+        }
+    } catch { /* ignore */ }
+}
+
+function setActivePersona(name) {
+    activePersona = name;
+    headerPersonaName.textContent = name;
+    // Update sidebar active states
+    document.querySelectorAll('.persona-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.persona === name));
+}
+
+loadPersonas();
+
+/* ── Select project ─────────────────────────────────────────────────────────── */
+async function selectProject(name) {
+    activeProject = name;
+    headerName.textContent = name;
+    mainHeader.classList.remove('hidden');
+    welcomeState.classList.add('hidden');
+    chatScroll.classList.remove('hidden');
+    inputArea.classList.remove('hidden');
+    messagesInner.innerHTML = '';
+
+    document.querySelectorAll('.project-item').forEach(el =>
+        el.classList.toggle('active', el.dataset.project === name));
+
+    chatInput.disabled = false;
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    sendBtn.disabled = true;
+    chatInput.focus();
+
+    await loadProjectPersona(name);
+    await loadHistory(name);
+}
+
+/* ── Load history ───────────────────────────────────────────────────────────── */
+async function loadHistory(project) {
+    try {
+        const r = await fetch(`${API}/history/${encodeURIComponent(project)}`);
+        if (!r.ok) return;
+        const rows = await r.json();
+        rows.forEach(row =>
+            appendMessage(row.role === 'User' ? 'user' : 'arbiter', row.message, false));
+        if (rows.length > 0) scrollBottom();
+    } catch { /* no history yet is fine */ }
+}
+
+/* ── New chat ───────────────────────────────────────────────────────────────── */
+function newChat() {
+    messagesInner.innerHTML = '';
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    sendBtn.disabled = true;
+    if (activeProject) chatInput.focus();
+}
+document.getElementById('newChatBtn').addEventListener('click', newChat);
+document.getElementById('newChatIconBtn').addEventListener('click', newChat);
+
+/* ── Textarea auto-grow ─────────────────────────────────────────────────────── */
+chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 180) + 'px';
+    sendBtn.disabled = chatInput.value.trim() === '' || isSending;
+});
+
+/* ── Enter to send ──────────────────────────────────────────────────────────── */
+chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!sendBtn.disabled) doSend();
+    }
+});
+sendBtn.addEventListener('click', doSend);
+
+/* ── Send message ───────────────────────────────────────────────────────────── */
+async function doSend() {
+    if (isSending || !activeProject) return;
+    const text = chatInput.value.trim();
+    if (!text) return;
+
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    sendBtn.disabled = true;
+    isSending = true;
+    chatInput.disabled = true;
+
+    appendMessage('user', text, true);
+    const typingEl = appendTyping();
+    scrollBottom();
+
+    try {
+        const r = await fetch(`${API}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message:   text,
+                project:   activeProject,
+                use_voice: false,
+                voice:     'British_Female'
+            })
+        });
+        typingEl.remove();
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            appendMessage('arbiter', '⚠️ ' + (err.detail || `Server error ${r.status}`), true);
+        } else {
+            const data = await r.json();
+            // Keep activePersona in sync if the server returns it
+            if (data.persona) setActivePersona(data.persona);
+            appendMessage('arbiter', data.response || '(no response)', true);
+        }
+    } catch {
+        typingEl.remove();
+        appendMessage('arbiter', '⚠️ Could not reach Arbiter server. Is it running?', true);
+    }
+
+    isSending = false;
+    chatInput.disabled = false;
+    sendBtn.disabled = chatInput.value.trim() === '';
+    chatInput.focus();
+    scrollBottom();
+}
+
+/* ── Render helpers ─────────────────────────────────────────────────────────── */
+function appendMessage(role, text, animate) {
+    const isUser = role === 'user';
+    const personaLabel = activePersona || 'Arbiter';
+    const personaIcon  = PERSONA_ICONS[personaLabel] || '⚖';
+    const g = document.createElement('div');
+    g.className = 'msg-group' + (animate ? '' : ' no-anim');
+    g.innerHTML =
+        `<div class="msg-meta">
+             <div class="role-avatar ${isUser ? 'you-av' : 'ai-av'}"
+                  aria-label="${isUser ? 'You' : esc(personaLabel)}"
+                  title="${isUser ? 'You' : esc(personaLabel)}">${isUser ? 'You' : personaIcon}</div>
+             <span class="role-name">${isUser ? 'You' : esc(personaLabel)}</span>
+         </div>
+         <div class="msg-body ${isUser ? 'you-body' : ''}">${fmt(text)}</div>`;
+    messagesInner.appendChild(g);
+    return g;
+}
+
+function appendTyping() {
+    const personaLabel = activePersona || 'Arbiter';
+    const personaIcon  = PERSONA_ICONS[personaLabel] || '⚖';
+    const g = document.createElement('div');
+    g.className = 'msg-group';
+    g.innerHTML =
+        `<div class="msg-meta">
+             <div class="role-avatar ai-av"
+                  aria-label="${esc(personaLabel)}"
+                  title="${esc(personaLabel)}">${personaIcon}</div>
+             <span class="role-name">${esc(personaLabel)}</span>
+         </div>
+         <div class="typing-wrap">
+             <div class="t-dot"></div>
+             <div class="t-dot"></div>
+             <div class="t-dot"></div>
+         </div>`;
+    messagesInner.appendChild(g);
+    return g;
+}
+
+function scrollBottom() {
+    requestAnimationFrame(() => { chatScroll.scrollTop = chatScroll.scrollHeight; });
+}
+
+/* ── Text formatting (simple Markdown subset) ───────────────────────────────── */
+function fmt(raw) {
+    let s = esc(raw);
+    // fenced code blocks — content was already HTML-escaped by esc(); keep it escaped
+    s = s.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, c) =>
+        `<pre><code>${c.trim()}</code></pre>`);
+    // inline code
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    // bold / italic
+    s = s.replace(/\*\*(.+?)\*\*/gs, '<strong>$1</strong>');
+    s = s.replace(/\*(.+?)\*/gs,     '<em>$1</em>');
+    // newlines (skip inside pre blocks by using placeholder trick)
+    s = s.replace(/\n/g, '<br>');
+    return s;
+}
+
+function esc(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>

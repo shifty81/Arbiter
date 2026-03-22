@@ -1,0 +1,46 @@
+{
+  "project": "ExampleProject",
+  "description": "Template project showing how Arbiter manages a workspace, tracks tasks, and runs build/test loops.",
+  "phases": [
+    {
+      "id": 1,
+      "name": "Phase 0 — Setup",
+      "status": "done",
+      "tasks": [
+        { "id": 1, "title": "Create project structure", "status": "done" },
+        { "id": 2, "title": "Configure Python bridge connection", "status": "done" },
+        { "id": 3, "title": "Set up Git repository", "status": "done" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Phase 1 — Development",
+      "status": "active",
+      "tasks": [
+        { "id": 4, "title": "Define project architecture", "status": "in-progress" },
+        { "id": 5, "title": "Implement core modules", "status": "pending" },
+        { "id": 6, "title": "Write unit tests", "status": "pending" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Phase 2 — Build & Test Loop",
+      "status": "pending",
+      "tasks": [
+        { "id": 7, "title": "Configure auto-build command", "status": "pending" },
+        { "id": 8, "title": "Run test suite and review with Arbiter", "status": "pending" },
+        { "id": 9, "title": "AI-assisted bug fixes", "status": "pending" }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Phase 3 — Polish & Deploy",
+      "status": "pending",
+      "tasks": [
+        { "id": 10, "title": "Documentation generation", "status": "pending" },
+        { "id": 11, "title": "Release packaging", "status": "pending" }
+      ]
+    }
+  ]
+}
+

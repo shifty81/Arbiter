@@ -1,0 +1,43 @@
+# Node / legacy webhook integration (archived)
+node_modules/
+dist/
+.env
+*.js.map
+coverage/
+.nyc_output/
+
+# C# / .NET build artifacts
+bin/
+obj/
+*.user
+.vs/
+*.suo
+*.ncrunchproject
+*.DotSettings.user
+TestResults/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# LLM model files (large binary files — download separately)
+AIEngine/LLaMA2-13B/*.gguf
+AIEngine/LLaMA2-13B/*.bin
+AIEngine/LLaMA2-13B/*.pt
+AIEngine/LLaMA2-13B/*.safetensors
+
+# Arbiter runtime data
+Memory/ConversationLogs/**/*.db
+Temp/
+
+# OS
+.DS_Store
+Thumbs.db
