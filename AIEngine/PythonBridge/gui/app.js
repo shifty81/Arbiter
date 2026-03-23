@@ -317,7 +317,7 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      renderTree(data.entries, parentEl || fileTree, node || "");
+      renderTree(data.tree, parentEl || fileTree, node || "");
     } catch (e) {
       fileTree.textContent = "⚠ " + e.message;
     }
@@ -325,6 +325,7 @@
 
   function renderTree(entries, container, parentPath) {
     container.innerHTML = "";
+    if (!Array.isArray(entries)) return;
     entries.sort((a, b) => {
       if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
       return a.name.localeCompare(b.name);
@@ -2359,13 +2360,13 @@
       const options = [{ value: "", label: "— open project —" }];
       if (wsRes.ok) {
         const data = await wsRes.json();
-        for (const e of (data.entries || [])) {
+        for (const e of (data.tree || [])) {
           if (e.type === "dir") options.push({ value: `workspace/${e.name}`, label: `workspace/${e.name}` });
         }
       }
       if (prRes.ok) {
         const data = await prRes.json();
-        for (const e of (data.entries || [])) {
+        for (const e of (data.tree || [])) {
           if (e.type === "dir") options.push({ value: `projects/${e.name}`, label: `projects/${e.name}` });
         }
       }
@@ -2808,7 +2809,7 @@
     const res = await fetch(`/files?path=${encodeURIComponent(path)}`);
     if (!res.ok) return;
     const data = await res.json();
-    for (const e of (data.entries || [])) {
+    for (const e of (data.tree || [])) {
       const fullPath = `${path}/${e.name}`;
       if (e.type === "file") results.push(fullPath);
       else if (e.type === "dir" && !e.name.startsWith(".")) await _walkForPalette(fullPath, results, depth - 1);
