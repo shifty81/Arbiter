@@ -133,7 +133,13 @@ class LibraryManager:
         entry = self.get_path(path_or_id)
         if entry is None:
             return None
-        full = Path(entry["path"]) / relative_path
+        root = Path(entry["path"]).resolve()
+        full = (root / relative_path).resolve()
+        # Guard against path traversal: resolved path must stay inside the library root
+        try:
+            full.relative_to(root)
+        except ValueError:
+            return None
         if not full.is_file():
             return None
         try:
