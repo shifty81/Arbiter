@@ -27,6 +27,11 @@ namespace ArbiterVSIX
         Window = "DocumentWell",
         Transient = false,
         Orientation = ToolWindowOrientation.Right)]
+    [ProvideToolWindow(typeof(SelfBuildToolWindow),
+        Style = VsDockStyle.Tabbed,
+        Window = "DocumentWell",
+        Transient = false,
+        Orientation = ToolWindowOrientation.Right)]
     [ProvideOptionPage(typeof(ArbiterSettingsPage),
         "Arbiter AI", "General", 0, 0, true)]
     [ProvideAutoLoad(UIContextGuids80.SolutionExists,
@@ -108,6 +113,16 @@ namespace ArbiterVSIX
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             var window = await FindToolWindowAsync(
                 typeof(ChatToolWindow), 0, true, DisposalToken);
+            if (window?.Frame is IVsWindowFrame frame)
+                frame.Show();
+        }
+
+        /// <summary>Show or activate the Arbiter Self-Build tool window (M7-13).</summary>
+        public async Task ShowSelfBuildWindowAsync()
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            var window = await FindToolWindowAsync(
+                typeof(SelfBuildToolWindow), 0, true, DisposalToken);
             if (window?.Frame is IVsWindowFrame frame)
                 frame.Show();
         }

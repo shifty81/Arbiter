@@ -43,6 +43,7 @@ namespace ArbiterVSIX
         public const int CmdIdReviewFile         = 0x0107;
         public const int CmdIdInsertFromChat     = 0x0108;
         public const int CmdIdOpenChatPanel      = 0x0109;
+        public const int CmdIdOpenSelfBuildPanel = 0x010A;  // M7-13
 
         // ── Fields ────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ namespace ArbiterVSIX
             Register(commandService, CmdIdReviewFile,         instance.OnReviewFile);
             Register(commandService, CmdIdInsertFromChat,     instance.OnInsertFromChat);
             Register(commandService, CmdIdOpenChatPanel,      instance.OnOpenChatPanel);
+            Register(commandService, CmdIdOpenSelfBuildPanel, instance.OnOpenSelfBuildPanel);
         }
 
         private static void Register(
@@ -116,6 +118,12 @@ namespace ArbiterVSIX
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             _ = _package.ShowChatWindowAsync();
+        }
+
+        private void OnOpenSelfBuildPanel(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            _ = _package.ShowSelfBuildWindowAsync();
         }
 
         // ── Core execution helper ─────────────────────────────────────────────

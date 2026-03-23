@@ -43,7 +43,7 @@ from core.plugin_loader import PluginLoader
 from core.task_runner import TaskRunner
 from core.tool_registry import ToolRegistry
 from llm.factory import create_llm
-from core.self_build import SelfBuildLoop
+from core.self_build import SelfBuildLoop, SelfBuildController
 
 setup_logging(log_file=_BASE / "logs" / "arbiter_engine.log")
 logger = get_logger(__name__)
@@ -80,7 +80,8 @@ except Exception as _arc_exc:  # pragma: no cover – optional dependency
 import asyncio as _asyncio
 import threading as _threading_sb
 
-_self_build_loop: SelfBuildLoop | None = None
+_self_build_controller: SelfBuildController | None = None
+_self_build_loop: SelfBuildLoop | None = None           # kept for backward compat
 _self_build_task: "_asyncio.Task[Any] | None" = None
 _self_build_log: list[str] = []
 _self_build_status: str = "idle"           # idle | running | paused | done | error
@@ -767,13 +768,14 @@ def self_build_log(tail: int = 100) -> dict:
 async def self_build_start(req: SelfBuildStartRequest) -> dict:
     """Start (or resume) the autonomous self-build loop.
 
-    ``mode`` controls autonomy level:
+    ``mode`` controls autonomy level (M7-2):
     - ``manual``   – returns the next task description; takes no action.
     - ``assist``   – generates code changes and waits for approval before applying.
     - ``semiauto`` – applies changes, waits for approval before committing.
     - ``fullauto`` – plans, codes, tests, and commits without human approval.
     """
-    global _self_build_status, _self_build_log, _self_build_task, _self_build_loop
+    global _self_build_status, _self_build_log, _self_build_task
+    global _self_build_controller, _self_build_loop
 
     if _self_build_status == "running":
         return {"status": "already_running"}
@@ -784,7 +786,7 @@ async def self_build_start(req: SelfBuildStartRequest) -> dict:
 
     mode = req.mode.lower()
     if mode == "manual":
-        # Manual mode: just return the next pending task
+        # Manual mode: just return the next pending task (no code changes)
         from core.self_build import _roadmap_next
         task, ms = _roadmap_next(_ROADMAP_FILE)
         if task is None:
@@ -800,19 +802,26 @@ async def self_build_start(req: SelfBuildStartRequest) -> dict:
         _self_build_status = "running"
         _self_build_log = []
 
-    _self_build_loop = SelfBuildLoop(base_dir=_BASE, llm=_llm)
-    # Point the loop at the repo-root roadmap.json
-    _self_build_loop._roadmap_file = _ROADMAP_FILE
+    # Use SelfBuildController for proper Assist/SemiAuto/FullAuto support
+    _self_build_controller = SelfBuildController(
+        base_dir=_BASE, llm=_llm, roadmap_file=_ROADMAP_FILE
+    )
+    # Also update legacy reference for any code that still uses _self_build_loop
+    _self_build_loop = _self_build_controller  # type: ignore[assignment]
 
     async def _run_loop() -> None:
         global _self_build_status, _self_build_pending_approval
         try:
-            result = await _self_build_loop.run(
+            result = await _self_build_controller.run_cycle(
                 emit=_sb_emit,
+                mode=mode,
                 task_id=req.task_id or None,
             )
             with _self_build_lock:
                 _self_build_status = "done" if result.get("status") == "success" else "error"
+        except _asyncio.CancelledError:
+            with _self_build_lock:
+                _self_build_status = "idle"
         except Exception as exc:
             _sb_emit(f"❌ Self-build error: {exc}")
             with _self_build_lock:
@@ -838,8 +847,17 @@ async def self_build_stop() -> dict:
 
 @app.post("/self-build/approve")
 def self_build_approve(req: SelfBuildApproveRequest) -> dict:
-    """Approve or reject a pending self-build change (Assist / SemiAuto modes)."""
+    """Approve or reject a pending self-build change (Assist / SemiAuto modes, M7-2)."""
     global _self_build_pending_approval
+    # Delegate to the controller's approval mechanism if it is active
+    if _self_build_controller is not None:
+        _self_build_controller.set_approval(req.approved)
+        action = "approved" if req.approved else "rejected"
+        _sb_emit(f"{'✅' if req.approved else '❌'} Change {action} by user.")
+        task_id = (_self_build_controller.pending_task or {}).get("task_id", "")
+        return {"status": action, "task_id": task_id}
+
+    # Legacy path: check old _self_build_pending_approval dict
     with _self_build_lock:
         pending = _self_build_pending_approval
         _self_build_pending_approval = None

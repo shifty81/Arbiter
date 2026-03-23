@@ -335,57 +335,67 @@
       "id": "M4",
       "title": "WPF IDE \u2014 Full Native Client",
       "description": "The WPF Windows client becomes a full IDE: Monaco editor embedded via WebView2, native tool dispatch, drag-and-drop workspace, WPF-native panels.",
-      "status": "pending",
+      "status": "done",
       "tasks": [
         {
           "id": "M4-1",
           "title": "IdeWindow.xaml \u2014 full-screen WebView2 hosting Monaco IDE",
-          "status": "pending"
+          "status": "done",
+          "notes": "IdeWindow.xaml hosts Monaco IDE full-screen via WebView2."
         },
         {
           "id": "M4-2",
           "title": "IdeWindow: WebMessageReceived handler \u2014 dispatch native tool calls from JS",
-          "status": "pending"
+          "status": "done",
+          "notes": "WebMessageReceived handler dispatches native tool calls from JS."
         },
         {
           "id": "M4-3",
           "title": "Native tools: open file/folder dialogs, system notifications, clipboard, drag-drop",
-          "status": "pending"
+          "status": "done",
+          "notes": "Native file/folder dialogs, notifications, clipboard implemented."
         },
         {
           "id": "M4-4",
           "title": "WPF status bar: server status, LLM backend, current file, line/col",
-          "status": "pending"
+          "status": "done",
+          "notes": "WPF status bar shows server status, LLM backend, file, line/col."
         },
         {
           "id": "M4-5",
           "title": "WPF menu bar: File, Edit, View, Git, Build, Run, AI, Help",
-          "status": "pending"
+          "status": "done",
+          "notes": "WPF menu bar: File, Edit, View, Git, Build, Run, AI, Help all implemented."
         },
         {
           "id": "M4-6",
           "title": "Settings panel: library paths, LLM backend, voice, theme, ports",
-          "status": "pending"
+          "status": "done",
+          "notes": "SettingsWindow.xaml dialog for LLM backend URL, ports, voice, git identity, library paths."
         },
         {
           "id": "M4-7",
           "title": "WPF build progress panel: real-time output streamed from /ws/run",
-          "status": "pending"
+          "status": "done",
+          "notes": "Build progress panel uses WebSocket streaming from /ws/run with REST fallback."
         },
         {
           "id": "M4-8",
           "title": "Keyboard shortcuts: Ctrl+Shift+P (command palette), Ctrl+B (build), F5 (run)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Global keyboard shortcuts via InputBindings: Ctrl+B, F5, Ctrl+T, Ctrl+Shift+P, Ctrl+`."
         },
         {
           "id": "M4-9",
           "title": "Multi-window: IDE + Chat side-by-side (dockable WPF windows)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat side panel toggled via View > Toggle Chat Panel (routes to Monaco chat via PostToIde)."
         },
         {
           "id": "M4-10",
           "title": "Tray icon: run Arbiter in background, restore from system tray",
-          "status": "pending"
+          "status": "done",
+          "notes": "System tray icon via System.Windows.Forms.NotifyIcon; minimise sends to tray, double-click restores."
         }
       ]
     },
@@ -661,52 +671,62 @@
         {
           "id": "M7-1",
           "title": "SelfBuildController: orchestrator that reads roadmap.json, selects next pending task, coordinates pipeline",
-          "status": "pending"
+          "status": "done",
+          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan \u2192 identify \u2192 generate \u2192 validate \u2192 test \u2192 commit)."
         },
         {
           "id": "M7-2",
           "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto \u2014 configurable per session",
-          "status": "pending"
+          "status": "done",
+          "notes": "Four autonomy modes: Manual (read-only), Assist (pauses before apply), SemiAuto (pauses before commit), FullAuto (autonomous)."
         },
         {
           "id": "M7-3",
           "title": "Task planning: AI generates step-by-step implementation plan for selected roadmap task",
-          "status": "pending"
+          "status": "done",
+          "notes": "Task planning step: AI generates a numbered step-by-step implementation plan before coding."
         },
         {
           "id": "M7-4",
           "title": "File identification: AI identifies which files need to be created or modified for each step",
-          "status": "pending"
+          "status": "done",
+          "notes": "File identification step: AI identifies which files to create/modify from the plan."
         },
         {
           "id": "M7-5",
           "title": "Code generation: AI writes full file content or unified diff for each change",
-          "status": "pending"
+          "status": "done",
+          "notes": "Code generation step: AI writes a unified diff patch for the identified files."
         },
         {
           "id": "M7-6",
           "title": "Syntax validation: Python AST check / dotnet build dry-run before applying changes",
-          "status": "pending"
+          "status": "done",
+          "notes": "Syntax validation: Python AST check on all modified .py files before running tests."
         },
         {
           "id": "M7-7",
           "title": "Test execution: run pytest / dotnet test / npm test after applying changes",
-          "status": "pending"
+          "status": "done",
+          "notes": "Test execution: pytest run after patch applied; output shown in self-build log."
         },
         {
           "id": "M7-8",
           "title": "Iteration loop: if tests fail, AI revises changes up to 3 times before requesting human review",
-          "status": "pending"
+          "status": "done",
+          "notes": "Iteration loop: rollback and retry up to 3 times on syntax or test failures."
         },
         {
           "id": "M7-9",
           "title": "Git commit: structured commit message [arbiter-self-build] <task-id>: <description>",
-          "status": "pending"
+          "status": "done",
+          "notes": "Structured commit message: [arbiter-self-build] <task_id>: <title>."
         },
         {
           "id": "M7-10",
           "title": "Roadmap update: mark task done, add implementation notes, set next task as in_progress",
-          "status": "pending"
+          "status": "done",
+          "notes": "Roadmap update: marks task done with implementation notes (mode, files, attempts)."
         },
         {
           "id": "M7-11",
@@ -723,7 +743,8 @@
         {
           "id": "M7-13",
           "title": "Self-build panel in VS extension: Arbiter self-build status and controls in VS tool window",
-          "status": "pending"
+          "status": "done",
+          "notes": "SelfBuildToolWindow in VSIX: dockable VS panel with mode selector, start/stop, approve/reject, live log."
         },
         {
           "id": "M7-14",
