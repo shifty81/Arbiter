@@ -82,6 +82,23 @@ namespace ArbiterHost
         {
             AppConfig.Mode = "ArbiterAI";
             AppConfig.ApiBaseUrl = "http://127.0.0.1:8000";
+
+            if (!TryStartBridgeServer())
+            {
+                var result = MessageBox.Show(
+                    "Could not start the Arbiter AI server automatically.\n\n" +
+                    "Make sure Python 3.10+ is installed and run:\n" +
+                    "  pip install -r AIEngine/PythonBridge/requirements.txt\n\n" +
+                    "Then start it manually:\n" +
+                    "  python AIEngine/PythonBridge/fastapi_bridge.py\n\n" +
+                    "Continue anyway (if the server is already running)?",
+                    "Arbiter AI",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result == MessageBoxResult.No) return;
+            }
+
             OpenMainWindow();
         }
 
@@ -109,7 +126,50 @@ namespace ArbiterHost
             OpenMainWindow();
         }
 
-        // ── Engine server startup ─────────────────────────────────────────────
+        // ── Bridge server startup (ArbiterAI) ────────────────────────────────
+
+        private bool TryStartBridgeServer()
+        {
+            string bridgeScript = FindBridgeServerScript();
+            if (!File.Exists(bridgeScript))
+                return false;
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "python",
+                    Arguments = $"\"{bridgeScript}\"",
+                    WorkingDirectory = Path.GetDirectoryName(bridgeScript)!,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false,
+                };
+                var proc = Process.Start(psi);
+                AppConfig.BridgeProcess = proc;
+                return proc != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string FindBridgeServerScript()
+        {
+            // Walk up from the app directory to find AIEngine/PythonBridge/fastapi_bridge.py
+            string? dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 6 && dir != null; i++)
+            {
+                string candidate = Path.Combine(dir, "AIEngine", "PythonBridge", "fastapi_bridge.py");
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+            return string.Empty;
+        }
+
+        // ── Engine server startup (ArbiterEngine) ────────────────────────────
 
         private bool TryStartEngineServer()
         {
