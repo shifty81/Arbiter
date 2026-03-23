@@ -41,3 +41,4 @@ Temp/
 # OS
 .DS_Store
 Thumbs.db
+AIEngine/ArbiterEngine/logs/arbiter_engine.log
