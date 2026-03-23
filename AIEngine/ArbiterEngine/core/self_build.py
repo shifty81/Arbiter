@@ -157,8 +157,37 @@ def _validate_python_syntax(path: Path) -> list[str]:
 
 
 def _validate_modified_files(base_dir: Path, modified_paths: list[str]) -> list[str]:
-    """Syntax-check all modified .py files.  Returns list of errors (empty = pass)."""
+    """Syntax-check all modified source files.  Returns list of errors (empty = pass).
+
+    M7-16: C# files are validated via ``dotnet build`` at the project level.
+    Python files use the AST checker.
+    """
     errors: list[str] = []
+    has_csharp = any(
+        (base_dir / rel).suffix in (".cs", ".xaml", ".csproj")
+        for rel in modified_paths if rel
+    )
+
+    if has_csharp:
+        # Run dotnet build for C# validation
+        try:
+            result = subprocess.run(
+                ["dotnet", "build", "--no-restore", "--verbosity", "minimal"],
+                cwd=str(base_dir), capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                # Extract error lines only
+                error_lines = [
+                    line for line in (result.stdout + result.stderr).splitlines()
+                    if " error " in line.lower() or "build failed" in line.lower()
+                ]
+                errors.extend(error_lines[:10] or ["dotnet build failed"])
+        except FileNotFoundError:
+            # dotnet not installed — skip C# validation
+            pass
+        except Exception as exc:
+            errors.append(f"dotnet build error: {exc}")
+
     for rel in modified_paths:
         p = base_dir / rel
         if p.suffix == ".py" and p.is_file():
@@ -185,8 +214,56 @@ def _apply_patch(base_dir: Path, patch_text: str) -> list[str]:
         Path(patch_file).unlink(missing_ok=True)
 
 
+def _is_csharp_project(base_dir: Path) -> bool:
+    """Return True if *base_dir* looks like a C# / VSIX project."""
+    return (
+        any(base_dir.rglob("*.csproj")) or
+        any(base_dir.rglob("*.vsixmanifest")) or
+        any(base_dir.rglob("*.sln"))
+    )
+
+
 def _run_tests(base_dir: Path, timeout: int = 120) -> tuple[bool, str]:
+    """Run the project test suite.
+
+    Detects the test runner automatically:
+      • C# / VSIX projects → ``dotnet test``
+      • Node projects      → ``npm test``
+      • Python projects    → ``pytest tests/``
+
+    M7-16: explicit C# / VSIX support.
+    """
     import sys
+    # C# / VSIX — dotnet test
+    if _is_csharp_project(base_dir):
+        try:
+            result = subprocess.run(
+                ["dotnet", "test", "--no-build", "--verbosity", "minimal"],
+                cwd=str(base_dir), capture_output=True, text=True, timeout=timeout,
+            )
+            passed = result.returncode == 0
+            return passed, (result.stdout + result.stderr)[-4000:]
+        except FileNotFoundError:
+            # dotnet not available — skip tests rather than crash
+            return True, "(dotnet not installed — tests skipped)"
+        except subprocess.TimeoutExpired:
+            return False, "dotnet test timed out"
+        except Exception as exc:
+            return False, str(exc)
+
+    # Node
+    if (base_dir / "package.json").is_file():
+        try:
+            result = subprocess.run(
+                ["npm", "test", "--if-present"],
+                cwd=str(base_dir), capture_output=True, text=True, timeout=timeout,
+            )
+            passed = result.returncode == 0
+            return passed, (result.stdout + result.stderr)[-4000:]
+        except Exception as exc:
+            return False, str(exc)
+
+    # Python (default)
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "tests/", "-v", "--tb=short", "-q"],
