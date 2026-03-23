@@ -2268,7 +2268,6 @@ class _TtsRequest(BaseModel):
     voice: str = "British_Female"
 
 
-@app.post("/voice/tts")
 def _matches_voice_preference(voice_obj: object, keyword: str) -> bool:
     """Return True if *voice_obj* (a pyttsx3 Voice) matches the *keyword* spec.
 
