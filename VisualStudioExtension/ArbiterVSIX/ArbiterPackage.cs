@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using EnvDTE80;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Task = System.Threading.Tasks.Task;
@@ -42,6 +43,9 @@ namespace ArbiterVSIX
         /// <summary>Status bar service cached at init time.</summary>
         private IVsStatusbar? _statusBar;
 
+        /// <summary>DTE event subscriptions — kept alive to prevent GC-collection of event delegates.</summary>
+        private EventHandlers? _eventHandlers;
+
         // ── AsyncPackage lifecycle ────────────────────────────────────────────
 
         protected override async Task InitializeAsync(
@@ -63,6 +67,14 @@ namespace ArbiterVSIX
             // Register all commands.
             await ArbiterCommands.InitializeAsync(this);
 
+            // Register DTE event handlers (document, build, solution events — M6-7 through M6-10).
+            var dte = await GetServiceAsync(typeof(EnvDTE.DTE)) as EnvDTE80.DTE2;
+            if (dte != null)
+            {
+                _eventHandlers = new EventHandlers(dte, this);
+                _eventHandlers.Register();
+            }
+
             // Probe backend in background — do not block VS startup.
             _ = Task.Run(async () =>
             {
@@ -79,6 +91,9 @@ namespace ArbiterVSIX
         {
             if (disposing)
             {
+                _eventHandlers?.Unregister();
+                _eventHandlers?.Dispose();
+                _eventHandlers = null;
                 ApiClient?.Dispose();
                 ApiClient = null;
             }

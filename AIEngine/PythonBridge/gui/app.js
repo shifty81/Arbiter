@@ -863,6 +863,13 @@
   async function sendPrompt(promptText) {
     if (!promptText.trim()) return;
 
+    // M5-8 through M5-13: action slash commands are handled directly,
+    // bypassing the AI chat pipeline entirely.
+    if (window._handleActionSlashCommand) {
+      const handled = await window._handleActionSlashCommand(promptText);
+      if (handled) return;
+    }
+
     const expandedPrompt = _expandSlashCommand(promptText);
 
     appendChat(promptText, "user");   // show original text in chat
@@ -2962,6 +2969,9 @@
     if (panel === "testrunner") loadTestRunnerPanel();
     if (panel === "terminal")   loadTerminalPanel();
     if (panel === "codex")      window.loadCodexPanel?.();
+    if (panel === "selfbuild") {
+      document.dispatchEvent(new CustomEvent("arbiter:panelActivated", { detail: "selfbuild" }));
+    }
   }
 
   document.querySelectorAll(".ab-icon[data-panel]").forEach((btn) => {
@@ -7686,6 +7696,456 @@
     makeResizer("output-resizer",  "output-panel", "height", 60,  600, true);
     // Agent/chat panel resizer (drag left edge of agent panel)
     makeResizer("agent-resizer", "agent-panel", "width", 200, 600, true);
+  })();
+
+  // ── Self-Build Loop panel (M7-12) ─────────────────────────────────────────
+  (function () {
+    const sbStatusBadge  = $("sb-status-badge");
+    const sbNextInfo     = $("sb-next-task-info");
+    const sbNextId       = $("sb-next-task-id");
+    const sbNextTitle    = $("sb-next-task-title");
+    const sbModeSelect   = $("sb-mode-select");
+    const sbTaskInput    = $("sb-task-id-input");
+    const btnSbStart     = $("btn-sb-start");
+    const btnSbStop      = $("btn-sb-stop");
+    const sbApprovalRow  = $("sb-approval-row");
+    const sbApprovalDesc = $("sb-approval-desc");
+    const btnSbApprove   = $("btn-sb-approve");
+    const btnSbReject    = $("btn-sb-reject");
+    const sbLogOutput    = $("sb-log-output");
+    const btnSbRefresh   = $("btn-sb-refresh");
+
+    if (!btnSbStart) return;   // panel not in DOM yet
+
+    let _sbWs = null;
+    let _sbStatusPoller = null;
+
+    function _sbLog(text) {
+      if (!sbLogOutput) return;
+      sbLogOutput.textContent += text;
+      sbLogOutput.scrollTop = sbLogOutput.scrollHeight;
+    }
+
+    function _sbSetStatus(status) {
+      if (!sbStatusBadge) return;
+      const labels = { idle: "Idle", running: "Running…", done: "Done", error: "Error", paused: "Paused" };
+      sbStatusBadge.textContent = labels[status] || status;
+      sbStatusBadge.className = `sb-status-badge sb-${status in labels ? status : "idle"}`;
+    }
+
+    async function _sbLoadStatus() {
+      try {
+        const res = await fetch("/self-build/status");
+        if (!res.ok) return;
+        const data = await res.json();
+        _sbSetStatus(data.status || "idle");
+        if (btnSbStart)  btnSbStart.disabled  = data.status === "running";
+        if (btnSbStop)   btnSbStop.disabled   = data.status !== "running";
+
+        // Approval row
+        if (data.pending_approval && sbApprovalRow) {
+          sbApprovalRow.style.display = "flex";
+          if (sbApprovalDesc) sbApprovalDesc.textContent =
+            data.pending_task_title || "A code change is awaiting your review.";
+        } else if (sbApprovalRow) {
+          sbApprovalRow.style.display = "none";
+        }
+      } catch { /* backend may not support these endpoints yet */ }
+    }
+
+    async function _sbLoadNextTask() {
+      try {
+        const res = await fetch("/self-build/next");
+        if (!res.ok) return;
+        const data = await res.json();
+        const task = data.task;
+        if (task && sbNextInfo) {
+          sbNextInfo.style.display = "block";
+          if (sbNextId)    sbNextId.textContent    = task.id || "";
+          if (sbNextTitle) sbNextTitle.textContent = task.title || "";
+        } else if (sbNextInfo) {
+          sbNextInfo.style.display = "none";
+        }
+      } catch { /* backend may not support /self-build/next yet */ }
+    }
+
+    function _sbStartPolling() {
+      _sbStopPolling();
+      _sbStatusPoller = setInterval(_sbLoadStatus, 3000);
+    }
+
+    function _sbStopPolling() {
+      if (_sbStatusPoller) { clearInterval(_sbStatusPoller); _sbStatusPoller = null; }
+    }
+
+    btnSbStart.addEventListener("click", async () => {
+      const mode   = sbModeSelect  ? sbModeSelect.value  : "assist";
+      const taskId = sbTaskInput   ? sbTaskInput.value.trim() : "";
+      if (sbLogOutput) sbLogOutput.textContent = "";
+
+      if (mode === "manual") {
+        // Manual mode: just fetch and display the next task
+        try {
+          const res = await fetch("/self-build/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "manual", task_id: taskId }),
+          });
+          const data = await res.json();
+          if (data.next_task) {
+            const t = data.next_task;
+            _sbLog(`Next pending task:\n  ID:    ${t.id}\n  Title: ${t.title}\n`);
+            if (t.description) _sbLog(`  Desc:  ${t.description}\n`);
+          } else {
+            _sbLog(data.message || "🎉 All roadmap tasks complete!\n");
+          }
+        } catch (e) { _sbLog(`Error: ${e.message}\n`); }
+        return;
+      }
+
+      // Autonomous modes: use WebSocket streaming
+      if (_sbWs && _sbWs.readyState === WebSocket.OPEN) {
+        _sbLog("⚠️ Self-build already running.\n");
+        return;
+      }
+
+      _sbSetStatus("running");
+      btnSbStart.disabled = true;
+      if (btnSbStop) btnSbStop.disabled = false;
+      _sbLog(`🤖 Starting self-build in ${mode} mode…\n`);
+      _sbStartPolling();
+
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      _sbWs = new WebSocket(`${proto}://${location.host}/ws/self-build`);
+      _sbWs.onopen = () => {
+        _sbWs.send(JSON.stringify({ task_id: taskId, mode }));
+      };
+      _sbWs.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === "log")   { _sbLog(msg.data); appendOutput(msg.data); }
+          else if (msg.type === "approval_required") {
+            // Assist/SemiAuto: server requests approval before applying/committing
+            if (sbApprovalRow) sbApprovalRow.style.display = "flex";
+            if (sbApprovalDesc) sbApprovalDesc.textContent = msg.description || "Review and approve the proposed change.";
+            _sbLog("⏳ Approval required — review the diff and click Approve or Reject.\n");
+          }
+          else if (msg.type === "done") {
+            _sbLog("✅ Self-build cycle complete.\n");
+            _sbSetStatus("done");
+            _sbStopPolling();
+            _sbLoadNextTask();
+            loadRoadmapPanel?.();
+          }
+          else if (msg.type === "error") {
+            _sbLog(`❌ ${msg.data}\n`);
+            _sbSetStatus("error");
+            _sbStopPolling();
+          }
+        } catch { _sbLog(ev.data + "\n"); }
+      };
+      _sbWs.onerror  = () => { _sbLog("❌ WebSocket error.\n"); _sbSetStatus("error"); };
+      _sbWs.onclose  = () => {
+        _sbWs = null;
+        if (btnSbStart) btnSbStart.disabled = false;
+        if (btnSbStop)  btnSbStop.disabled  = true;
+        _sbStopPolling();
+      };
+    });
+
+    if (btnSbStop) btnSbStop.addEventListener("click", async () => {
+      if (_sbWs) { _sbWs.close(); _sbWs = null; }
+      try { await fetch("/self-build/stop", { method: "POST" }); } catch { /* ignore */ }
+      _sbSetStatus("idle");
+      _sbStopPolling();
+      btnSbStop.disabled  = true;
+      btnSbStart.disabled = false;
+      _sbLog("⏹ Stopped by user.\n");
+    });
+
+    if (btnSbApprove) btnSbApprove.addEventListener("click", async () => {
+      try {
+        await fetch("/self-build/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approved: true }),
+        });
+        if (sbApprovalRow) sbApprovalRow.style.display = "none";
+        _sbLog("✅ Change approved.\n");
+      } catch (e) { _sbLog(`Approve error: ${e.message}\n`); }
+    });
+
+    if (btnSbReject) btnSbReject.addEventListener("click", async () => {
+      try {
+        await fetch("/self-build/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approved: false }),
+        });
+        if (sbApprovalRow) sbApprovalRow.style.display = "none";
+        _sbLog("✕ Change rejected.\n");
+      } catch (e) { _sbLog(`Reject error: ${e.message}\n`); }
+    });
+
+    if (btnSbRefresh) btnSbRefresh.addEventListener("click", () => {
+      _sbLoadStatus();
+      _sbLoadNextTask();
+    });
+
+    // Load initial status when the panel becomes visible
+    document.addEventListener("arbiter:panelActivated", (e) => {
+      if (e.detail === "selfbuild") {
+        _sbLoadStatus();
+        _sbLoadNextTask();
+      }
+    });
+  })();
+
+  // ── Extended slash commands (M5-8 through M5-13) ─────────────────────────
+  // Action commands are intercepted BEFORE the AI prompt expansion and route
+  // directly to the relevant API endpoints, then display results in the chat
+  // and output pane without going through the LLM.
+  (function () {
+    /**
+     * Returns true and handles the command if it is a direct-action slash
+     * command (/build, /run, /test, /commit, /push, /branch, /search,
+     * /save snippet, /task).  Returns false for all other commands.
+     */
+    window._handleActionSlashCommand = async function (raw) {
+      const trimmed = raw.trim();
+      if (!trimmed.startsWith("/")) return false;
+
+      const parts  = trimmed.split(/\s+/);
+      const cmd    = parts[0].toLowerCase();
+      const args   = parts.slice(1).join(" ").trim();
+
+      switch (cmd) {
+        // ── /build — trigger build pipeline ─────────────────────────────────
+        case "/build": {
+          appendChat(raw, "user");
+          chatInput.value = "";
+          switchOutputTab("build");
+          appendOutput("🔨 Build triggered from chat…\n");
+          try {
+            const cwd = state.activeProject || "workspace";
+            const res = await fetch("/build", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_path: cwd }),
+            });
+            const data = await res.json();
+            const out = data.output || data.result || JSON.stringify(data);
+            buildContent.textContent += out + "\n";
+            appendChat(`🔨 Build result:\n${out.slice(0, 500)}`, "agent");
+          } catch (e) { appendChat(`Build error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /run — run the project ───────────────────────────────────────────
+        case "/run": {
+          appendChat(raw, "user");
+          chatInput.value = "";
+          switchOutputTab("output");
+          appendOutput("▶ Run triggered from chat…\n");
+          try {
+            const cwd = state.activeProject || "workspace";
+            const res = await fetch("/run", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_path: cwd }),
+            });
+            const data = await res.json();
+            const out = data.output || data.result || JSON.stringify(data);
+            appendOutput(out + "\n");
+            appendChat(`▶ Run result:\n${out.slice(0, 500)}`, "agent");
+          } catch (e) { appendChat(`Run error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /test — run tests ────────────────────────────────────────────────
+        case "/test": {
+          appendChat(raw, "user");
+          chatInput.value = "";
+          switchOutputTab("build");
+          appendOutput("🧪 Tests triggered from chat…\n");
+          try {
+            const cwd = state.activeProject || "workspace";
+            const res = await fetch("/test", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_path: cwd }),
+            });
+            const data = await res.json();
+            const out = data.output || data.result || JSON.stringify(data);
+            buildContent.textContent += out + "\n";
+            appendChat(`🧪 Test result:\n${out.slice(0, 500)}`, "agent");
+          } catch (e) { appendChat(`Test error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /commit "<message>" — git commit ────────────────────────────────
+        case "/commit": {
+          const msg = args.replace(/^["']|["']$/g, "").trim() || "WIP commit from Arbiter chat";
+          appendChat(raw, "user");
+          chatInput.value = "";
+          try {
+            const res = await fetch("/git/commit", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: msg, project_path: state.activeProject || "" }),
+            });
+            const data = await res.json();
+            const reply = data.status === "ok"
+              ? `✅ Committed: "${msg}"\n  ${data.sha || ""}`
+              : `❌ Commit failed: ${data.detail || JSON.stringify(data)}`;
+            appendChat(reply, "agent");
+            appendOutput(reply + "\n");
+          } catch (e) { appendChat(`Commit error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /push — git push ─────────────────────────────────────────────────
+        case "/push": {
+          appendChat(raw, "user");
+          chatInput.value = "";
+          appendOutput("📤 Push triggered from chat…\n");
+          // Push uses the same /git/push endpoint (not yet stubbed — fall back gracefully)
+          try {
+            const res = await fetch("/git/push", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_path: state.activeProject || "" }),
+            });
+            const data = await res.json();
+            const reply = data.status === "ok"
+              ? "✅ Pushed to remote."
+              : `Push result: ${data.detail || JSON.stringify(data)}`;
+            appendChat(reply, "agent");
+          } catch (e) { appendChat(`Push error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /branch <name> — create git branch ──────────────────────────────
+        case "/branch": {
+          if (!args) { appendChat("Usage: /branch <branch-name>", "agent"); return true; }
+          appendChat(raw, "user");
+          chatInput.value = "";
+          try {
+            const res = await fetch("/git/branch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: args, project_path: state.activeProject || "" }),
+            });
+            const data = await res.json();
+            const reply = data.status === "ok"
+              ? `✅ Branch "${args}" created.`
+              : `Branch result: ${data.detail || JSON.stringify(data)}`;
+            appendChat(reply, "agent");
+          } catch (e) { appendChat(`Branch error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /search <term> — query Archive codex ────────────────────────────
+        case "/search": {
+          if (!args) { appendChat("Usage: /search <term>", "agent"); return true; }
+          appendChat(raw, "user");
+          chatInput.value = "";
+          setStatus("running");
+          try {
+            const res = await fetch("/archive/search", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ query: args, top_k: 5 }),
+            });
+            const data = await res.json();
+            const results = data.results || [];
+            if (!results.length) {
+              appendChat(`🔍 No results found for "${args}".`, "agent");
+            } else {
+              const lines = results.map((r, i) =>
+                `${i + 1}. **${r.title || r.id}** (${r.language || "?"})\n   ${r.summary || r.content_snippet || ""}`
+              );
+              const msgEl = appendChat(`🔍 Archive search: "${args}"\n\n${lines.join("\n\n")}`, "agent");
+              _finaliseAgentMessage(msgEl);
+            }
+          } catch (e) { appendChat(`Search error: ${e.message}`, "agent"); }
+          finally { setStatus("idle"); }
+          return true;
+        }
+
+        // ── /save snippet <name> — save last AI code block to snippets.json ─
+        case "/save": {
+          if (!args.toLowerCase().startsWith("snippet")) return false;
+          const snipName = args.replace(/^snippet\s*/i, "").trim() || `snippet-${Date.now()}`;
+          appendChat(raw, "user");
+          chatInput.value = "";
+          // Find the most recent code block in chat
+          const lastCode = (() => {
+            const ids = [..._codeStore.keys()].sort((a, b) => b - a);
+            return ids.length ? _codeStore.get(ids[0]) : null;
+          })();
+          if (!lastCode) {
+            appendChat("No code block found in chat to save. Ask the AI for code first.", "agent");
+            return true;
+          }
+          try {
+            const res = await fetch("/snippet", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: snipName, code: lastCode, language: "text" }),
+            });
+            const data = await res.json();
+            appendChat(
+              data.status === "saved"
+                ? `✅ Snippet "${snipName}" saved.`
+                : `Snippet result: ${JSON.stringify(data)}`,
+              "agent"
+            );
+          } catch (e) { appendChat(`Save snippet error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /task <description> — create a new roadmap task ─────────────────
+        case "/task": {
+          if (!args) { appendChat("Usage: /task <description>", "agent"); return true; }
+          appendChat(raw, "user");
+          chatInput.value = "";
+          try {
+            const res = await fetch("/roadmap/task", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: args,
+                milestone: "backlog",
+                project_path: state.activeProject || "",
+              }),
+            });
+            const data = await res.json();
+            const reply = data.id
+              ? `✅ Task created: [${data.id}] ${data.title}`
+              : `Task result: ${JSON.stringify(data)}`;
+            appendChat(reply, "agent");
+            loadRoadmapPanel?.();
+          } catch (e) { appendChat(`Task create error: ${e.message}`, "agent"); }
+          return true;
+        }
+
+        // ── /agent <goal> — trigger AgenticChatEngine ────────────────────────
+        case "/agent": {
+          if (!args) { appendChat("Usage: /agent <goal>", "agent"); return true; }
+          // Switch to agentic mode if not already active (check aria-pressed attribute)
+          const agentBtn = $("btn-agentic-toggle");
+          if (agentBtn && agentBtn.getAttribute("aria-pressed") !== "true") {
+            agentBtn.click();
+          }
+          // Let the normal sendPrompt handle it (don't return true)
+          return false;
+        }
+
+        default:
+          return false;
+      }
+    };
   })();
 
 })();

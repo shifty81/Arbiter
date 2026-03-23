@@ -434,32 +434,38 @@
         {
           "id": "M5-8",
           "title": "Chat: /task command \u2014 AI creates a roadmap task from natural language",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /task <desc> slash command creates a new roadmap task via POST /roadmap/task."
         },
         {
           "id": "M5-9",
           "title": "Chat: /build, /run, /test slash commands trigger build pipeline from chat",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /build and /run slash commands trigger build/run pipelines directly from chat."
         },
         {
           "id": "M5-10",
           "title": "Chat: /commit, /push, /branch slash commands trigger git operations from chat",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /commit, /push, /branch slash commands trigger git operations directly from chat."
         },
         {
           "id": "M5-11",
           "title": "Chat: /save snippet <name> stores code block from AI response to snippets.json",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /save snippet <name> saves last AI code block to snippets.json via POST /snippet."
         },
         {
           "id": "M5-12",
           "title": "Chat: /search <term> queries Archive codex and injects top results into context",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /search <term> queries the Archive codex via POST /archive/search and displays results in chat."
         },
         {
           "id": "M5-13",
           "title": "Chat: /agent <goal> triggers AgenticChatEngine for multi-step task execution",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /agent <goal> switches to agentic mode and sends goal as the prompt to AgenticChatEngine."
         },
         {
           "id": "M5-14",
@@ -508,7 +514,7 @@
       "id": "M6",
       "title": "Visual Studio Integration \u2014 VSIX Extension",
       "description": "Native VSIX extension for Visual Studio 2022 that embeds Arbiter's full chat and tooling directly into the IDE. Pillar 2 of the platform.",
-      "status": "in_progress",
+      "status": "done",
       "pillar": "Pillar 2 \u2014 Visual Studio Integration",
       "tasks": [
         {
@@ -568,7 +574,8 @@
         {
           "id": "M6-10",
           "title": "Error list integration: AI-suggested fixes appear alongside compiler errors in Error List",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added ErrorListProvider: AI fix suggestions appear in VS Error List as Messages alongside compiler errors."
         },
         {
           "id": "M6-11",
@@ -639,7 +646,8 @@
         {
           "id": "M6-22",
           "title": "VSIX marketplace packaging and local install .vsix file",
-          "status": "pending"
+          "status": "done",
+          "notes": "Updated VSIX manifest with full marketplace metadata, tags, release notes, and MoreInfo URL. Added INSTALL.md."
         }
       ]
     },
@@ -709,7 +717,8 @@
         {
           "id": "M7-12",
           "title": "Self-build panel in Monaco IDE: live task progress, diff preview, approve/reject buttons",
-          "status": "pending"
+          "status": "done",
+          "notes": "Self-build sidebar panel added to Monaco IDE: mode selector, start/stop, approve/reject, live log, approval row."
         },
         {
           "id": "M7-13",

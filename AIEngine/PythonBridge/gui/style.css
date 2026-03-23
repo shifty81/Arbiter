@@ -2000,3 +2000,18 @@ body.light-theme {
   --text-dim: #6b7280;
   --danger:   #d92c2c;  /* VS Code red (light mode) */
 }
+
+/* ── Self-Build Loop panel (M7-12) ───────────────────────────────────────── */
+.sb-status-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.sb-idle    { background: var(--surface2); color: var(--text-dim); }
+.sb-running { background: #1e3a5f; color: #569cd6; }
+.sb-done    { background: #1a3a25; color: #73c991; }
+.sb-error   { background: #3d1a20; color: var(--danger); }

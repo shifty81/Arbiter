@@ -105,6 +105,7 @@
         <button class="ab-ov-item" data-panel="depsanalyzer">📦 Dep Analyzer</button>
         <button class="ab-ov-item" data-panel="testrunner">🧪 Test Runner</button>
         <button class="ab-ov-item" data-panel="terminal">🖥 Terminal</button>
+        <button class="ab-ov-item" data-panel="selfbuild">🤖 Self-Build Loop</button>
       </div>
     </div>
 
@@ -1171,6 +1172,69 @@
           </div>
         </div>
       </div>
+
+      <!-- ── Panel: Self-Build Loop (M7-12) ─────────────────────────────────── -->
+      <div class="sb-panel" id="panel-selfbuild">
+        <div class="sidebar-header">
+          <span>🤖 Self-Build Loop</span>
+          <div class="sidebar-buttons">
+            <button id="btn-sb-refresh" title="Refresh status">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;display:flex;flex-direction:column;gap:8px;overflow-y:auto">
+
+          <!-- Status row -->
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+            <span>Status:</span>
+            <span id="sb-status-badge" class="sb-status-badge sb-idle">Idle</span>
+          </div>
+
+          <!-- Next task info -->
+          <div id="sb-next-task-info" style="font-size:11px;color:var(--text-dim);background:var(--bg-3,var(--bg2,#1e1e1e));border:1px solid var(--border);border-radius:4px;padding:6px;display:none">
+            <div style="font-weight:600;color:var(--text);margin-bottom:2px" id="sb-next-task-id"></div>
+            <div id="sb-next-task-title" style="color:var(--text)"></div>
+          </div>
+
+          <!-- Mode selector -->
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <label style="font-size:11px;color:var(--text-dim)">Autonomy mode</label>
+            <select id="sb-mode-select" style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px">
+              <option value="manual">Manual — show next task, no action</option>
+              <option value="assist" selected>Assist — generate code, wait for approval</option>
+              <option value="semiauto">SemiAuto — apply changes, ask before commit</option>
+              <option value="fullauto">FullAuto — plan, code, test, commit autonomously</option>
+            </select>
+          </div>
+
+          <!-- Optional task ID override -->
+          <div style="display:flex;gap:4px">
+            <input id="sb-task-id-input" type="text" placeholder="Task ID (blank = auto-pick)"
+              style="flex:1;font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px" />
+          </div>
+
+          <!-- Start / Stop buttons -->
+          <div style="display:flex;gap:6px">
+            <button id="btn-sb-start" style="flex:1;font-size:12px;padding:5px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer">▶ Start</button>
+            <button id="btn-sb-stop"  style="flex:1;font-size:12px;padding:5px;background:var(--danger,#e05252);color:#fff;border:none;border-radius:4px;cursor:pointer" disabled>■ Stop</button>
+          </div>
+
+          <!-- Approve / Reject row — visible only when a change is pending approval -->
+          <div id="sb-approval-row" style="display:none;flex-direction:column;gap:4px;background:var(--surface2);border:1px solid var(--accent);border-radius:4px;padding:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--accent)">⏳ Pending approval</div>
+            <div id="sb-approval-desc" style="font-size:11px;color:var(--text-dim);margin-bottom:4px"></div>
+            <div style="display:flex;gap:6px">
+              <button id="btn-sb-approve" style="flex:1;font-size:12px;padding:4px;background:#2d6a4f;color:#fff;border:none;border-radius:4px;cursor:pointer">✓ Approve</button>
+              <button id="btn-sb-reject"  style="flex:1;font-size:12px;padding:4px;background:var(--danger,#e05252);color:#fff;border:none;border-radius:4px;cursor:pointer">✕ Reject</button>
+            </div>
+          </div>
+
+          <!-- Live log output -->
+          <div style="font-size:11px;font-weight:600;color:var(--text-dim)">Loop log</div>
+          <pre id="sb-log-output" style="font-family:var(--font-mono);font-size:11px;background:var(--bg-3,#111);border:1px solid var(--border);border-radius:4px;padding:6px;max-height:320px;overflow-y:auto;white-space:pre-wrap;flex:1;margin:0;min-height:80px"></pre>
+
+        </div>
+      </div>
+
     </aside><!-- /sidebar -->
     <!-- Sidebar drag-to-resize handle -->
     <div id="sidebar-resizer" class="panel-resizer panel-resizer-h" title="Drag to resize sidebar"></div>
@@ -1290,9 +1354,11 @@
         <div id="slash-cmd-bar">
           <button class="slash-btn" data-cmd="/fix"      title="Ask AI to fix bugs in the active file">Fix</button>
           <button class="slash-btn" data-cmd="/explain"  title="Ask AI to explain the active file">Explain</button>
-          <button class="slash-btn" data-cmd="/test"     title="Ask AI to write tests for the active file">Test</button>
+          <button class="slash-btn" data-cmd="/test"     title="Run tests now (/test triggers test pipeline)">Test</button>
           <button class="slash-btn" data-cmd="/docs"     title="Ask AI to add docstrings to the active file">Docs</button>
           <button class="slash-btn" data-cmd="/refactor" title="Ask AI to refactor the active file">Refactor</button>
+          <button class="slash-btn" data-cmd="/build"    title="Trigger the project build pipeline">/build</button>
+          <button class="slash-btn" data-cmd="/search "  title="Search the knowledge archive: /search <term>">/search</button>
         </div>
         <!-- File context chip -->
         <div class="ci-attach-row">
@@ -1304,7 +1370,7 @@
         <!-- Message textarea -->
         <textarea
           id="chat-input"
-          placeholder="Describe what to build…"
+          placeholder="Ask anything, or type /build /run /test /commit /search /task…"
           rows="3"
         ></textarea>
         <!-- Toolbar: mode | model | send -->
