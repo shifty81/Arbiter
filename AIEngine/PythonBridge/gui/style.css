@@ -308,7 +308,8 @@ body {
 .tabs-bar-actions button { background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 4px; }
 .tabs-bar-actions button:hover, .tabs-bar-actions button.active { background: var(--surface2); color: var(--accent); }
 
-
+/* ── Sidebar header ─────────────────────────────────────────────── */
+.sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1237,6 +1238,28 @@ body {
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ── Panel resize handles ───────────────────────────────────────── */
+.panel-resizer {
+  background: transparent;
+  flex-shrink: 0;
+  z-index: 20;
+  transition: background .15s;
+}
+.panel-resizer:hover,
+.panel-resizer.dragging {
+  background: var(--accent);
+}
+/* Horizontal (sidebar/agent) resizer — a thin vertical bar */
+.panel-resizer-h {
+  width: 4px;
+  cursor: col-resize;
+}
+/* Vertical (output) resizer — a thin horizontal bar */
+.panel-resizer-v {
+  height: 4px;
+  cursor: row-resize;
+}
 
 /* ── Responsive helper ──────────────────────────────────────────── */
 @media (max-width: 900px) {
