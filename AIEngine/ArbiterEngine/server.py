@@ -6458,6 +6458,180 @@ def pair_status(project: str) -> dict:
     return {"project": project, **session}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M12-1: System-wide workspace logging
+# ───────────────────────────────────────────────────────────────────────────────
+
+from core.logger import (
+    write_workspace_log as _write_workspace_log,
+    read_workspace_log as _read_workspace_log,
+    capture_crash as _capture_crash,
+)
+
+
+class _LogWriteReq(BaseModel):
+    workspace: str
+    message: str
+    level: str = "INFO"
+    source: str = ""
+
+
+class _LogReadReq(BaseModel):
+    workspace: str
+    level: str | None = None
+    limit: int = 200
+
+
+@app.post("/log/workspace")
+def log_workspace_write(req: _LogWriteReq) -> dict:
+    """Write a structured log entry to the workspace log.
+
+    M12-1
+    """
+    entry = _write_workspace_log(req.workspace, req.level, req.message, source=req.source)
+    return {"status": "ok", "entry": entry}
+
+
+@app.get("/log/workspace")
+def log_workspace_read(workspace: str, level: str | None = None, limit: int = 200) -> dict:
+    """Return recent workspace log entries, optionally filtered by *level*.
+
+    M12-1
+    """
+    entries = _read_workspace_log(workspace, level=level, limit=limit)
+    return {"workspace": workspace, "count": len(entries), "entries": entries}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M12-2: Crash reports → local issues tracker
+# ───────────────────────────────────────────────────────────────────────────────
+
+from modules.issues.src.issues import (
+    issues_create as _issues_create,
+    issues_list as _issues_list,
+    issues_get as _issues_get,
+    issues_close as _issues_close,
+    issues_comment as _issues_comment,
+)
+
+
+class _CrashReportReq(BaseModel):
+    workspace: str
+    title: str
+    traceback: str = ""
+    source: str = ""
+    extra: dict[str, Any] | None = None
+
+
+class _IssueCreateReq(BaseModel):
+    workspace: str
+    title: str
+    body: str = ""
+    kind: str = "bug"
+    labels: list[str] = []
+
+
+class _IssueCloseReq(BaseModel):
+    workspace: str
+    issue_id: str
+    resolution: str = ""
+
+
+class _IssueCommentReq(BaseModel):
+    workspace: str
+    issue_id: str
+    comment: str
+    author: str = "arbiter"
+
+
+@app.post("/log/crash")
+def log_crash_report(req: _CrashReportReq) -> dict:
+    """File a crash report: log it to the workspace log *and* open a local issue.
+
+    The crash is written as a CRASH-level workspace log entry and a
+    ``kind=crash`` issue is created in the git-backed local issues tracker.
+
+    M12-2
+    """
+    # 1. Write to workspace log
+    _write_workspace_log(
+        req.workspace,
+        "CRASH",
+        req.title,
+        source=req.source,
+        extra={"traceback": req.traceback, **(req.extra or {})},
+    )
+
+    # 2. Create an issue in the local tracker
+    body_parts = []
+    if req.traceback:
+        body_parts.append(f"```\n{req.traceback}\n```")
+    if req.source:
+        body_parts.append(f"**Source:** {req.source}")
+    if req.extra:
+        body_parts.append(f"**Extra:** {json.dumps(req.extra, indent=2)}")
+
+    result = _issues_create(
+        req.workspace,
+        title=req.title,
+        body="\n\n".join(body_parts),
+        kind="crash",
+        labels=["crash", "auto-filed"],
+    )
+    return {"status": "filed", "log_level": "CRASH", "issue": result.get("issue")}
+
+
+@app.post("/issues/create")
+def issues_create_endpoint(req: _IssueCreateReq) -> dict:
+    """Create a new issue in the workspace's local git issues tracker.
+
+    M12-2
+    """
+    return _issues_create(
+        req.workspace,
+        title=req.title,
+        body=req.body,
+        kind=req.kind,
+        labels=req.labels,
+    )
+
+
+@app.get("/issues/list")
+def issues_list_endpoint(workspace: str, status: str | None = None, kind: str | None = None) -> dict:
+    """List issues in the workspace's local issues tracker.
+
+    M12-2
+    """
+    return _issues_list(workspace, status=status, kind=kind)
+
+
+@app.get("/issues/{issue_id}")
+def issues_get_endpoint(workspace: str, issue_id: str) -> dict:
+    """Return the full record for a single issue.
+
+    M12-2
+    """
+    return _issues_get(workspace, issue_id)
+
+
+@app.post("/issues/close")
+def issues_close_endpoint(req: _IssueCloseReq) -> dict:
+    """Close an issue with an optional resolution note.
+
+    M12-2
+    """
+    return _issues_close(req.workspace, req.issue_id, resolution=req.resolution)
+
+
+@app.post("/issues/comment")
+def issues_comment_endpoint(req: _IssueCommentReq) -> dict:
+    """Add a comment to an existing issue.
+
+    M12-2
+    """
+    return _issues_comment(req.workspace, req.issue_id, req.comment, author=req.author)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
