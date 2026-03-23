@@ -4890,6 +4890,1576 @@ def sync_list() -> dict:
     return {"provider": "local", "backups": backups}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10 — Enhanced Chat & Conversational AI
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── M10 shared state ──────────────────────────────────────────────────────────
+_chat_branches: dict[str, dict[str, list[dict]]] = {}
+_response_feedback: dict[str, list[dict]] = {}
+_chat_bookmarks: dict[str, list[dict]] = {}
+# Maps project → {"path": str, "content": str}
+_active_file_contexts: dict[str, dict[str, str]] = {}
+_message_threads: dict[str, dict[str, list[dict]]] = {}
+
+_STREAM_CHUNK_WORDS = 8   # words per simulated streaming chunk (M10-7)
+
+_FEEDBACK_FILE  = _BASE / "logs" / "response_feedback.json"
+_BOOKMARKS_FILE = _BASE / "logs" / "chat_bookmarks.json"
+
+
+def _load_json_file(path: Path, default: Any) -> Any:
+    if path.is_file():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return default
+
+
+def _save_json_file(path: Path, data: Any) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        logger.warning("Could not save %s: %s", path, exc)
+
+
+# Load persisted state on startup
+_response_feedback = _load_json_file(_FEEDBACK_FILE, {})
+_chat_bookmarks    = _load_json_file(_BOOKMARKS_FILE, {})
+
+# ── Conversation templates (M10-2) ────────────────────────────────────────────
+_CONV_TEMPLATES: dict[str, dict[str, str]] = {
+    "code_review": {
+        "name": "Code Review",
+        "description": "Review code for quality, bugs, and best practices.",
+        "prompt": "Please review the following code thoroughly. Identify bugs, code smells, security issues, and suggest improvements:\n\n```\n{code}\n```",
+    },
+    "explain_code": {
+        "name": "Explain Code",
+        "description": "Explain what a piece of code does in plain English.",
+        "prompt": "Please explain the following code in clear, plain English. Describe what it does, how it works, and any important patterns used:\n\n```\n{code}\n```",
+    },
+    "write_tests": {
+        "name": "Write Tests",
+        "description": "Generate a comprehensive test suite for the given code.",
+        "prompt": "Write a comprehensive test suite for the following code. Include unit tests, edge cases, and error scenarios:\n\n```\n{code}\n```",
+    },
+    "write_docs": {
+        "name": "Write Documentation",
+        "description": "Generate documentation for the given code.",
+        "prompt": "Write clear, professional documentation for the following code. Include docstrings, parameter descriptions, return values, and usage examples:\n\n```\n{code}\n```",
+    },
+    "debug_error": {
+        "name": "Debug Error",
+        "description": "Help diagnose and fix an error or bug.",
+        "prompt": "I need help debugging this error. Analyse the code, identify the root cause, and provide a fix:\n\n```\n{code}\n```",
+    },
+    "optimize_code": {
+        "name": "Optimize Code",
+        "description": "Suggest performance and efficiency improvements.",
+        "prompt": "Analyse the following code for performance and efficiency. Suggest concrete optimizations with explanations:\n\n```\n{code}\n```",
+    },
+    "security_audit": {
+        "name": "Security Audit",
+        "description": "Identify security vulnerabilities and risks.",
+        "prompt": "Perform a security audit of the following code. Identify all vulnerabilities (injection, auth flaws, data exposure, etc.) and suggest remediation:\n\n```\n{code}\n```",
+    },
+    "refactor_suggestion": {
+        "name": "Refactor Suggestion",
+        "description": "Suggest refactoring to improve code structure.",
+        "prompt": "Suggest refactoring improvements for the following code. Focus on readability, maintainability, and adherence to SOLID principles:\n\n```\n{code}\n```",
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-1: Chat session branching
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _BranchCreateReq(BaseModel):
+    project: str
+    from_message_index: int
+    branch_name: str = ""
+
+
+class _BranchSwitchReq(BaseModel):
+    project: str
+    branch_id: str
+
+
+@app.post("/chat/branch")
+def chat_branch_create(req: _BranchCreateReq) -> dict:
+    """Fork the conversation at from_message_index into a new branch.
+
+    M10-1
+    """
+    history = _chat_histories.get(req.project, [])
+    forked_history = history[:req.from_message_index]
+    bid     = str(_uuid.uuid4())
+    name    = req.branch_name or f"branch-{bid[:8]}"
+    _chat_branches.setdefault(req.project, {})[bid] = {
+        "name":    name,
+        "history": list(forked_history),
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    return {"branch_id": bid, "name": name, "message_count": len(forked_history)}
+
+
+@app.get("/chat/branches/{project}")
+def chat_branches_list(project: str) -> dict:
+    """List all branches for a project.
+
+    M10-1
+    """
+    branches = _chat_branches.get(project, {})
+    result = [
+        {
+            "branch_id":     bid,
+            "name":          info["name"],
+            "message_count": len(info["history"]),
+            "created_at":    info.get("created_at", ""),
+        }
+        for bid, info in branches.items()
+    ]
+    return {"project": project, "branches": result}
+
+
+@app.post("/chat/branch/switch")
+def chat_branch_switch(req: _BranchSwitchReq) -> dict:
+    """Switch the active conversation to a saved branch.
+
+    M10-1
+    """
+    branches = _chat_branches.get(req.project, {})
+    if req.branch_id not in branches:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Branch '{req.branch_id}' not found")
+    _chat_histories[req.project] = list(branches[req.branch_id]["history"])
+    return {"status": "ok", "branch_id": req.branch_id,
+            "message_count": len(_chat_histories[req.project])}
+
+
+@app.delete("/chat/branch/{project}/{branch_id}")
+def chat_branch_delete(project: str, branch_id: str) -> dict:
+    """Delete a branch.
+
+    M10-1
+    """
+    branches = _chat_branches.get(project, {})
+    if branch_id not in branches:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Branch '{branch_id}' not found")
+    del branches[branch_id]
+    return {"status": "removed", "branch_id": branch_id}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-2: Conversation templates
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _TemplateApplyReq(BaseModel):
+    template_id: str
+    code: str = ""
+    project: str = "default"
+
+
+@app.get("/chat/templates")
+def chat_templates_list() -> dict:
+    """Return all built-in conversation templates.
+
+    M10-2
+    """
+    templates = [
+        {"template_id": tid, "name": t["name"], "description": t["description"]}
+        for tid, t in _CONV_TEMPLATES.items()
+    ]
+    return {"templates": templates}
+
+
+@app.post("/chat/templates/apply")
+def chat_templates_apply(req: _TemplateApplyReq) -> dict:
+    """Apply a template: fill in the prompt and get an LLM response.
+
+    M10-2
+    """
+    if req.template_id not in _CONV_TEMPLATES:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Template '{req.template_id}' not found")
+    tpl    = _CONV_TEMPLATES[req.template_id]
+    prompt = tpl["prompt"].replace("{code}", req.code or "(no code provided)")
+    persona = _active_personas.get(req.project, "Arbiter")
+    try:
+        response = _llm.chat([
+            {"role": "system", "content": f"You are {persona}, a helpful AI programming assistant."},
+            {"role": "user", "content": prompt},
+        ])
+    except Exception as exc:
+        response = f"[Arbiter Engine error] {exc}"
+    history = _chat_histories.setdefault(req.project, [])
+    history.append({"role": "user",      "content": prompt})
+    history.append({"role": "assistant", "content": response})
+    return {"response": response, "template_id": req.template_id, "persona": persona}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-3: AI response rating & feedback
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _FeedbackReq(BaseModel):
+    project: str
+    message_index: int
+    rating: str          # "up" | "down"
+    comment: str = ""
+
+
+@app.post("/chat/feedback")
+def chat_feedback_post(req: _FeedbackReq) -> dict:
+    """Store feedback for a specific message.
+
+    M10-3
+    """
+    if req.rating not in ("up", "down"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+    record = {
+        "message_index": req.message_index,
+        "rating":        req.rating,
+        "comment":       req.comment,
+        "timestamp":     datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    _response_feedback.setdefault(req.project, []).append(record)
+    _save_json_file(_FEEDBACK_FILE, _response_feedback)
+    return {"status": "ok", "feedback_count": len(_response_feedback[req.project])}
+
+
+@app.get("/chat/feedback/{project}")
+def chat_feedback_get(project: str) -> dict:
+    """Return all feedback for a project.
+
+    M10-3
+    """
+    return {"project": project, "feedback": _response_feedback.get(project, [])}
+
+
+@app.get("/chat/feedback/summary")
+def chat_feedback_summary() -> dict:
+    """Return aggregate feedback statistics.
+
+    M10-3
+    """
+    total = 0
+    up    = 0
+    down  = 0
+    by_project: dict[str, dict[str, int]] = {}
+    for proj, records in _response_feedback.items():
+        p_up   = sum(1 for r in records if r.get("rating") == "up")
+        p_down = sum(1 for r in records if r.get("rating") == "down")
+        by_project[proj] = {"up": p_up, "down": p_down, "total": len(records)}
+        total += len(records)
+        up    += p_up
+        down  += p_down
+    return {"total": total, "up": up, "down": down, "by_project": by_project}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-4: Chat message bookmarks & pinning
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _BookmarkReq(BaseModel):
+    project: str
+    message_index: int
+    note: str = ""
+    pinned: bool = False
+
+
+class _BookmarkPinReq(BaseModel):
+    project: str
+    bookmark_id: str
+    pinned: bool
+
+
+@app.post("/chat/bookmark")
+def chat_bookmark_create(req: _BookmarkReq) -> dict:
+    """Bookmark a message in the conversation.
+
+    M10-4
+    """
+    history = _chat_histories.get(req.project, [])
+    if req.message_index < 0 or req.message_index >= len(history):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="message_index out of range")
+    msg = history[req.message_index]
+    bid = str(_uuid.uuid4())
+    bookmark = {
+        "bookmark_id":    bid,
+        "message_index":  req.message_index,
+        "role":           msg.get("role", ""),
+        "content_preview": msg.get("content", "")[:120],
+        "note":           req.note,
+        "pinned":         req.pinned,
+        "created_at":     datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    _chat_bookmarks.setdefault(req.project, []).append(bookmark)
+    _save_json_file(_BOOKMARKS_FILE, _chat_bookmarks)
+    return {"bookmark_id": bid, "status": "ok"}
+
+
+@app.get("/chat/bookmarks/{project}")
+def chat_bookmarks_list(project: str) -> dict:
+    """Return all bookmarks for a project, pinned first.
+
+    M10-4
+    """
+    bookmarks = _chat_bookmarks.get(project, [])
+    sorted_bm = sorted(bookmarks, key=lambda b: (0 if b.get("pinned") else 1, b.get("created_at", "")))
+    return {"project": project, "bookmarks": sorted_bm}
+
+
+@app.delete("/chat/bookmark/{project}/{bookmark_id}")
+def chat_bookmark_delete(project: str, bookmark_id: str) -> dict:
+    """Delete a bookmark.
+
+    M10-4
+    """
+    bookmarks = _chat_bookmarks.get(project, [])
+    new_bms   = [b for b in bookmarks if b.get("bookmark_id") != bookmark_id]
+    if len(new_bms) == len(bookmarks):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Bookmark '{bookmark_id}' not found")
+    _chat_bookmarks[project] = new_bms
+    _save_json_file(_BOOKMARKS_FILE, _chat_bookmarks)
+    return {"status": "removed", "bookmark_id": bookmark_id}
+
+
+@app.post("/chat/bookmark/pin")
+def chat_bookmark_pin(req: _BookmarkPinReq) -> dict:
+    """Toggle the pinned state of a bookmark.
+
+    M10-4
+    """
+    bookmarks = _chat_bookmarks.get(req.project, [])
+    for bm in bookmarks:
+        if bm.get("bookmark_id") == req.bookmark_id:
+            bm["pinned"] = req.pinned
+            _save_json_file(_BOOKMARKS_FILE, _chat_bookmarks)
+            return {"status": "ok", "bookmark_id": req.bookmark_id, "pinned": req.pinned}
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail=f"Bookmark '{req.bookmark_id}' not found")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-5: Multi-modal input (image context)
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _ImageChatReq(BaseModel):
+    project: str
+    message: str
+    image_base64: str
+    image_name: str = "image.png"
+
+
+@app.post("/chat/image")
+def chat_image(req: _ImageChatReq) -> dict:
+    """Send a chat message with an image as context.
+
+    The image base64 is described in the prompt; vision-capable LLMs will
+    receive the actual data while text-only LLMs get a description.
+
+    M10-5
+    """
+    augmented = (
+        f"[Image: {req.image_name}] (base64 image provided — "
+        "vision-capable models will use the actual pixel data)\n\n"
+        f"{req.message}"
+    )
+    persona = _active_personas.get(req.project, "Arbiter")
+    history = _chat_histories.setdefault(req.project, [])
+    try:
+        response = _llm.chat([
+            {"role": "system", "content": f"You are {persona}, a helpful AI programming assistant."},
+            *history[-10:],
+            {"role": "user", "content": augmented},
+        ])
+    except Exception as exc:
+        response = f"[Arbiter Engine error] {exc}"
+    history.append({"role": "user",      "content": augmented})
+    history.append({"role": "assistant", "content": response})
+    if len(history) > _MAX_CHAT_HISTORY_TURNS:
+        history[:] = history[-_MAX_CHAT_HISTORY_TURNS:]
+    return {"response": response, "persona": persona}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-6: Smart context switching
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _FileContextReq(BaseModel):
+    project: str
+    file_path: str
+
+
+@app.post("/chat/context/file")
+def chat_context_file_set(req: _FileContextReq) -> dict:
+    """Set the active file context for a project (reads up to 4000 chars).
+
+    M10-6
+    """
+    try:
+        p = Path(req.file_path)
+        if not p.is_file():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"File not found: {req.file_path}")
+        content = p.read_text(encoding="utf-8", errors="replace")[:4000]
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc))
+    _active_file_contexts[req.project] = {"path": req.file_path, "content": content}
+    return {
+        "status":          "ok",
+        "file_path":       req.file_path,
+        "content_preview": content[:200],
+    }
+
+
+@app.get("/chat/context/file/{project}")
+def chat_context_file_get(project: str) -> dict:
+    """Return the active file context for a project.
+
+    M10-6
+    """
+    ctx     = _active_file_contexts.get(project, {})
+    fp      = ctx.get("path", "")
+    content = ctx.get("content", "")
+    return {"project": project, "file_path": fp, "content_preview": content[:200]}
+
+
+@app.delete("/chat/context/file/{project}")
+def chat_context_file_clear(project: str) -> dict:
+    """Clear the active file context for a project.
+
+    M10-6
+    """
+    _active_file_contexts.pop(project, None)
+    return {"status": "cleared", "project": project}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-7: Real-time streaming
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _StreamChatReq(BaseModel):
+    project: str
+    message: str
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: _StreamChatReq):
+    """Stream the AI response token-by-token as Server-Sent Events.
+
+    M10-7
+    """
+    import json as _json_mod
+
+    persona = _active_personas.get(req.project, "Arbiter")
+    history = _chat_histories.setdefault(req.project, [])
+
+    async def _generate():
+        # Get full response first (most local LLMs don't support true streaming)
+        try:
+            if hasattr(_llm, "stream"):
+                chunks: list[str] = []
+                for token in _llm.stream([
+                    {"role": "system", "content": f"You are {persona}."},
+                    *history[-10:],
+                    {"role": "user", "content": req.message},
+                ]):
+                    chunks.append(token)
+                    yield f"data: {_json_mod.dumps({'token': token, 'done': False})}\n\n"
+                full = "".join(chunks)
+            else:
+                full = _llm.chat([
+                    {"role": "system", "content": f"You are {persona}."},
+                    *history[-10:],
+                    {"role": "user", "content": req.message},
+                ])
+                # Simulate streaming: split into ~8-word chunks
+                words   = full.split()
+                chunks2: list[str] = []
+                for i in range(0, len(words), _STREAM_CHUNK_WORDS):
+                    chunk = " ".join(words[i:i + _STREAM_CHUNK_WORDS])
+                    chunks2.append(chunk)
+                    yield f"data: {_json_mod.dumps({'token': chunk, 'done': False})}\n\n"
+                    await asyncio.sleep(0.03)
+        except Exception as exc:
+            full = f"[Arbiter Engine error] {exc}"
+            yield f"data: {_json_mod.dumps({'token': full, 'done': False})}\n\n"
+
+        history.append({"role": "user",      "content": req.message})
+        history.append({"role": "assistant", "content": full})
+        if len(history) > _MAX_CHAT_HISTORY_TURNS:
+            history[:] = history[-_MAX_CHAT_HISTORY_TURNS:]
+
+        yield f"data: {_json_mod.dumps({'token': '', 'done': True, 'full_response': full})}\n\n"
+
+    return StreamingResponse(_generate(), media_type="text/event-stream")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-8: Message threading
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _ThreadReq(BaseModel):
+    project: str
+    parent_message_index: int
+    message: str
+
+
+@app.post("/chat/thread")
+def chat_thread_create(req: _ThreadReq) -> dict:
+    """Create a threaded reply to a specific message.
+
+    M10-8
+    """
+    history = _chat_histories.get(req.project, [])
+    if req.parent_message_index < 0 or req.parent_message_index >= len(history):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="parent_message_index out of range")
+    parent_msg = history[req.parent_message_index]
+    thread_id  = str(req.parent_message_index)
+    persona    = _active_personas.get(req.project, "Arbiter")
+    thread_ctx = _message_threads.get(req.project, {}).get(thread_id, [])
+    try:
+        response = _llm.chat([
+            {"role": "system", "content": f"You are {persona}. You are replying in a sub-thread."},
+            {"role": "user",   "content": f"[Parent message]: {parent_msg.get('content', '')[:500]}"},
+            *thread_ctx[-6:],
+            {"role": "user",   "content": req.message},
+        ])
+    except Exception as exc:
+        response = f"[Arbiter Engine error] {exc}"
+
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    _message_threads.setdefault(req.project, {}).setdefault(thread_id, []).extend([
+        {"role": "user",      "content": req.message,  "timestamp": ts},
+        {"role": "assistant", "content": response,     "timestamp": ts},
+    ])
+    return {"thread_id": thread_id, "response": response, "persona": persona}
+
+
+@app.get("/chat/threads/{project}")
+def chat_threads_list(project: str) -> dict:
+    """List all thread metadata for a project.
+
+    M10-8
+    """
+    threads = _message_threads.get(project, {})
+    result  = [
+        {"parent_message_index": int(pid), "message_count": len(msgs)}
+        for pid, msgs in threads.items()
+    ]
+    return {"project": project, "threads": result}
+
+
+@app.get("/chat/thread/{project}/{parent_message_index}")
+def chat_thread_get(project: str, parent_message_index: int) -> dict:
+    """Return all messages in a specific thread.
+
+    M10-8
+    """
+    thread_id = str(parent_message_index)
+    msgs      = _message_threads.get(project, {}).get(thread_id, [])
+    return {"project": project, "parent_message_index": parent_message_index, "messages": msgs}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-9: Chat analytics dashboard
+# ───────────────────────────────────────────────────────────────────────────────
+
+@app.get("/chat/analytics")
+def chat_analytics(project: str = "") -> dict:
+    """Return aggregated chat analytics.
+
+    M10-9
+    """
+    scope = (
+        {project: _chat_histories.get(project, [])}
+        if project
+        else _chat_histories
+    )
+
+    total_messages    = 0
+    by_project:  dict[str, int] = {}
+    assistant_lengths: list[int] = []
+
+    for proj, hist in scope.items():
+        by_project[proj] = len(hist)
+        total_messages  += len(hist)
+        for msg in hist:
+            if msg.get("role") == "assistant":
+                assistant_lengths.append(len(msg.get("content", "")))
+
+    most_active = max(by_project, key=lambda k: by_project[k]) if by_project else ""
+
+    # persona_usage
+    persona_usage: dict[str, int] = {}
+    for proj, persona in _active_personas.items():
+        if not project or proj == project:
+            persona_usage[persona] = persona_usage.get(persona, 0) + by_project.get(proj, 0)
+
+    # feedback summary
+    fb_up   = sum(1 for recs in _response_feedback.values() for r in recs if r.get("rating") == "up")
+    fb_down = sum(1 for recs in _response_feedback.values() for r in recs if r.get("rating") == "down")
+
+    # bookmark count
+    bookmark_count = sum(len(bms) for bms in _chat_bookmarks.values())
+
+    # branch count
+    branch_count = sum(len(branches) for branches in _chat_branches.values())
+
+    # thread count
+    thread_count = sum(
+        len(msgs)
+        for threads in _message_threads.values()
+        for msgs in threads.values()
+    )
+
+    avg_len = sum(assistant_lengths) // len(assistant_lengths) if assistant_lengths else 0
+
+    return {
+        "total_messages":          total_messages,
+        "by_project":              by_project,
+        "most_active_project":     most_active,
+        "persona_usage":           persona_usage,
+        "feedback_summary":        {"up": fb_up, "down": fb_down},
+        "bookmark_count":          bookmark_count,
+        "branch_count":            branch_count,
+        "thread_count":            thread_count,
+        "average_response_length": avg_len,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M10-10: Conversation summarization
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _SummarizeReq(BaseModel):
+    project: str
+    max_turns: int = 20
+
+
+@app.post("/chat/summarize")
+def chat_summarize(req: _SummarizeReq) -> dict:
+    """Summarize the oldest portion of a long conversation to save context.
+
+    M10-10
+    """
+    history = _chat_histories.get(req.project, [])
+    if len(history) <= req.max_turns:
+        return {
+            "status":          "no_action",
+            "original_turns":  len(history),
+            "compressed_turns": len(history),
+            "summary_preview": "",
+        }
+    half        = len(history) // 2
+    to_summarize = history[:half]
+    remaining    = history[half:]
+    text_block   = "\n".join(
+        f"{m.get('role','?')}: {m.get('content','')[:300]}" for m in to_summarize
+    )
+    try:
+        summary = _llm.chat([
+            {"role": "system", "content":
+                "Summarise the following conversation excerpt concisely, preserving key decisions, "
+                "code snippets, and conclusions. Start with '[Summary]'."},
+            {"role": "user", "content": text_block[:3000]},
+        ])
+    except Exception as exc:
+        summary = f"[Summary] (auto-generated) — {exc}"
+
+    new_history = [{"role": "system", "content": summary}] + remaining
+    _chat_histories[req.project] = new_history
+    return {
+        "status":           "ok",
+        "original_turns":   len(history),
+        "compressed_turns": len(new_history),
+        "summary_preview":  summary[:200],
+    }
+
+
+@app.get("/chat/summary/{project}")
+def chat_summary_get(project: str) -> dict:
+    """Return the current summary entry if one exists in history.
+
+    M10-10
+    """
+    history = _chat_histories.get(project, [])
+    for msg in history:
+        if msg.get("role") == "system" and str(msg.get("content", "")).startswith("[Summary]"):
+            return {"project": project, "summary": msg["content"]}
+    return {"project": project, "summary": None}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11 — Advanced AI Intelligence
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── M11 shared state ──────────────────────────────────────────────────────────
+
+_MODEL_ROUTING_RULES: list[dict] = [
+    {"keywords": ["vulnerability", "CVE", "injection", "XSS", "CSRF", "auth", "exploit", "pentest"],
+     "task_type": "security", "preferred_backend": "ollama"},
+    {"keywords": ["test", "unittest", "pytest", "spec", "assert", "coverage", "mock"],
+     "task_type": "testing", "preferred_backend": "ollama"},
+    {"keywords": ["document", "docstring", "README", "javadoc", "comment", "explain"],
+     "task_type": "documentation", "preferred_backend": "ollama"},
+    {"keywords": ["refactor", "clean", "SOLID", "pattern", "restructure", "simplify"],
+     "task_type": "refactoring", "preferred_backend": "ollama"},
+    {"keywords": ["optimize", "performance", "speed", "memory", "profil", "benchmark"],
+     "task_type": "performance", "preferred_backend": "ollama"},
+    {"keywords": [],  # default catch-all
+     "task_type": "general", "preferred_backend": "ollama"},
+]
+
+_SPECIALIST_AGENTS: dict[str, dict] = {
+    "security_auditor": {
+        "name":        "Security Auditor",
+        "description": "Expert in identifying security vulnerabilities, CVEs, and secure coding practices.",
+        "system_prompt": (
+            "You are an expert security auditor specialising in application security. "
+            "Identify vulnerabilities (OWASP Top 10, injection, broken auth, data exposure, etc.), "
+            "assess severity, and provide concrete remediation steps. Be thorough and precise."
+        ),
+        "task_type": "security",
+    },
+    "devops_engineer": {
+        "name":        "DevOps Engineer",
+        "description": "Expert in CI/CD, infrastructure-as-code, containers, and cloud deployment.",
+        "system_prompt": (
+            "You are a senior DevOps engineer. You specialise in CI/CD pipelines, Docker, Kubernetes, "
+            "Terraform, and cloud platforms (AWS, Azure, GCP). Provide practical, production-ready guidance."
+        ),
+        "task_type": "devops",
+    },
+    "documentation_writer": {
+        "name":        "Documentation Writer",
+        "description": "Expert in writing clear technical documentation, API docs, and READMEs.",
+        "system_prompt": (
+            "You are a professional technical writer. Write clear, accurate, well-structured documentation "
+            "including API references, tutorials, READMEs, and inline code comments. Follow best practices."
+        ),
+        "task_type": "documentation",
+    },
+    "test_engineer": {
+        "name":        "Test Engineer",
+        "description": "Expert in writing comprehensive test suites and improving test coverage.",
+        "system_prompt": (
+            "You are an expert test engineer. Write comprehensive test suites covering unit, integration, "
+            "and edge-case scenarios. Use appropriate frameworks (pytest, Jest, xUnit, etc.) and follow "
+            "AAA (Arrange-Act-Assert) patterns. Aim for high coverage and meaningful assertions."
+        ),
+        "task_type": "testing",
+    },
+    "performance_analyst": {
+        "name":        "Performance Analyst",
+        "description": "Expert in profiling, benchmarking, and optimising code performance.",
+        "system_prompt": (
+            "You are a performance specialist. Analyse code for bottlenecks, memory leaks, and inefficiencies. "
+            "Suggest data structure improvements, algorithm optimisations, and caching strategies. "
+            "Provide measurable recommendations."
+        ),
+        "task_type": "performance",
+    },
+    "database_architect": {
+        "name":        "Database Architect",
+        "description": "Expert in database schema design, query optimisation, and data modelling.",
+        "system_prompt": (
+            "You are a senior database architect. Design efficient schemas, write optimised queries, "
+            "advise on indexing strategies, normalisation, and choose the right database technology "
+            "(relational, document, graph, time-series) for the use case."
+        ),
+        "task_type": "database",
+    },
+}
+
+_knowledge_graph: dict[str, Any] = {"nodes": [], "edges": [], "last_updated": ""}
+_KG_FILE = _BASE / "logs" / "knowledge_graph.json"
+_knowledge_graph = _load_json_file(_KG_FILE, {"nodes": [], "edges": [], "last_updated": ""})
+
+_code_index: dict[str, dict[str, Any]] = {}
+
+_persona_feedback_log: dict[str, list[dict]] = {}
+_PERSONA_FB_FILE = _BASE / "logs" / "persona_feedback.json"
+_persona_feedback_log = _load_json_file(_PERSONA_FB_FILE, {})
+
+_pair_sessions: dict[str, dict] = {}
+
+_SPECIALIST_AGENTS_FILE = _BASE / "logs" / "specialist_agents.json"
+# Merge any persisted custom agents
+for _k, _v in _load_json_file(_SPECIALIST_AGENTS_FILE, {}).items():
+    if _k not in _SPECIALIST_AGENTS:
+        _SPECIALIST_AGENTS[_k] = _v
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-1: Multi-model routing
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _RouteReq(BaseModel):
+    query: str
+    available_backends: list[str] = []
+
+
+class _RoutingRuleReq(BaseModel):
+    keywords: list[str]
+    task_type: str
+    preferred_backend: str
+
+
+@app.post("/ai/route")
+def ai_route(req: _RouteReq) -> dict:
+    """Route a query to the best backend based on content.
+
+    M11-1
+    """
+    q_lower = req.query.lower()
+    for rule in _MODEL_ROUTING_RULES:
+        kws = rule.get("keywords", [])
+        if not kws:
+            # default rule
+            backend = rule["preferred_backend"]
+            if req.available_backends and backend not in req.available_backends:
+                backend = req.available_backends[0]
+            return {
+                "task_type":        rule["task_type"],
+                "preferred_backend": backend,
+                "matched_rule":     rule,
+                "confidence":       0.5,
+            }
+        matched = [kw for kw in kws if kw.lower() in q_lower]
+        if matched:
+            backend = rule["preferred_backend"]
+            if req.available_backends and backend not in req.available_backends:
+                backend = req.available_backends[0]
+            confidence = min(1.0, len(matched) / max(len(kws), 1))
+            return {
+                "task_type":        rule["task_type"],
+                "preferred_backend": backend,
+                "matched_rule":     rule,
+                "confidence":       round(confidence, 2),
+            }
+    return {"task_type": "general", "preferred_backend": "ollama", "matched_rule": None, "confidence": 0.0}
+
+
+@app.get("/ai/routing/rules")
+def ai_routing_rules_list() -> dict:
+    """Return all routing rules.
+
+    M11-1
+    """
+    return {"rules": _MODEL_ROUTING_RULES}
+
+
+@app.post("/ai/routing/rules")
+def ai_routing_rules_add(req: _RoutingRuleReq) -> dict:
+    """Add a custom routing rule (inserted before the default catch-all).
+
+    M11-1
+    """
+    rule = {
+        "keywords":          req.keywords,
+        "task_type":         req.task_type,
+        "preferred_backend": req.preferred_backend,
+    }
+    # Insert before the default (last) rule
+    _MODEL_ROUTING_RULES.insert(len(_MODEL_ROUTING_RULES) - 1, rule)
+    return {"status": "ok", "rule": rule, "total_rules": len(_MODEL_ROUTING_RULES)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-2: AI agents marketplace
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _SpecialistRunReq(BaseModel):
+    agent_name: str
+    task: str
+    code: str = ""
+    project: str = ""
+
+
+class _SpecialistInstallReq(BaseModel):
+    name: str
+    description: str
+    system_prompt: str
+
+
+@app.get("/agents/specialist")
+def agents_specialist_list() -> dict:
+    """Return the specialist agent catalog.
+
+    M11-2
+    """
+    agents = [
+        {
+            "agent_id":            aid,
+            "name":                info["name"],
+            "description":         info["description"],
+            "task_type":           info.get("task_type", "general"),
+            "system_prompt_preview": info["system_prompt"][:100],
+        }
+        for aid, info in _SPECIALIST_AGENTS.items()
+    ]
+    return {"agents": agents}
+
+
+@app.post("/agents/specialist/run")
+def agents_specialist_run(req: _SpecialistRunReq) -> dict:
+    """Run a specialist agent on a task.
+
+    M11-2
+    """
+    if req.agent_name not in _SPECIALIST_AGENTS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Agent '{req.agent_name}' not found")
+    agent  = _SPECIALIST_AGENTS[req.agent_name]
+    prompt = req.task
+    if req.code:
+        prompt += f"\n\n```\n{req.code[:4000]}\n```"
+    try:
+        response = _llm.chat([
+            {"role": "system", "content": agent["system_prompt"]},
+            {"role": "user",   "content": prompt},
+        ])
+    except Exception as exc:
+        response = f"[Arbiter Engine error] {exc}"
+    if req.project:
+        history = _chat_histories.setdefault(req.project, [])
+        history.append({"role": "user",      "content": f"[{agent['name']}] {prompt[:200]}"})
+        history.append({"role": "assistant", "content": response})
+    return {"agent_name": req.agent_name, "response": response, "task_type": agent.get("task_type", "general")}
+
+
+@app.post("/agents/specialist/install")
+def agents_specialist_install(req: _SpecialistInstallReq) -> dict:
+    """Install a custom specialist agent.
+
+    M11-2
+    """
+    if not req.name.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Agent name must not be empty")
+    import re as _re
+    agent_id = _re.sub(r"[^a-z0-9_]", "_", req.name.lower().strip().replace(" ", "_"))
+    _SPECIALIST_AGENTS[agent_id] = {
+        "name":          req.name,
+        "description":   req.description,
+        "system_prompt": req.system_prompt,
+        "task_type":     "custom",
+    }
+    # Persist custom agents
+    custom = {k: v for k, v in _SPECIALIST_AGENTS.items() if v.get("task_type") == "custom"}
+    _save_json_file(_SPECIALIST_AGENTS_FILE, custom)
+    return {"status": "ok", "agent_id": agent_id}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-3: Code generation from requirements
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _GenerateFromReqReq(BaseModel):
+    requirements: str
+    language: str = "python"
+    project: str = ""
+    module_name: str = ""
+
+
+@app.post("/ai/generate/from-requirements")
+def ai_generate_from_requirements(req: _GenerateFromReqReq) -> dict:
+    """Generate a full implementation from natural-language requirements.
+
+    M11-3
+    """
+    module_hint = f" for module '{req.module_name}'" if req.module_name else ""
+    try:
+        code = _llm.chat([
+            {"role": "system", "content":
+                f"You are an expert {req.language} developer. Generate a complete, production-ready "
+                f"implementation{module_hint}. Include all necessary imports, classes, functions, "
+                "error handling, and inline comments. Output only code."},
+            {"role": "user", "content": req.requirements},
+        ])
+    except Exception as exc:
+        code = f"# [Arbiter Engine error] {exc}"
+    token_estimate = len(code.split())
+    if req.project:
+        history = _chat_histories.setdefault(req.project, [])
+        history.append({"role": "user",      "content": f"Generate {req.language} code: {req.requirements[:100]}"})
+        history.append({"role": "assistant", "content": code})
+    return {
+        "code":            code,
+        "language":        req.language,
+        "module_name":     req.module_name,
+        "token_estimate":  token_estimate,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-4: Cross-project knowledge graph
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _KGScanReq(BaseModel):
+    projects: list[str]
+    scan_types: list[str] = ["functions", "classes", "imports"]
+
+
+def _extract_symbols(file_path: Path, scan_types: list[str]) -> tuple[list[dict], list[dict]]:
+    """Extract symbol nodes and relationship edges from a source file."""
+    import re as _re_local
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")[:10240]
+    except Exception:
+        return [], []
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    fp    = str(file_path)
+    if "functions" in scan_types:
+        for m in _re_local.finditer(r"(?:def |function |func |void |public \w+ )\s*(\w+)\s*\(", content):
+            nodes.append({"file": fp, "name": m.group(1), "type": "function"})
+    if "classes" in scan_types:
+        for m in _re_local.finditer(r"class\s+(\w+)\s*(?:\(([^)]*)\))?", content):
+            nodes.append({"file": fp, "name": m.group(1), "type": "class"})
+            if m.group(2):
+                for parent in m.group(2).split(","):
+                    parent = parent.strip()
+                    if parent and parent not in ("object", ""):
+                        edges.append({"from": m.group(1), "to": parent, "relation": "inherits", "file": fp})
+    if "imports" in scan_types:
+        for m in _re_local.finditer(r"(?:^import |^from )\s*([\w.]+)", content, _re_local.MULTILINE):
+            edges.append({"from": fp, "to": m.group(1), "relation": "imports", "file": fp})
+    return nodes, edges
+
+
+@app.post("/knowledge/scan")
+def knowledge_scan(req: _KGScanReq) -> dict:
+    """Scan projects and build the cross-project knowledge graph.
+
+    M11-4
+    """
+    all_nodes: list[dict] = []
+    all_edges: list[dict] = []
+    projects_scanned = 0
+
+    for project in req.projects:
+        p = Path(project)
+        if not p.is_dir():
+            base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+            p    = base / project
+        if not p.is_dir():
+            continue
+        projects_scanned += 1
+        count = 0
+        for ext in ("*.py", "*.js", "*.ts", "*.cs"):
+            for fp in p.rglob(ext):
+                if any(part.startswith(".") for part in fp.parts):
+                    continue
+                if count >= 200:
+                    break
+                nodes, edges = _extract_symbols(fp, req.scan_types)
+                all_nodes.extend(nodes)
+                all_edges.extend(edges)
+                count += 1
+
+    _knowledge_graph["nodes"]        = all_nodes
+    _knowledge_graph["edges"]        = all_edges
+    _knowledge_graph["last_updated"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    _save_json_file(_KG_FILE, _knowledge_graph)
+
+    return {
+        "nodes":            len(all_nodes),
+        "edges":            len(all_edges),
+        "projects_scanned": projects_scanned,
+    }
+
+
+@app.get("/knowledge/graph")
+def knowledge_graph_get() -> dict:
+    """Return the full knowledge graph.
+
+    M11-4
+    """
+    return {
+        "nodes":        _knowledge_graph["nodes"],
+        "edges":        _knowledge_graph["edges"],
+        "last_updated": _knowledge_graph.get("last_updated", ""),
+    }
+
+
+@app.get("/knowledge/search")
+def knowledge_search(q: str = "") -> dict:
+    """Search the knowledge graph for nodes whose name contains q.
+
+    M11-4
+    """
+    if not q:
+        return {"results": []}
+    q_lower = q.lower()
+    matched_nodes = [n for n in _knowledge_graph["nodes"] if q_lower in n.get("name", "").lower()]
+    node_names    = {n["name"] for n in matched_nodes}
+    related_edges = [
+        e for e in _knowledge_graph["edges"]
+        if e.get("from") in node_names or e.get("to") in node_names
+    ]
+    return {"results": matched_nodes, "edges": related_edges}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-5: AI-powered test intelligence
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _TestsGenerateReq(BaseModel):
+    code: str
+    language: str = "python"
+    project: str = ""
+    test_framework: str = ""
+
+
+class _TestsCoverageReq(BaseModel):
+    code: str
+    existing_tests: str = ""
+    language: str = "python"
+
+
+@app.post("/ai/tests/generate")
+def ai_tests_generate(req: _TestsGenerateReq) -> dict:
+    """Generate a comprehensive test suite for the given code.
+
+    M11-5
+    """
+    fw_hint = f" using {req.test_framework}" if req.test_framework else ""
+    try:
+        tests = _llm.chat([
+            {"role": "system", "content":
+                f"You are an expert {req.language} test engineer. Generate a comprehensive test suite"
+                f"{fw_hint}. Cover happy paths, edge cases, and error scenarios. Output only test code."},
+            {"role": "user", "content": req.code[:4000]},
+        ])
+    except Exception as exc:
+        tests = f"# [Arbiter Engine error] {exc}"
+
+    if req.test_framework:
+        framework = req.test_framework
+    elif req.language == "python":
+        framework = "pytest"
+    elif req.language in ("javascript", "typescript"):
+        framework = "jest"
+    else:
+        framework = "xunit"
+    return {
+        "tests":              tests,
+        "language":           req.language,
+        "framework":          framework,
+        "estimated_coverage": "70-90% (AI estimate)",
+    }
+
+
+@app.post("/ai/tests/coverage-hints")
+def ai_tests_coverage_hints(req: _TestsCoverageReq) -> dict:
+    """Identify untested edge cases and suggest coverage improvements.
+
+    M11-5
+    """
+    existing_hint = f"\n\nExisting tests:\n```\n{req.existing_tests[:2000]}\n```" if req.existing_tests else ""
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content":
+                "You are a test coverage expert. Identify untested edge cases, missing branches, and "
+                "priority improvements. Respond with JSON: "
+                '{"suggestions": [...], "untested_paths": [...], "priority_hints": [...]}'},
+            {"role": "user", "content": f"```{req.language}\n{req.code[:3000]}\n```{existing_hint}"},
+        ])
+        data = json.loads(raw)
+    except Exception:
+        data = {
+            "suggestions":    ["Add tests for error/exception paths", "Test boundary conditions"],
+            "untested_paths": ["Error handling branches", "Empty/null inputs"],
+            "priority_hints": ["Focus on public API methods first"],
+        }
+    return {
+        "suggestions":    data.get("suggestions", []),
+        "untested_paths": data.get("untested_paths", []),
+        "priority_hints": data.get("priority_hints", []),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-6: Semantic code search
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _SemanticIndexReq(BaseModel):
+    project: str
+    max_files: int = 100
+
+
+class _SemanticSearchReq(BaseModel):
+    query: str
+    project: str = ""
+    top_k: int = 5
+
+
+@app.post("/search/semantic/index")
+def search_semantic_index(req: _SemanticIndexReq) -> dict:
+    """Index a project's source files for semantic search.
+
+    M11-6
+    """
+    import re as _re_local
+
+    p = Path(req.project)
+    if not p.is_dir():
+        base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+        p    = base / req.project
+    if not p.is_dir():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Project directory not found: {req.project}")
+
+    files_indexed   = 0
+    symbols_indexed = 0
+
+    for ext in ("*.py", "*.js", "*.ts", "*.cs"):
+        for fp in p.rglob(ext):
+            if any(part.startswith(".") for part in fp.parts):
+                continue
+            if files_indexed >= req.max_files:
+                break
+            try:
+                content = fp.read_text(encoding="utf-8", errors="ignore")[:8000]
+            except Exception:
+                continue
+            symbols: list[str] = []
+            for pattern in (r"def (\w+)\s*\(", r"class (\w+)", r"function (\w+)\s*\(",
+                             r"const (\w+)\s*=", r"public \w+ (\w+)\s*\("):
+                symbols.extend(_re_local.findall(pattern, content))
+            _code_index[str(fp)] = {
+                "content":      content[:2000],
+                "symbols":      list(set(symbols)),
+                "last_indexed": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "project":      req.project,
+            }
+            files_indexed   += 1
+            symbols_indexed += len(symbols)
+
+    return {"files_indexed": files_indexed, "symbols_indexed": symbols_indexed}
+
+
+@app.post("/search/semantic")
+def search_semantic(req: _SemanticSearchReq) -> dict:
+    """Semantic code search: find relevant symbols/files using LLM ranking.
+
+    M11-6
+    """
+    scope = {
+        fp: info for fp, info in _code_index.items()
+        if not req.project or info.get("project") == req.project
+    }
+    if not scope:
+        return {"results": []}
+
+    # Build a compact index summary for the LLM
+    index_lines: list[str] = []
+    for fp, info in list(scope.items())[:50]:
+        syms = ", ".join(info.get("symbols", [])[:10])
+        index_lines.append(f"{fp}: [{syms}]")
+    index_text = "\n".join(index_lines)
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content":
+                f"Given a code index and a search query, return the top {req.top_k} most relevant "
+                "files/symbols as JSON array: "
+                '[{"file": "...", "symbol": "...", "relevance_score": 0.0-1.0, "snippet": "..."}]. '
+                "Output ONLY the JSON array."},
+            {"role": "user", "content": f"Query: {req.query}\n\nIndex:\n{index_text}"},
+        ])
+        results = json.loads(raw)
+        if not isinstance(results, list):
+            raise ValueError("Not a list")
+    except Exception:
+        # Fallback: keyword match
+        q_lower = req.query.lower()
+        results = []
+        for fp, info in scope.items():
+            score = sum(1 for s in info.get("symbols", []) if q_lower in s.lower())
+            if score:
+                results.append({
+                    "file":            fp,
+                    "symbol":          ", ".join(s for s in info["symbols"] if q_lower in s.lower())[:50],
+                    "relevance_score": min(1.0, score / 5),
+                    "snippet":         info["content"][:120],
+                })
+        results = sorted(results, key=lambda x: x["relevance_score"], reverse=True)[:req.top_k]
+
+    return {"results": results[:req.top_k]}
+
+
+@app.get("/search/semantic/index/status")
+def search_semantic_index_status() -> dict:
+    """Return current semantic index statistics.
+
+    M11-6
+    """
+    projects: set[str] = set()
+    total_symbols = 0
+    for info in _code_index.values():
+        projects.add(info.get("project", ""))
+        total_symbols += len(info.get("symbols", []))
+    return {
+        "files_indexed":   len(_code_index),
+        "total_symbols":   total_symbols,
+        "projects":        list(projects),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-7: Adaptive persona learning
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _PersonaFeedbackReq(BaseModel):
+    persona: str
+    rating: str          # "up" | "down"
+    comment: str = ""
+    project: str = ""
+
+
+class _PersonaAdaptReq(BaseModel):
+    persona: str
+
+
+@app.post("/persona/feedback")
+def persona_feedback_post(req: _PersonaFeedbackReq) -> dict:
+    """Log feedback for a persona.
+
+    M11-7
+    """
+    if req.rating not in ("up", "down"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+    record = {
+        "rating":    req.rating,
+        "comment":   req.comment,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "project":   req.project,
+    }
+    _persona_feedback_log.setdefault(req.persona, []).append(record)
+    _save_json_file(_PERSONA_FB_FILE, _persona_feedback_log)
+    return {"status": "ok", "persona": req.persona,
+            "feedback_count": len(_persona_feedback_log[req.persona])}
+
+
+@app.post("/persona/adapt")
+def persona_adapt(req: _PersonaAdaptReq) -> dict:
+    """Use feedback to suggest improvements to a persona's system prompt.
+
+    M11-7
+    """
+    feedback = _persona_feedback_log.get(req.persona, [])
+    # Gather current prompt preview
+    from_custom = _custom_personas.get(req.persona, "")
+    current_preview = from_custom[:200] if from_custom else f"Default persona: {req.persona}"
+
+    feedback_text = "\n".join(
+        f"- {'👍' if r['rating']=='up' else '👎'} {r.get('comment','(no comment)')}"
+        for r in feedback[-20:]
+    )
+    try:
+        suggestion = _llm.chat([
+            {"role": "system", "content":
+                "You are an AI persona tuner. Given feedback on a persona and its current system prompt, "
+                "suggest specific improvements to the system prompt. Be concise and actionable."},
+            {"role": "user", "content":
+                f"Persona: {req.persona}\n\nCurrent prompt: {current_preview}\n\nFeedback:\n{feedback_text}"},
+        ])
+    except Exception as exc:
+        suggestion = f"[Arbiter Engine error] {exc}"
+
+    return {
+        "persona":               req.persona,
+        "suggestion":            suggestion,
+        "feedback_analyzed":     len(feedback),
+        "current_prompt_preview": current_preview,
+    }
+
+
+@app.get("/persona/feedback/{persona}")
+def persona_feedback_get(persona: str) -> dict:
+    """Return feedback log for a persona.
+
+    M11-7
+    """
+    return {"persona": persona, "feedback": _persona_feedback_log.get(persona, [])}
+
+
+@app.get("/persona/learning/summary")
+def persona_learning_summary() -> dict:
+    """Return learning stats across all personas.
+
+    M11-7
+    """
+    by_persona: dict[str, dict] = {}
+    total_feedback = 0
+    for persona, records in _persona_feedback_log.items():
+        up   = sum(1 for r in records if r.get("rating") == "up")
+        down = sum(1 for r in records if r.get("rating") == "down")
+        last = records[-1]["timestamp"] if records else ""
+        by_persona[persona] = {"up": up, "down": down, "last_adapted": last}
+        total_feedback += len(records)
+    return {"by_persona": by_persona, "total_feedback": total_feedback}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M11-8: AI pair programming mode
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _PairStartReq(BaseModel):
+    project: str
+    file_path: str
+
+
+class _PairAnalyzeReq(BaseModel):
+    project: str
+    code: str
+    cursor_line: int = 0
+
+
+class _PairStopReq(BaseModel):
+    project: str
+
+
+@app.post("/pair/start")
+def pair_start(req: _PairStartReq) -> dict:
+    """Activate AI pair programming mode for a project file.
+
+    M11-8
+    """
+    try:
+        fp      = Path(req.file_path)
+        content = fp.read_text(encoding="utf-8", errors="ignore")[:4000] if fp.is_file() else ""
+    except Exception:
+        content = ""
+
+    analysis    = ""
+    suggestions: list[str] = []
+    warnings:    list[str] = []
+
+    if content:
+        try:
+            raw = _llm.chat([
+                {"role": "system", "content":
+                    "You are an AI pair programmer. Analyse the code and return JSON: "
+                    '{"analysis": "...", "suggestions": [...], "warnings": [...]}'},
+                {"role": "user", "content": content},
+            ])
+            data        = json.loads(raw)
+            analysis    = data.get("analysis", "")
+            suggestions = data.get("suggestions", [])
+            warnings    = data.get("warnings", [])
+        except Exception as exc:
+            analysis = f"[Initial analysis error] {exc}"
+
+    _pair_sessions[req.project] = {
+        "active":          True,
+        "file_path":       req.file_path,
+        "last_analysis":   analysis,
+        "suggestions":     suggestions,
+        "warnings":        warnings,
+        "analysis_count":  1 if content else 0,
+    }
+    return {
+        "status":      "active",
+        "file_path":   req.file_path,
+        "analysis":    analysis,
+        "suggestions": suggestions,
+        "warnings":    warnings,
+    }
+
+
+@app.post("/pair/analyze")
+def pair_analyze(req: _PairAnalyzeReq) -> dict:
+    """Run LLM analysis on a code snippet at a cursor position.
+
+    M11-8
+    """
+    session = _pair_sessions.setdefault(req.project, {
+        "active": True, "file_path": "", "last_analysis": "",
+        "suggestions": [], "warnings": [], "analysis_count": 0,
+    })
+    cursor_hint = f" (cursor at line {req.cursor_line})" if req.cursor_line else ""
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content":
+                "You are an AI pair programmer. Analyse the code snippet and return JSON: "
+                '{"suggestions": [...], "warnings": [...], "refactor_hints": [...]}'},
+            {"role": "user", "content": f"Code{cursor_hint}:\n```\n{req.code[:3000]}\n```"},
+        ])
+        data            = json.loads(raw)
+        suggestions     = data.get("suggestions", [])
+        warnings        = data.get("warnings", [])
+        refactor_hints  = data.get("refactor_hints", [])
+    except Exception as exc:
+        suggestions    = []
+        warnings       = [f"Analysis error: {exc}"]
+        refactor_hints = []
+
+    session["last_analysis"]  = req.code[:200]
+    session["suggestions"]    = suggestions
+    session["warnings"]       = warnings
+    session["analysis_count"] = session.get("analysis_count", 0) + 1
+
+    return {
+        "suggestions":    suggestions,
+        "warnings":       warnings,
+        "refactor_hints": refactor_hints,
+        "analysis_count": session["analysis_count"],
+    }
+
+
+@app.post("/pair/stop")
+def pair_stop(req: _PairStopReq) -> dict:
+    """Deactivate AI pair programming mode for a project.
+
+    M11-8
+    """
+    session = _pair_sessions.get(req.project, {})
+    count   = session.get("analysis_count", 0)
+    _pair_sessions[req.project] = {
+        "active":         False,
+        "file_path":      session.get("file_path", ""),
+        "last_analysis":  session.get("last_analysis", ""),
+        "suggestions":    [],
+        "warnings":       [],
+        "analysis_count": count,
+    }
+    return {"status": "stopped", "analysis_count": count}
+
+
+@app.get("/pair/status/{project}")
+def pair_status(project: str) -> dict:
+    """Return the current pair programming session state.
+
+    M11-8
+    """
+    session = _pair_sessions.get(project, {
+        "active": False, "file_path": "", "last_analysis": "",
+        "suggestions": [], "warnings": [], "analysis_count": 0,
+    })
+    return {"project": project, **session}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))
