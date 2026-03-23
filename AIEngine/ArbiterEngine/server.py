@@ -14,9 +14,12 @@ from __future__ import annotations
 import os
 import sys
 import json
+import signal
 import sqlite3
 import subprocess
 import platform
+import datetime
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -70,8 +73,55 @@ _PERSONAS = [
 _active_personas: dict[str, str] = {}
 _MAX_CHAT_HISTORY_TURNS = 40
 
+# ── Session snapshot (persists chat histories + personas across restarts) ─────
+_SNAPSHOT_FILE = _BASE / "logs" / "session_snapshot.json"
+
+
+def _load_snapshot() -> None:
+    """Load persisted chat histories and active personas from the snapshot file."""
+    global _chat_histories, _active_personas
+    if not _SNAPSHOT_FILE.is_file():
+        return
+    try:
+        data = json.loads(_SNAPSHOT_FILE.read_text(encoding="utf-8"))
+        _chat_histories = data.get("chat_histories", {})
+        _active_personas = data.get("active_personas", {})
+        logger.info("Loaded session snapshot (%d projects)", len(_chat_histories))
+    except Exception as exc:
+        logger.warning("Could not load session snapshot: %s", exc)
+
+
+def _save_snapshot() -> None:
+    """Flush chat histories and active personas to the snapshot file."""
+    try:
+        _SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "chat_histories": _chat_histories,
+            "active_personas": _active_personas,
+            "saved_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        # Write atomically: write to a .tmp then rename so a crash mid-write
+        # never produces a truncated file.
+        tmp = _SNAPSHOT_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_SNAPSHOT_FILE)
+        logger.info("Session snapshot saved (%d projects)", len(_chat_histories))
+    except Exception as exc:
+        logger.error("Could not save session snapshot: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: load snapshot.  Shutdown: flush snapshot."""
+    _load_snapshot()
+    try:
+        yield
+    finally:
+        _save_snapshot()
+
+
 # ── FastAPI app ───────────────────────────────────────────────────────────────
-app = FastAPI(title="Arbiter Engine", version="0.2.0")
+app = FastAPI(title="Arbiter Engine", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -536,6 +586,1121 @@ def get_agent_run(run_id: str) -> dict:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Agent run '{run_id}' not found")
     return _agent_runs[run_id]
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  GUI (Monaco IDE) — serve the shared gui/ directory from PythonBridge
+# ═════════════════════════════════════════════════════════════════════════════
+
+import shutil as _shutil
+import uuid as _uuid_mod
+import threading as _threading
+import tempfile as _tempfile
+import difflib as _difflib
+
+from fastapi import HTTPException as _HTTPException
+from fastapi.responses import HTMLResponse as _HTMLResponse
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+_GUI_DIR = _BASE.parent / "PythonBridge" / "gui"
+if _GUI_DIR.is_dir():
+    app.mount("/gui", _StaticFiles(directory=str(_GUI_DIR), html=True), name="gui")
+
+
+@app.get("/", response_class=_HTMLResponse)
+def root_redirect():
+    """Redirect root to the Monaco IDE."""
+    return _HTMLResponse(
+        content='<meta http-equiv="refresh" content="0;url=/gui/index.html">',
+        status_code=200,
+    )
+
+
+@app.get("/ide", response_class=_HTMLResponse)
+def ide_redirect():
+    """Convenience redirect: GET /ide → serve the Monaco IDE."""
+    return _HTMLResponse(
+        content='<meta http-equiv="refresh" content="0;url=/gui/index.html">',
+        status_code=200,
+    )
+
+
+# ─── LLM status ──────────────────────────────────────────────────────────────
+
+@app.get("/llm/status")
+def llm_status() -> dict:
+    """Return the current LLM backend reachability and model info."""
+    reachable = False
+    detail = ""
+    try:
+        import urllib.request
+        base_url = _config.get("llm.ollama.base_url", "http://localhost:11434")
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=3) as resp:
+            data = json.loads(resp.read())
+            models = [m.get("name", "") for m in data.get("models", [])]
+            reachable = True
+            detail = models[0] if models else "(no models pulled)"
+    except Exception:
+        detail = "Ollama not reachable — is it running?"
+    return {
+        "backend": _backend,
+        "reachable": reachable,
+        "detail": detail,
+        "model": _config.get("llm.ollama.model", "llama3"),
+    }
+
+
+# ─── File management ─────────────────────────────────────────────────────────
+
+_WORKSPACE_ROOT = _BASE / "workspace"
+_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+
+_ALLOWED_ROOTS: dict[str, Path] = {
+    "workspace": _BASE / "workspace",
+    "projects":  _BASE.parent.parent / "Projects",
+}
+
+
+def _resolve_safe(rel_path: str) -> Path:
+    """Return an absolute Path for *rel_path*, rejecting path traversal."""
+    p = Path(rel_path)
+    parts = p.parts
+    root_name = parts[0].lower() if parts else ""
+    root = _ALLOWED_ROOTS.get(root_name)
+    if root is None:
+        root = _ALLOWED_ROOTS["workspace"]
+        resolved = (root / rel_path).resolve()
+    else:
+        rest = Path(*parts[1:]) if len(parts) > 1 else Path(".")
+        resolved = (root / rest).resolve()
+    if not str(resolved).startswith(str(root.resolve())):
+        raise _HTTPException(status_code=400, detail=f"Unsafe path: {rel_path}")
+    return resolved
+
+
+def _build_tree(directory: Path, base: Path, depth: int = 0, max_depth: int = 4) -> list:
+    if depth > max_depth or not directory.is_dir():
+        return []
+    items = []
+    try:
+        for item in sorted(directory.iterdir()):
+            if item.name.startswith("."):
+                continue
+            rel = str(item.relative_to(base))
+            if item.is_dir():
+                items.append({
+                    "type": "dir", "name": item.name, "path": rel,
+                    "children": _build_tree(item, base, depth + 1, max_depth),
+                })
+            else:
+                items.append({"type": "file", "name": item.name, "path": rel,
+                               "size": item.stat().st_size})
+    except PermissionError:
+        pass
+    return items
+
+
+_MAX_AI_CODE_CHARS    = 4000  # max code snippet forwarded to the LLM
+_MAX_AI_CONTEXT_CHARS = 2000  # max context snippet forwarded to the LLM
+
+
+def _run_cmd(command: str, cwd: Path, timeout: int = 120) -> dict:
+    """Run a shell command (build/run/test) and return stdout/stderr/exit_code.
+
+    Uses shell=True so that compound build commands (e.g. ``npm run build``,
+    ``dotnet build``) work unchanged. Never pass unsanitised user-supplied text
+    into this function — use ``_run_git_cmd`` for git operations instead.
+    """
+    try:
+        proc = subprocess.run(
+            command, shell=True, cwd=str(cwd),
+            capture_output=True, text=True, timeout=timeout,
+        )
+        return {
+            "stdout": proc.stdout, "stderr": proc.stderr,
+            "exit_code": proc.returncode, "success": proc.returncode == 0,
+            "output": proc.stdout or proc.stderr,
+        }
+    except subprocess.TimeoutExpired:
+        return {"stdout": "", "stderr": f"Timed out after {timeout}s.",
+                "exit_code": -1, "success": False, "output": f"Timed out after {timeout}s."}
+
+
+def _run_git_cmd(args: list[str], cwd: Path, timeout: int = 30) -> dict:
+    """Run a git sub-command using an argument list (no shell expansion).
+
+    Prefixes ``args`` with ``["git"]`` automatically.
+    """
+    try:
+        proc = subprocess.run(
+            ["git"] + args, cwd=str(cwd),
+            capture_output=True, text=True, timeout=timeout,
+        )
+        return {
+            "stdout": proc.stdout, "stderr": proc.stderr,
+            "exit_code": proc.returncode, "success": proc.returncode == 0,
+            "output": proc.stdout or proc.stderr,
+        }
+    except subprocess.TimeoutExpired:
+        return {"stdout": "", "stderr": f"git timed out after {timeout}s.",
+                "exit_code": -1, "success": False, "output": f"git timed out after {timeout}s."}
+
+
+@app.get("/files")
+def files_tree(path: str = "workspace") -> dict:
+    root_name = Path(path).parts[0].lower() if Path(path).parts else "workspace"
+    root = _ALLOWED_ROOTS.get(root_name, _ALLOWED_ROOTS["workspace"])
+    root.mkdir(parents=True, exist_ok=True)
+    return {"tree": _build_tree(root, root), "root": path}
+
+
+@app.get("/files/read")
+def files_read(path: str) -> dict:
+    fp = _resolve_safe(path)
+    if not fp.is_file():
+        raise _HTTPException(status_code=404, detail=f"File not found: {path}")
+    content = fp.read_text(encoding="utf-8", errors="replace")
+    return {"path": path, "content": content}
+
+
+class _FileWriteReq(BaseModel):
+    path: str
+    content: str
+
+
+@app.post("/files/write")
+def files_write(req: _FileWriteReq) -> dict:
+    fp = _resolve_safe(req.path)
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text(req.content, encoding="utf-8")
+    return {"path": req.path, "ok": True}
+
+
+class _FileDeleteReq(BaseModel):
+    path: str
+
+
+@app.post("/files/delete")
+def files_delete(req: _FileDeleteReq) -> dict:
+    fp = _resolve_safe(req.path)
+    if fp.is_file():
+        fp.unlink()
+    elif fp.is_dir():
+        _shutil.rmtree(fp)
+    else:
+        raise _HTTPException(status_code=404, detail=f"Not found: {req.path}")
+    return {"path": req.path, "ok": True}
+
+
+class _FileRenameReq(BaseModel):
+    path: str
+    new_path: str
+
+
+@app.post("/files/rename")
+def files_rename(req: _FileRenameReq) -> dict:
+    src = _resolve_safe(req.path)
+    dst = _resolve_safe(req.new_path)
+    if not src.exists():
+        raise _HTTPException(status_code=404, detail=f"Source not found: {req.path}")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src.rename(dst)
+    return {"path": req.new_path, "ok": True}
+
+
+@app.get("/files/scan")
+def files_scan(path: str = "workspace") -> dict:
+    root_name = Path(path).parts[0].lower() if Path(path).parts else "workspace"
+    root = _ALLOWED_ROOTS.get(root_name, _ALLOWED_ROOTS["workspace"])
+    if not root.is_dir():
+        return {"path": path, "files": []}
+    files = [
+        str(f.relative_to(root))
+        for f in root.rglob("*")
+        if f.is_file() and not f.name.startswith(".")
+    ]
+    return {"path": path, "files": files}
+
+
+class _FileImportReq(BaseModel):
+    source: str
+    dest: str = "workspace"
+
+
+@app.post("/files/import")
+def files_import(req: _FileImportReq) -> dict:
+    src = Path(req.source)
+    if not src.exists():
+        raise _HTTPException(status_code=404, detail=f"Source not found: {req.source}")
+    root_name = Path(req.dest).parts[0].lower() if Path(req.dest).parts else "workspace"
+    dest_root = _ALLOWED_ROOTS.get(root_name, _ALLOWED_ROOTS["workspace"])
+    dest_root.mkdir(parents=True, exist_ok=True)
+    dest = dest_root / src.name
+    if src.is_dir():
+        _shutil.copytree(src, dest, dirs_exist_ok=True)
+    else:
+        _shutil.copy2(src, dest)
+    return {"dest": str(dest.relative_to(_BASE.parent.parent)), "ok": True}
+
+
+# ─── IDE native tool-call bridge ─────────────────────────────────────────────
+
+_ide_queue: list = []
+_ide_queue_lock = _threading.Lock()
+_ide_results: dict = {}
+
+
+@app.get("/api/ide/pending")
+def ide_pending() -> dict:
+    """Return and clear all pending native tool calls for the WPF host."""
+    with _ide_queue_lock:
+        items = list(_ide_queue)
+        _ide_queue.clear()
+    return {"calls": items}
+
+
+class _IdeCommandReq(BaseModel):
+    type: str
+    payload: dict = {}
+
+
+@app.post("/api/ide/command")
+def ide_command(req: _IdeCommandReq) -> dict:
+    """Queue a native command for the WPF host to execute."""
+    call_id = str(_uuid_mod.uuid4())[:8]
+    with _ide_queue_lock:
+        _ide_queue.append({"id": call_id, "type": req.type, "payload": req.payload})
+    return {"status": "queued", "call_id": call_id}
+
+
+class _IdeResultReq(BaseModel):
+    call_id: str
+    result: dict = {}
+
+
+@app.post("/api/ide/complete")
+def ide_complete(req: _IdeResultReq) -> dict:
+    """Receive the result of a native tool call from the WPF host."""
+    _ide_results[req.call_id] = req.result
+    return {"status": "ok", "call_id": req.call_id}
+
+
+@app.get("/api/ide/result/{call_id}")
+def ide_result(call_id: str) -> dict:
+    """Poll for the result of a specific native call."""
+    result = _ide_results.pop(call_id, None)
+    if result is None:
+        return {"status": "pending"}
+    return {"status": "ready", "result": result}
+
+
+# ─── Git endpoints ────────────────────────────────────────────────────────────
+
+class _GitCloneReq(BaseModel):
+    url: str
+    dest: str = "workspace"
+    branch: str = ""
+
+
+@app.post("/git/clone")
+def git_clone(req: _GitCloneReq) -> dict:
+    dest_root = _ALLOWED_ROOTS.get(
+        Path(req.dest).parts[0].lower() if Path(req.dest).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    dest_root.mkdir(parents=True, exist_ok=True)
+    git_args = ["clone"]
+    if req.branch:
+        git_args += ["--branch", req.branch]
+    git_args.append(req.url)
+    return _run_git_cmd(git_args, dest_root, timeout=120)
+
+
+@app.get("/git/status")
+def git_status_ep(path: str = "workspace") -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(path).parts[0].lower() if Path(path).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    r = _run_git_cmd(["status", "--short"], root, timeout=10)
+    lines = (r.get("stdout") or "").splitlines()
+    staged    = [ln[3:] for ln in lines if ln[:2] in ("A ", "M ", "D ")]
+    unstaged  = [ln[3:] for ln in lines if ln[:1] == " " and ln[1:2] in ("M", "D")]
+    untracked = [ln[3:] for ln in lines if ln[:2] == "??"]
+    branch_r  = _run_git_cmd(["branch", "--show-current"], root, timeout=5)
+    branch    = (branch_r.get("stdout") or "").strip() or "unknown"
+    return {"branch": branch, "staged": staged, "unstaged": unstaged, "untracked": untracked}
+
+
+class _GitStageReq(BaseModel):
+    files: list
+    project: str = "workspace"
+
+
+@app.post("/git/stage")
+def git_stage(req: _GitStageReq) -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(req.project).parts[0].lower() if Path(req.project).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    safe_files = [str(f) for f in req.files[:50]]
+    return _run_git_cmd(["add", "--"] + safe_files, root, timeout=15)
+
+
+class _GitCommitReq(BaseModel):
+    message: str
+    project: str = "workspace"
+
+
+@app.post("/git/commit")
+def git_commit_ep(req: _GitCommitReq) -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(req.project).parts[0].lower() if Path(req.project).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    return _run_git_cmd(["commit", "-m", req.message], root, timeout=15)
+
+
+@app.get("/git/log")
+def git_log(path: str = "workspace", limit: int = 20) -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(path).parts[0].lower() if Path(path).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    r = _run_git_cmd(["log", "--oneline", f"-n{min(limit, 100)}"], root, timeout=10)
+    commits = []
+    for line in (r.get("stdout") or "").splitlines():
+        if " " in line:
+            sha, _, msg = line.partition(" ")
+            commits.append({"sha": sha, "message": msg})
+    return {"commits": commits}
+
+
+@app.get("/git/diff")
+def git_diff(path: str = "workspace", file: str = "") -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(path).parts[0].lower() if Path(path).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    git_args = ["diff"]
+    if file:
+        git_args += ["--", file]
+    r = _run_git_cmd(git_args, root, timeout=10)
+    return {"diff": r.get("stdout", "")}
+
+
+# ─── Project health / init ────────────────────────────────────────────────────
+
+def _auto_detect_build_cmd(project_dir: Path, action: str) -> str:
+    if (project_dir / "package.json").exists():
+        return {"build": "npm run build", "run": "npm start", "test": "npm test"}.get(action, "")
+    if list(project_dir.glob("*.csproj")) or list(project_dir.glob("*.sln")):
+        return {"build": "dotnet build", "run": "dotnet run", "test": "dotnet test"}.get(action, "")
+    if (project_dir / "Cargo.toml").exists():
+        return {"build": "cargo build", "run": "cargo run", "test": "cargo test"}.get(action, "")
+    if (project_dir / "pyproject.toml").exists() or (project_dir / "setup.py").exists():
+        return {"build": "pip install -e .", "run": "python -m app", "test": "pytest"}.get(action, "")
+    if (project_dir / "Makefile").exists():
+        return {"build": "make", "run": "make run", "test": "make test"}.get(action, "")
+    return ""
+
+
+@app.get("/project/health")
+def project_health(path: str = "workspace") -> dict:
+    return {"status": "ok", "path": path}
+
+
+@app.get("/project/init/detect")
+def project_init_detect(path: str = "workspace") -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(path).parts[0].lower() if Path(path).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    return {
+        "build": _auto_detect_build_cmd(root, "build"),
+        "run":   _auto_detect_build_cmd(root, "run"),
+        "test":  _auto_detect_build_cmd(root, "test"),
+        "path": path,
+    }
+
+
+@app.get("/project/init/scan")
+def project_init_scan(path: str = "workspace") -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(path).parts[0].lower() if Path(path).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    if not root.is_dir():
+        return {"languages": [], "extensions": {}}
+    exts: dict = {}
+    for f in root.rglob("*"):
+        if f.is_file():
+            exts[f.suffix] = exts.get(f.suffix, 0) + 1
+    return {"extensions": exts, "path": path}
+
+
+@app.post("/project/init")
+def project_init(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+# ─── Build detection ──────────────────────────────────────────────────────────
+
+@app.get("/build/detect")
+def build_detect(path: str = "workspace") -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(path).parts[0].lower() if Path(path).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    return {
+        "build": _auto_detect_build_cmd(root, "build") or None,
+        "run":   _auto_detect_build_cmd(root, "run")   or None,
+        "test":  _auto_detect_build_cmd(root, "test")  or None,
+    }
+
+
+# ─── Diff / Patch / Format / Lint ────────────────────────────────────────────
+
+class _DiffReq(BaseModel):
+    original: str
+    modified: str
+
+
+@app.post("/diff")
+def compute_diff(req: _DiffReq) -> dict:
+    diff = list(_difflib.unified_diff(
+        req.original.splitlines(keepends=True),
+        req.modified.splitlines(keepends=True),
+        fromfile="original", tofile="modified",
+    ))
+    return {"diff": "".join(diff)}
+
+
+class _PatchReq(BaseModel):
+    patch: str
+    path: str = "workspace"
+
+
+@app.post("/patch")
+def apply_patch(req: _PatchReq) -> dict:
+    root = _ALLOWED_ROOTS.get(
+        Path(req.path).parts[0].lower() if Path(req.path).parts else "workspace",
+        _ALLOWED_ROOTS["workspace"],
+    )
+    with _tempfile.NamedTemporaryFile(mode="w", suffix=".patch", delete=False) as tf:
+        tf.write(req.patch)
+        pf = tf.name
+    try:
+        proc = subprocess.run(
+            ["patch", "-p1", f"--input={pf}"],
+            cwd=str(root), capture_output=True, text=True, timeout=30,
+        )
+        result = {
+            "stdout": proc.stdout, "stderr": proc.stderr,
+            "exit_code": proc.returncode, "success": proc.returncode == 0,
+            "output": proc.stdout or proc.stderr,
+        }
+    except subprocess.TimeoutExpired:
+        result = {"stdout": "", "stderr": "patch timed out.", "exit_code": -1,
+                  "success": False, "output": "patch timed out."}
+    finally:
+        try:
+            os.unlink(pf)
+        except OSError:
+            pass
+    return result
+
+
+class _FormatReq(BaseModel):
+    code: str
+    language: str = "python"
+
+
+@app.post("/format")
+def format_code(req: _FormatReq) -> dict:
+    if req.language in ("python", "py"):
+        try:
+            import black
+            formatted = black.format_str(req.code, mode=black.Mode())
+            return {"code": formatted, "ok": True}
+        except Exception as exc:
+            return {"code": req.code, "ok": False, "error": str(exc)}
+    return {"code": req.code, "ok": True}
+
+
+class _LintReq(BaseModel):
+    code: str
+    language: str = "python"
+    path: str = ""
+
+
+@app.post("/lint")
+def lint_code(req: _LintReq) -> dict:
+    if req.language in ("python", "py"):
+        tmp = ""
+        try:
+            with _tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as tf:
+                tf.write(req.code)
+                tmp = tf.name
+            proc = subprocess.run(
+                [sys.executable, "-m", "flake8", "--max-line-length=120", tmp],
+                capture_output=True, text=True, timeout=15,
+            )
+            return {"issues": proc.stdout, "ok": proc.returncode == 0}
+        except Exception as exc:
+            return {"issues": str(exc), "ok": False}
+        finally:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+    return {"issues": "", "ok": True}
+
+
+# ─── Scaffold / Templates stubs ───────────────────────────────────────────────
+
+@app.post("/scaffold/module")
+@app.post("/scaffold/plugin")
+@app.post("/scaffold/tests")
+def scaffold_stub(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok", "message": "Scaffold not yet implemented in ArbiterEngine mode."}
+
+
+@app.get("/templates")
+def list_templates() -> dict:
+    return {"templates": []}
+
+
+@app.post("/templates/apply")
+def apply_template(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+# ─── Assistant / AI chat panel ────────────────────────────────────────────────
+
+class _AssistantMsg(BaseModel):
+    prompt: str
+    project: str = "default"
+    backend: str = ""
+    context: str = ""
+    mode: str = "chat"
+
+
+@app.post("/assistant/chat")
+def assistant_chat(msg: _AssistantMsg) -> dict:
+    """Primary chat endpoint used by the Monaco IDE chat panel."""
+    from core.agent import Agent
+    history = _chat_histories.setdefault(msg.project, [])
+    agent = Agent(
+        llm=_llm,
+        tool_registry=_registry,
+        permission_system=_permissions,
+        task_runner=_runner,
+        config=_config,
+        project_path=msg.project,
+    )
+    try:
+        response = agent.run(
+            prompt=msg.prompt,
+            project_path=msg.project,
+            chat_history=history,
+        )
+    except Exception as exc:
+        logger.error("assistant_chat error: %s", exc)
+        response = f"[Arbiter Engine error] {exc}"
+    history.append({"role": "user", "content": msg.prompt})
+    history.append({"role": "assistant", "content": response})
+    return {"response": response}
+
+
+@app.post("/assistant/chat/agentic")
+def assistant_chat_agentic(msg: _AssistantMsg) -> dict:
+    """Agentic chat — delegates to the standard agent."""
+    return assistant_chat(msg)
+
+
+# ─── AI action / propose / timeline ──────────────────────────────────────────
+
+class _AiActionReq(BaseModel):
+    action: str = ""
+    code: str = ""
+    context: str = ""
+    project: str = "default"
+
+
+@app.post("/ai/action")
+def ai_action(req: _AiActionReq) -> dict:
+    prompt = f"Action: {req.action}\n\nCode:\n{req.code[:_MAX_AI_CODE_CHARS]}"
+    if req.context:
+        prompt += f"\n\nContext:\n{req.context[:_MAX_AI_CONTEXT_CHARS]}"
+    from core.agent import Agent
+    agent = Agent(llm=_llm, tool_registry=_registry, permission_system=_permissions,
+                  task_runner=_runner, config=_config, project_path=req.project)
+    try:
+        response = agent.run(prompt=prompt, project_path=req.project)
+    except Exception as exc:
+        response = f"[Error] {exc}"
+    return {"response": response}
+
+
+@app.post("/ai/complete")
+def ai_complete(req: _AiActionReq) -> dict:
+    return ai_action(req)
+
+
+@app.post("/ai/propose")
+def ai_propose(req: _AiActionReq) -> dict:
+    return ai_action(req)
+
+
+@app.get("/ai/persona/active")
+def ai_persona_active(project: str = "default") -> dict:
+    return {"persona": _active_personas.get(project, "Arbiter")}
+
+
+@app.get("/ai/backends")
+def ai_backends() -> dict:
+    available = []
+    try:
+        import urllib.request
+        base_url = _config.get("llm.ollama.base_url", "http://localhost:11434")
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=3) as resp:
+            data = json.loads(resp.read())
+            models = [m.get("name", "") for m in data.get("models", [])]
+            for m in models:
+                available.append({"name": "ollama", "model": m, "available": True})
+    except Exception:
+        available.append({"name": "ollama", "model": _config.get("llm.ollama.model", "llama3"),
+                          "available": False})
+    return {"backends": available, "active": _backend}
+
+
+@app.post("/ai/backends/switch")
+@app.post("/ai/backends/configure")
+@app.post("/ai/backends/test")
+def ai_backend_stub(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/ai/timeline")
+def ai_timeline(limit: int = 100) -> dict:
+    return {"events": []}
+
+
+@app.post("/ai/timeline/clear")
+def ai_timeline_clear() -> dict:
+    return {"status": "ok"}
+
+
+# ─── Misc stubs (panels that poll these endpoints) ───────────────────────────
+
+@app.get("/stats")
+def stats() -> dict:
+    return {"requests": 0, "errors": 0, "uptime_s": 0}
+
+
+@app.get("/profile")
+def profile() -> dict:
+    return {"name": "default", "theme": "dark"}
+
+
+@app.get("/config/active")
+@app.get("/config/profile")
+def config_active() -> dict:
+    return {"profile": "default"}
+
+
+@app.get("/config/profiles")
+def config_profiles() -> dict:
+    return {"profiles": ["default"]}
+
+
+@app.post("/config/profile")
+def config_profile_set(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/toolchain")
+def toolchain() -> dict:
+    return {"tools": []}
+
+
+@app.get("/notifications")
+def notifications() -> dict:
+    return {"notifications": []}
+
+
+@app.post("/notifications/clear")
+@app.post("/notifications/mark-read")
+def notifications_modify(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/notify")
+def notify(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/flags")
+def flags() -> dict:
+    return {"flags": {}}
+
+
+@app.post("/flags/flag")
+def flag(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/archive")
+def archive_list() -> dict:
+    return {"entries": []}
+
+
+@app.post("/archive/rebuild")
+def archive_rebuild() -> dict:
+    return {"status": "ok"}
+
+
+@app.get("/archive/search")
+def archive_search(q: str = "") -> dict:
+    return {"results": []}
+
+
+@app.get("/metrics")
+def metrics() -> dict:
+    return {"metrics": {}}
+
+
+@app.get("/metrics/alerts")
+def metrics_alerts() -> dict:
+    return {"alerts": []}
+
+
+@app.post("/metrics/alert")
+def metrics_alert(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/rules")
+def rules() -> dict:
+    return {"rules": []}
+
+
+@app.get("/snippets")
+def snippets() -> dict:
+    return {"snippets": []}
+
+
+@app.post("/snippet")
+def snippet_create(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/snippet/run")
+def snippet_run(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok", "output": ""}
+
+
+@app.get("/notes")
+def notes() -> dict:
+    return {"notes": []}
+
+
+@app.post("/notes")
+def notes_create(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/tasks")
+def tasks_list() -> dict:
+    return {"tasks": []}
+
+
+@app.get("/events/history")
+def events_history() -> dict:
+    return {"events": []}
+
+
+@app.post("/events/publish")
+def events_publish(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/events/subscribe")
+def events_subscribe(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/events/subscriptions")
+def events_subscriptions() -> dict:
+    return {"subscriptions": []}
+
+
+@app.get("/roadmap/next")
+def roadmap_next() -> dict:
+    try:
+        rmap = (_BASE.parent.parent / "roadmap.json")
+        if rmap.exists():
+            data = json.loads(rmap.read_text(encoding="utf-8"))
+            tasks = data if isinstance(data, list) else data.get("tasks", [])
+            pending = [t for t in tasks if not t.get("done", False)]
+            return {"task": pending[0] if pending else None}
+    except Exception:
+        pass
+    return {"task": None}
+
+
+@app.get("/knowledge/fetch")
+def knowledge_fetch(q: str = "") -> dict:
+    return {"results": []}
+
+
+@app.post("/knowledge/fetch")
+def knowledge_fetch_post(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"results": []}
+
+
+@app.post("/knowledge/remove")
+def knowledge_remove(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/library")
+def library_list() -> dict:
+    return {"entries": []}
+
+
+@app.post("/refactor/find-replace")
+@app.post("/refactor/rename")
+def refactor_stub(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok", "changes": []}
+
+
+@app.post("/brainstorm/session")
+def brainstorm_session(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"session_id": str(_uuid_mod.uuid4())[:8], "ideas": []}
+
+
+@app.get("/brainstorm/sessions")
+def brainstorm_sessions() -> dict:
+    return {"sessions": []}
+
+
+@app.post("/docgen/generate")
+def docgen_generate(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"documentation": ""}
+
+
+@app.get("/docgen/history")
+def docgen_history(limit: int = 20) -> dict:
+    return {"history": []}
+
+
+@app.get("/apiclient/collections")
+def apiclient_collections() -> dict:
+    return {"collections": []}
+
+
+@app.get("/apiclient/collection/{name}")
+def apiclient_collection(name: str) -> dict:
+    return {"name": name, "requests": []}
+
+
+@app.post("/apiclient/collection")
+def apiclient_collection_create(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/apiclient/collection/{name}/request")
+def apiclient_request_create(name: str, req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/apiclient/send")
+def apiclient_send(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": 0, "body": "", "headers": {}}
+
+
+@app.get("/queue/stats")
+def queue_stats() -> dict:
+    return {"pending": 0, "running": 0, "done": 0}
+
+
+@app.get("/queue/tasks")
+def queue_tasks() -> dict:
+    return {"tasks": []}
+
+
+@app.post("/queue/task")
+def queue_task(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"task_id": str(_uuid_mod.uuid4())[:8]}
+
+
+@app.get("/ratelimit/status")
+def ratelimit_status() -> dict:
+    return {"limited": False}
+
+
+@app.get("/ratelimit/rules")
+def ratelimit_rules() -> dict:
+    return {"rules": []}
+
+
+@app.post("/ratelimit/rule")
+def ratelimit_rule(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/deps/reports")
+def deps_reports(limit: int = 10) -> dict:
+    return {"reports": []}
+
+
+@app.post("/deps/analyze")
+def deps_analyze(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok", "dependencies": []}
+
+
+@app.get("/env/files")
+def env_files() -> dict:
+    return {"files": []}
+
+
+@app.post("/env/var")
+def env_var_set(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/env/import")
+def env_import(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/vault/keys")
+def vault_keys() -> dict:
+    return {"keys": []}
+
+
+@app.post("/vault/set")
+def vault_set(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/vault/export")
+def vault_export(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/webhooks")
+@app.get("/webhook/deliveries")
+def webhooks_list() -> dict:
+    return {"webhooks": []}
+
+
+@app.post("/webhook/register")
+def webhook_register(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/docker/containers")
+def docker_containers() -> dict:
+    return {"containers": []}
+
+
+@app.post("/docker/build")
+@app.post("/docker/run")
+def docker_stub(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok", "output": ""}
+
+
+@app.get("/ci/runs")
+def ci_runs() -> dict:
+    return {"runs": []}
+
+
+@app.post("/ci/run")
+def ci_run(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/deploy/configs")
+@app.get("/deploy/history")
+def deploy_list() -> dict:
+    return {"items": []}
+
+
+@app.post("/deploy/config")
+def deploy_config(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/deploy/run")
+def deploy_run(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/db/connections")
+def db_connections() -> dict:
+    return {"connections": []}
+
+
+@app.post("/db/connect")
+def db_connect(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.post("/db/query")
+def db_query(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"rows": [], "columns": []}
+
+
+@app.get("/cron/jobs")
+@app.get("/cron/history")
+def cron_list() -> dict:
+    return {"items": []}
+
+
+@app.post("/cron/job")
+def cron_job(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+@app.get("/terminal/sessions")
+def terminal_sessions() -> dict:
+    return {"sessions": []}
+
+
+@app.post("/terminal/session")
+def terminal_session(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"session_id": str(_uuid_mod.uuid4())[:8]}
+
+
+@app.get("/testrunner/reports")
+def testrunner_reports(limit: int = 20) -> dict:
+    return {"reports": []}
+
+
+@app.post("/testrunner/run")
+def testrunner_run(req: dict = {}) -> dict:  # type: ignore[assignment]
+    return {"status": "ok"}
+
+
+# ─── Graceful shutdown ────────────────────────────────────────────────────────
+
+@app.post("/shutdown")
+def shutdown_server() -> dict:
+    """Save all session data then ask uvicorn to exit cleanly."""
+    _save_snapshot()
+    import threading
+
+    def _stop() -> None:
+        import time
+        time.sleep(0.3)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    threading.Thread(target=_stop, daemon=True).start()
+    return {"status": "shutting_down"}
 
 
 if __name__ == "__main__":
