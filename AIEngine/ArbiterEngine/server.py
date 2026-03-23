@@ -2269,6 +2269,27 @@ class _TtsRequest(BaseModel):
 
 
 @app.post("/voice/tts")
+def _matches_voice_preference(voice_obj: object, keyword: str) -> bool:
+    """Return True if *voice_obj* (a pyttsx3 Voice) matches the *keyword* spec.
+
+    Handles tokens like 'british_female', 'american_male', etc.
+    """
+    vid = (getattr(voice_obj, "id",   "") or "").lower()
+    vn  = (getattr(voice_obj, "name", "") or "").lower()
+    wants_british = "british" in keyword
+    wants_female  = "female"  in keyword
+    wants_male    = "male"    in keyword and not wants_female
+
+    if wants_british and ("british" not in vid and "british" not in vn):
+        return False
+    if wants_female and "female" not in vid and "female" not in vn:
+        return False
+    if wants_male and ("male" not in vid or "female" in vid):
+        return False
+    return True
+
+
+@app.post("/voice/tts")
 def voice_tts(req: _TtsRequest) -> dict:
     """Synthesise speech for *text* using the system TTS engine.
 
@@ -2280,16 +2301,10 @@ def voice_tts(req: _TtsRequest) -> dict:
     try:
         import pyttsx3
         engine = pyttsx3.init()
-        voices = engine.getProperty("voices")
-        # Select voice by keyword
         kw = req.voice.lower()
-        for v in voices:
-            vid = (v.id or "").lower()
-            vn  = (v.name or "").lower()
-            if ("british" in kw and ("british" in vid or "british" in vn)) or \
-               ("male" in kw and not "female" in kw and ("male" in vid and "female" not in vid)) or \
-               ("female" in kw and "female" in vid):
-                engine.setProperty("voice", v.id)
+        for voice_obj in engine.getProperty("voices"):
+            if _matches_voice_preference(voice_obj, kw):
+                engine.setProperty("voice", voice_obj.id)
                 break
         engine.say(req.text)
         engine.runAndWait()
@@ -2858,7 +2873,7 @@ def deps_scan(req: _DepsScanReq) -> dict:
     if (project_dir / "requirements.txt").is_file() or (project_dir / "pyproject.toml").is_file():
         try:
             proc = subprocess.run(
-                [sys.executable, "-m", "pip_audit", "--format", "json", "--progress-spinner=off"],
+                [sys.executable, "-m", "pip_audit", "--format", "json", "--no-progress"],
                 cwd=str(project_dir), capture_output=True, text=True, timeout=60,
             )
             raw_outputs.append(f"pip-audit:\n{proc.stdout or proc.stderr}")

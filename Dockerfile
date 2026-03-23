@@ -86,6 +86,11 @@ ENV ARBITER_ENGINE_PORT=8001 \
     ARBITER_LLM_BACKEND=ollama \
     ARBITER_LOG_LEVEL=info \
     PYTHONUNBUFFERED=1
+# Note: OLLAMA_HOST=http://host.docker.internal:11434 is the default for Docker Desktop
+# (Windows/macOS). On Linux hosts, override with:
+#   docker run -e OLLAMA_HOST=http://172.17.0.1:11434 arbiter-engine
+# When using docker-compose with the 'ollama' profile, the service name
+# 'ollama' resolves correctly inside the bridge network automatically.
 
 # ── Start script ───────────────────────────────────────────────────────────────
 COPY --chown=arbiter:arbiter docker-entrypoint.sh /app/docker-entrypoint.sh

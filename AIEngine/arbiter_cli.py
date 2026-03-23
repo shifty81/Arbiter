@@ -29,6 +29,7 @@ import os
 import sys
 import argparse
 import urllib.request
+import urllib.parse
 import urllib.error
 from typing import Any
 
@@ -48,7 +49,6 @@ def _get(server: str, path: str, params: dict | None = None) -> dict[str, Any]:
         qs = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
         url = f"{url}?{qs}"
     try:
-        import urllib.parse  # noqa: F401 — ensure available
         with urllib.request.urlopen(url, timeout=15) as resp:
             return json.loads(resp.read())
     except urllib.error.URLError as exc:
@@ -57,7 +57,6 @@ def _get(server: str, path: str, params: dict | None = None) -> dict[str, Any]:
 
 def _post(server: str, path: str, body: dict | None = None) -> dict[str, Any]:
     """Send a POST request with a JSON body and return parsed JSON."""
-    import urllib.parse  # noqa: F401
     url = server.rstrip("/") + path
     data = json.dumps(body or {}).encode()
     req = urllib.request.Request(
@@ -123,7 +122,6 @@ def cmd_archive(args: argparse.Namespace) -> None:
         query = " ".join(args.query)
         if not query:
             _die("Usage: arbiter archive search <query>")
-        import urllib.parse
         result = _get(args.server, "/archive/search", {"q": query})
         hits = result.get("results", [])
         print(f"Search '{query}': {len(hits)} result(s)")

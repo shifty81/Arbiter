@@ -165,7 +165,7 @@ def _validate_modified_files(base_dir: Path, modified_paths: list[str]) -> list[
     errors: list[str] = []
     has_csharp = any(
         (base_dir / rel).suffix in (".cs", ".xaml", ".csproj")
-        for rel in modified_paths if rel
+        for rel in modified_paths if rel and isinstance(rel, str)
     )
 
     if has_csharp:
@@ -189,6 +189,8 @@ def _validate_modified_files(base_dir: Path, modified_paths: list[str]) -> list[
             errors.append(f"dotnet build error: {exc}")
 
     for rel in modified_paths:
+        if not rel or not isinstance(rel, str):
+            continue
         p = base_dir / rel
         if p.suffix == ".py" and p.is_file():
             errors.extend(_validate_python_syntax(p))
@@ -387,7 +389,7 @@ class SelfBuildController:
             return {"status": "skipped", "reason": "review_required", "task_id": task_id}
 
         # Mark task as in_progress so the UI reflects current work
-        await asyncio.get_event_loop().run_in_executor(
+        await asyncio.get_running_loop().run_in_executor(
             None, _mark_task_in_progress, self._roadmap_file, task_id
         )
 
@@ -398,7 +400,7 @@ class SelfBuildController:
 
         # ── M7-4: File identification ──────────────────────────────────────────
         emit("🔍 Identifying files to create or modify…\n")
-        source_ctx = await asyncio.get_event_loop().run_in_executor(
+        source_ctx = await asyncio.get_running_loop().run_in_executor(
             None, _collect_source_files, self.base_dir
         )
         target_files = await self._identify_files(task_id, task_title, task_desc, plan, source_ctx)
@@ -456,31 +458,31 @@ class SelfBuildController:
             # ── Apply patch ────────────────────────────────────────────────────
             emit("🔧 Applying patch…\n")
             try:
-                modified = await asyncio.get_event_loop().run_in_executor(
+                modified = await asyncio.get_running_loop().run_in_executor(
                     None, _apply_patch, self.base_dir, patch_text
                 )
                 emit(f"   Modified: {modified}\n")
             except Exception as exc:
                 emit(f"❌ Patch failed: {exc}\n")
                 loop_log.append(f"attempt {attempt}: patch apply error: {exc}")
-                await asyncio.get_event_loop().run_in_executor(None, _git_rollback, self.base_dir)
+                await asyncio.get_running_loop().run_in_executor(None, _git_rollback, self.base_dir)
                 continue
 
             # ── M7-6: Syntax validation ────────────────────────────────────────
             emit("🔍 Validating syntax…\n")
-            syntax_errors = await asyncio.get_event_loop().run_in_executor(
+            syntax_errors = await asyncio.get_running_loop().run_in_executor(
                 None, _validate_modified_files, self.base_dir, modified
             )
             if syntax_errors:
                 emit("❌ Syntax errors found:\n" + "\n".join(f"   {e}" for e in syntax_errors) + "\n")
                 loop_log.append(f"attempt {attempt}: syntax errors: {syntax_errors}")
-                await asyncio.get_event_loop().run_in_executor(None, _git_rollback, self.base_dir)
+                await asyncio.get_running_loop().run_in_executor(None, _git_rollback, self.base_dir)
                 continue
             emit("✅ Syntax OK\n")
 
             # ── M7-7: Test execution ───────────────────────────────────────────
             emit("🧪 Running tests…\n")
-            passed, test_output = await asyncio.get_event_loop().run_in_executor(
+            passed, test_output = await asyncio.get_running_loop().run_in_executor(
                 None, _run_tests, self.base_dir, 120
             )
             emit(test_output[-2000:] + "\n")
@@ -488,7 +490,7 @@ class SelfBuildController:
             if not passed:
                 emit(f"❌ Tests failed (attempt {attempt})\n")
                 loop_log.append(f"attempt {attempt}: tests failed")
-                await asyncio.get_event_loop().run_in_executor(None, _git_rollback, self.base_dir)
+                await asyncio.get_running_loop().run_in_executor(None, _git_rollback, self.base_dir)
                 continue
 
             emit("✅ Tests passed!\n")
@@ -502,12 +504,12 @@ class SelfBuildController:
                 if not approved:
                     emit("✕ Commit rejected by user — rolling back.\n")
                     loop_log.append(f"attempt {attempt}: commit rejected (semiauto)")
-                    await asyncio.get_event_loop().run_in_executor(None, _git_rollback, self.base_dir)
+                    await asyncio.get_running_loop().run_in_executor(None, _git_rollback, self.base_dir)
                     break
                 emit("✅ Commit approved.\n")
 
             # ── M7-9: Structured git commit ────────────────────────────────────
-            committed = await asyncio.get_event_loop().run_in_executor(
+            committed = await asyncio.get_running_loop().run_in_executor(
                 None, _git_commit, self.base_dir, task_id, task_title
             )
             if committed:
@@ -518,7 +520,7 @@ class SelfBuildController:
                 f"Auto-built in {attempt} attempt(s). "
                 f"Mode: {mode}. Files: {', '.join(modified) if modified else 'none'}."
             )
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None, _mark_task_done, self._roadmap_file, task_id, notes
             )
             emit(f"🏁 Task {task_id} marked done in roadmap!\n")
@@ -534,7 +536,7 @@ class SelfBuildController:
             "success": committed, "log": loop_log,
         }
         telem.append(entry)
-        await asyncio.get_event_loop().run_in_executor(None, _save_telemetry, self.base_dir, telem)
+        await asyncio.get_running_loop().run_in_executor(None, _save_telemetry, self.base_dir, telem)
 
         return {
             "status": "success" if committed else "failed",
@@ -563,7 +565,7 @@ class SelfBuildController:
     # ── LLM helpers ───────────────────────────────────────────────────────────
 
     async def _llm_chat(self, messages: list[dict]) -> str:
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, lambda: self.llm.chat(messages)
         )
 
