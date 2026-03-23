@@ -232,3 +232,91 @@ def generate_response(
         return output["choices"][0]["text"].strip()
     except Exception as e:
         return f"[LLM Error] {str(e)}"
+
+
+def generate_response_stream(
+    message: str,
+    project: str,
+    system_prompt: str = "",
+):
+    """Yield response tokens one-by-one for WebSocket streaming chat.
+
+    Falls back to yielding the full blocking response as one chunk when the
+    active backend does not support streaming (stub / gguf without server mode).
+
+    Usage::
+
+        for token in generate_response_stream(message, project):
+            ws.send_json({"type": "chunk", "data": token})
+        ws.send_json({"type": "done"})
+    """
+    _load_model()
+
+    if not system_prompt:
+        try:
+            from persona_manager import get_system_prompt, DEFAULT_PERSONA
+            system_prompt = get_system_prompt(DEFAULT_PERSONA, project)
+        except ImportError:
+            system_prompt = (
+                "You are Arbiter, a personal autonomous AI development assistant. "
+                f"You are currently working on the project: {project}."
+            )
+
+    # ── Stub mode ─────────────────────────────────────────────────────────────
+    if _model == "stub" or _model is None:
+        yield (
+            f"[Arbiter stub] Received: '{message}' — configure an LLM backend "
+            "(Ollama, GGUF, etc.) to get real responses."
+        )
+        return
+
+    # ── Ollama streaming ──────────────────────────────────────────────────────
+    if _model == "ollama":
+        try:
+            payload = json.dumps({
+                "model": _ollama_model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": message},
+                ],
+                "stream": True,
+            }).encode()
+            req = urllib.request.Request(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                for raw_line in resp:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        pkt = json.loads(line)
+                        token = pkt.get("message", {}).get("content", "")
+                        if token:
+                            yield token
+                    except Exception:
+                        pass
+            return
+        except Exception as e:
+            yield f"\n[Ollama stream error: {e}]"
+            return
+
+    # ── llama-cpp-python streaming ─────────────────────────────────────────────
+    try:
+        prompt = f"<s>[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n{message} [/INST]"
+        for chunk in _model(
+            prompt,
+            max_tokens=512,
+            stop=["</s>", "[INST]"],
+            stream=True,
+        ):
+            text = chunk["choices"][0].get("text", "")
+            if text:
+                yield text
+    except TypeError:
+        # Model does not support stream=True — fall back to blocking
+        yield generate_response(message, project, system_prompt=system_prompt)
+    except Exception as e:
+        yield f"\n[LLM stream error: {e}]"

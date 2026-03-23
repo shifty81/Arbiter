@@ -3,15 +3,23 @@
 .hidden { display: none !important; }
 
 :root {
-  --bg:         #1e1e2e;
-  --surface:    #252535;
-  --surface2:   #2a2a3d;
-  --border:     #3a3a55;
-  --accent:     #7c6af7;
-  --accent2:    #56d364;
-  --text:       #cdd6f4;
-  --text-dim:   #7f849c;
-  --danger:     #f38ba8;
+  /* ── VS Code Dark palette — aligned with WPF DarkTheme.xaml ──────── */
+  --bg:         #1e1e1e;   /* WPF DarkBgBrush     */
+  --bg2:        #1e1e1e;   /* alias used in inline styles */
+  --bg3:        #252526;   /* alias used in progress bars */
+  --surface:    #252526;   /* WPF PanelBgBrush     */
+  --surface2:   #2d2d30;   /* VS Code tab/inactive area   */
+  --control-bg: #3c3c3c;   /* WPF ControlBgBrush / inputs */
+  --border:     #3f3f46;   /* WPF BorderBrush      */
+  --accent:     #007acc;   /* WPF AccentBrush  — VS Code Blue  */
+  --accent-hover: #1a8cd8; /* lighter blue for hover states    */
+  --accent2:    #4ec9b0;   /* VS Code teal — secondary accent  */
+  --accent3:    #73c991;   /* VS Code green — success/add      */
+  --text:       #d4d4d4;   /* WPF ForegroundBrush  */
+  --text-dim:   #aaaaaa;   /* WPF DimForegroundBrush */
+  --danger:     #f44747;   /* VS Code error red    */
+  --warning:    #ffcc00;   /* VS Code warning amber */
+  --selection:  #264f78;   /* WPF SelectionBrush   */
   --sidebar-w:  230px;
   --agent-w:    320px;
   --topbar-h:   44px;
@@ -357,7 +365,7 @@ body {
 }
 .tree-item:hover  { background: var(--surface2); }
 .tree-item.active { background: var(--accent); color: #fff; }
-.tree-item.dir    { color: #89b4fa; font-weight: 600; }
+.tree-item.dir    { color: #569cd6; font-weight: 600; }
 .tree-item .icon  { font-size: 13px; flex-shrink: 0; }
 
 /* indent child items */
@@ -494,8 +502,8 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
-  background: #1e1e2e;
-  color: #cdd6f4;
+  background: #1e1e1e;
+  color: #d4d4d4;
   font-family: var(--font-mono);
   font-size: 14px;
   line-height: 1.6;
@@ -513,7 +521,7 @@ body {
 /* ── Output panel ──────────────────────────────────────────────── */
 #output-panel {
   height: var(--output-h);
-  background: #141420;
+  background: #1a1a1a;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -554,15 +562,15 @@ body {
 
 .btn-fix {
   background: #2a2a0e;
-  color: #f9e2af;
-  border: 1px solid #f9e2af55;
+  color: #ffcc00;
+  border: 1px solid #ffcc0055;
   border-radius: 5px;
   cursor: pointer;
   font-size: 12px;
   padding: 3px 10px;
   transition: background .15s;
 }
-.btn-fix:hover { background: #f9e2af22; }
+.btn-fix:hover { background: #ffcc0022; }
 .btn-fix.hidden { display: none; }
 
 #output-header button:not(.out-tab):not(.btn-fix) {
@@ -588,12 +596,12 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.out-pane.active { display: block; color: #a6e3a1; }
-#build-content.active { color: #cdd6f4; }
+.out-pane.active { display: block; color: #73c991; }
+#build-content.active { color: #d4d4d4; }
 
 /* build error lines highlighted */
 .build-error { color: var(--danger); }
-.build-warn  { color: #f9e2af; }
+.build-warn  { color: #ffcc00; }
 .build-ok    { color: var(--accent2); }
 
 /* ── Sidebar CWD selector ───────────────────────────────────────── */
@@ -784,7 +792,7 @@ body {
 
 /* ── Copilot-style code blocks in chat ─────────────────────────────────── */
 .code-block {
-  background: #12121c;
+  background: #1a1a1a;
   border: 1px solid var(--border);
   border-radius: 8px;
   margin: 8px 0;
@@ -797,7 +805,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 5px 12px;
-  background: #1a1a2e;
+  background: #1e1e1e;
   border-bottom: 1px solid var(--border);
 }
 
@@ -837,7 +845,7 @@ body {
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.55;
-  color: #a6e3a1;
+  color: #73c991;
   white-space: pre;
   background: transparent;
 }
@@ -1116,8 +1124,8 @@ body {
   gap: 6px;
   font-size: 11px;
 }
-.ag-stat-add { color: #a6e3a1; font-weight: 600; }
-.ag-stat-del { color: #f38ba8; font-weight: 600; }
+.ag-stat-add { color: #73c991; font-weight: 600; }
+.ag-stat-del { color: var(--danger); font-weight: 600; }
 .ag-changes-actions { display: flex; gap: 6px; }
 .ag-btn-keep, .ag-btn-undo {
   font-size: 11px;
@@ -1152,8 +1160,8 @@ body {
 }
 .ag-file-entry:hover { background: var(--surface); }
 .ag-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-file-add { color: #a6e3a1; font-size: 11px; font-weight: 600; }
-.ag-file-del { color: #f38ba8; font-size: 11px; font-weight: 600; }
+.ag-file-add { color: #73c991; font-size: 11px; font-weight: 600; }
+.ag-file-del { color: var(--danger); font-size: 11px; font-weight: 600; }
 .ag-file-bullet { color: var(--text-dim); font-size: 10px; }
 
 /* Generating patch indicator */
@@ -1291,7 +1299,7 @@ body {
 
 .sb-idle    { opacity: .7; }
 .sb-running { animation: pulse 1.2s infinite; }
-.sb-error   { color: #f38ba8; }
+.sb-error   { color: var(--danger); }
 
 /* Editor mode badge inside the status bar version span */
 #sb-editor-mode {
@@ -1305,7 +1313,7 @@ body {
   text-transform: uppercase;
 }
 #sb-editor-mode.mode-monaco   { background: rgba(255,255,255,.18); }
-#sb-editor-mode.mode-fallback { background: #f9e2af33; color: #f9e2af; }
+#sb-editor-mode.mode-fallback { background: #ffcc0033; color: #ffcc00; }
 
 /* ── Context menu ──────────────────────────────────────────────── */
 .context-menu {
@@ -1378,8 +1386,8 @@ body {
 .problem-row:hover { background: var(--surface2); }
 .problem-icon { font-size: 12px; flex-shrink: 0; }
 .problem-icon.error { color: var(--danger); }
-.problem-icon.warning { color: #f9e2af; }
-.problem-file { color: #89b4fa; font-size: 11px; }
+.problem-icon.warning { color: #ffcc00; }
+.problem-file { color: #569cd6; font-size: 11px; }
 .problem-line { color: var(--text-dim); font-size: 11px; }
 .problem-msg  { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1412,12 +1420,12 @@ body {
 .clone-status.hidden { display: none; }
 .clone-status.error  { color: var(--danger); }
 .clone-status.success { color: var(--accent2); }
-.clone-status.running { color: #f9e2af; }
+.clone-status.running { color: #ffcc00; }
 
 /* ── Terminal pane (xterm.js container) ──────────────────────────────── */
 .terminal-pane { padding: 0 !important; overflow: hidden; }
 #terminal-content .xterm { height: 100%; }
-#terminal-content .xterm-viewport { background: #1e1e2e !important; }
+#terminal-content .xterm-viewport { background: #1e1e1e !important; }
 #terminal-content.active { display: flex; flex-direction: column; }
 
 /* ── Roadmap pane ────────────────────────────────────────────────────── */
@@ -1467,8 +1475,8 @@ body {
   border-radius: 10px;
   font-weight: 600;
 }
-.badge-done     { background: #a6e3a1; color: #1e1e2e; }
-.badge-in_progress { background: #f9e2af; color: #1e1e2e; }
+.badge-done     { background: #73c991; color: #1e1e1e; }
+.badge-in_progress { background: #ffcc00; color: #1e1e1e; }
 .badge-pending  { background: var(--surface2); color: var(--text-dim); }
 
 .milestone-tasks { display: none; padding-left: 12px; }
@@ -1625,7 +1633,7 @@ body {
   gap: 8px;
 }
 .btn-diff-accept {
-  background: #2ea043;
+  background: #388a34;
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -1634,7 +1642,7 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.btn-diff-accept:hover { background: #3fb950; }
+.btn-diff-accept:hover { background: #4aaa40; }
 .btn-diff-reject {
   background: var(--surface2);
   color: var(--text);
@@ -1831,7 +1839,7 @@ body {
 /* Local/free badge on backend cards */
 .backend-badge-local {
   font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
-  background: #1a3a1a; color: #56d364; border: 1px solid #2ea043; margin-left: auto;
+  background: #1a3a1a; color: #73c991; border: 1px solid #2ea043; margin-left: auto;
 }
 .backend-badge-free {
   font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
@@ -1953,9 +1961,9 @@ body.light-theme {
   --surface:  #ffffff;
   --surface2: #ebebf0;
   --border:   #d0d0e0;
-  --accent:   #5c4dcc;
-  --accent2:  #2e7d32;
-  --text:     #1a1a2e;
+  --accent:   #0066b8;  /* VS Code blue (light mode) */
+  --accent2:  #1e8a5e;  /* VS Code teal (light mode) */
+  --text:     #1e1e1e;
   --text-dim: #6b7280;
-  --danger:   #d32f2f;
+  --danger:   #d92c2c;  /* VS Code red (light mode) */
 }
