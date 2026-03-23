@@ -1464,23 +1464,160 @@ def lint_code(req: _LintReq) -> dict:
     return {"issues": "", "ok": True}
 
 
-# ─── Scaffold / Templates stubs ───────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-1: Scaffold system — generate boilerplate modules, plugins, and tests
+# ─────────────────────────────────────────────────────────────────────────────
+import re as _re
+
+_SCAFFOLD_TEMPLATES: dict[str, dict[str, str]] = {
+    "module": {
+        "python": (
+            '"""{{name}} module.\n\nAdd module description here.\n"""\nfrom __future__ import annotations\n\n\n'
+            "def {{name}}_action(param: str) -> str:\n"
+            '    """Perform the primary action for {{name}}.\n\n    Args:\n        param: Input parameter.\n\n'
+            '    Returns:\n        Result string.\n    """\n    return param\n'
+        ),
+        "csharp": (
+            "using System;\n\nnamespace Arbiter.{{Name}}\n{\n"
+            "    /// <summary>{{Name}} module.</summary>\n"
+            "    public class {{Name}}\n    {\n"
+            "        public string Execute(string param)\n        {\n"
+            '            return param;\n        }\n    }\n}\n'
+        ),
+    },
+    "plugin": {
+        "python": (
+            '"""{{name}} plugin for Arbiter Engine.\n\nRegister tools by calling registry.register() below.\n"""\n'
+            "from __future__ import annotations\n"
+            "from core.tool_registry import ToolRegistry\n\n\n"
+            "def register(registry: ToolRegistry) -> None:\n"
+            '    """Register all tools provided by this plugin."""\n\n'
+            "    def {{name}}_tool(param: str) -> str:\n"
+            '        """{{name}} tool — replace with real implementation."""\n'
+            "        return param\n\n"
+            '    registry.register("{{name}}", {{name}}_tool)\n'
+        ),
+    },
+    "tests": {
+        "python": (
+            '"""Tests for {{name}}."""\nfrom __future__ import annotations\nimport pytest\n\n\n'
+            "class Test{{Name}}:\n"
+            "    def test_placeholder(self) -> None:\n"
+            '        """Replace with real test."""\n        assert True\n'
+        ),
+        "csharp": (
+            "using Xunit;\n\nnamespace Arbiter.Tests\n{\n"
+            "    public class {{Name}}Tests\n    {\n"
+            "        [Fact]\n        public void Placeholder()\n        {\n"
+            "            Assert.True(true);\n        }\n    }\n}\n"
+        ),
+    },
+}
+
+
+def _render_scaffold(template: str, name: str) -> str:
+    """Substitute {{name}} and {{Name}} placeholders."""
+    pascal = "".join(w.capitalize() for w in _re.split(r"[\W_]+", name) if w)
+    return template.replace("{{name}}", name).replace("{{Name}}", pascal)
+
+
+class _ScaffoldRequest(BaseModel):
+    name: str
+    language: str = "python"
+    output_path: str = ""
+
 
 @app.post("/scaffold/module")
+def scaffold_module(req: _ScaffoldRequest) -> dict:
+    """Generate a boilerplate module file (M9-1)."""
+    kind = "module"
+    lang_templates = _SCAFFOLD_TEMPLATES.get(kind, {})
+    lang = req.language.lower()
+    tpl = lang_templates.get(lang) or next(iter(lang_templates.values()), "")
+    if not tpl:
+        return {"status": "error", "detail": f"No template for language '{req.language}'"}
+    code = _render_scaffold(tpl, req.name)
+    ext = {"python": "py", "csharp": "cs"}.get(lang, "txt")
+    filename = req.output_path or f"{req.name}.{ext}"
+    if req.output_path:
+        try:
+            Path(req.output_path).write_text(code, encoding="utf-8")
+        except OSError as exc:
+            return {"status": "error", "detail": str(exc)}
+    return {"status": "ok", "filename": filename, "code": code, "language": lang}
+
+
 @app.post("/scaffold/plugin")
+def scaffold_plugin(req: _ScaffoldRequest) -> dict:
+    """Generate a boilerplate Arbiter plugin file (M9-1)."""
+    kind = "plugin"
+    lang_templates = _SCAFFOLD_TEMPLATES.get(kind, {})
+    lang = req.language.lower()
+    tpl = lang_templates.get(lang) or next(iter(lang_templates.values()), "")
+    if not tpl:
+        return {"status": "error", "detail": f"No template for language '{req.language}'"}
+    code = _render_scaffold(tpl, req.name)
+    filename = req.output_path or f"{req.name}_plugin.py"
+    if req.output_path:
+        try:
+            Path(req.output_path).write_text(code, encoding="utf-8")
+        except OSError as exc:
+            return {"status": "error", "detail": str(exc)}
+    return {"status": "ok", "filename": filename, "code": code, "language": lang}
+
+
 @app.post("/scaffold/tests")
-def scaffold_stub(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok", "message": "Scaffold not yet implemented in ArbiterEngine mode."}
+def scaffold_tests(req: _ScaffoldRequest) -> dict:
+    """Generate a boilerplate test file (M9-1)."""
+    kind = "tests"
+    lang_templates = _SCAFFOLD_TEMPLATES.get(kind, {})
+    lang = req.language.lower()
+    tpl = lang_templates.get(lang) or next(iter(lang_templates.values()), "")
+    if not tpl:
+        return {"status": "error", "detail": f"No template for language '{req.language}'"}
+    code = _render_scaffold(tpl, req.name)
+    ext = {"python": "py", "csharp": "cs"}.get(lang, "txt")
+    filename = req.output_path or f"test_{req.name}.{ext}"
+    if req.output_path:
+        try:
+            Path(req.output_path).write_text(code, encoding="utf-8")
+        except OSError as exc:
+            return {"status": "error", "detail": str(exc)}
+    return {"status": "ok", "filename": filename, "code": code, "language": lang}
 
 
 @app.get("/templates")
 def list_templates() -> dict:
-    return {"templates": []}
+    """List available scaffold templates (M9-1)."""
+    items = []
+    for kind, langs in _SCAFFOLD_TEMPLATES.items():
+        for lang in langs:
+            items.append({"type": kind, "language": lang})
+    return {"templates": items}
+
+
+class _TemplateApplyRequest(BaseModel):
+    type: str
+    name: str
+    language: str = "python"
+    output_path: str = ""
 
 
 @app.post("/templates/apply")
-def apply_template(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def apply_template(req: _TemplateApplyRequest) -> dict:
+    """Apply a named scaffold template (M9-1)."""
+    lang_templates = _SCAFFOLD_TEMPLATES.get(req.type, {})
+    lang = req.language.lower()
+    tpl = lang_templates.get(lang) or next(iter(lang_templates.values()), "")
+    if not tpl:
+        return {"status": "error", "detail": f"Template '{req.type}/{req.language}' not found"}
+    code = _render_scaffold(tpl, req.name)
+    if req.output_path:
+        try:
+            Path(req.output_path).write_text(code, encoding="utf-8")
+        except OSError as exc:
+            return {"status": "error", "detail": str(exc)}
+    return {"status": "ok", "code": code}
 
 
 # ─── Assistant / AI chat panel ────────────────────────────────────────────────
@@ -1948,70 +2085,548 @@ def library_read_file(path_id: str, path: str) -> dict:
     return {"content": content}
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-3: Code Refactoring Engine — rename symbols, find-replace across project
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _FindReplaceRequest(BaseModel):
+    project: str = "default"
+    find: str
+    replace: str
+    file_pattern: str = "*"
+    case_sensitive: bool = True
+    whole_word: bool = False
+
+
+class _RenameRequest(BaseModel):
+    project: str = "default"
+    old_name: str
+    new_name: str
+    file_pattern: str = "*.py"
+
+
 @app.post("/refactor/find-replace")
+def refactor_find_replace(req: _FindReplaceRequest) -> dict:
+    """Find and replace text across all project files (M9-3)."""
+    project_dir = Path("Projects") / req.project
+    if not project_dir.is_dir():
+        return {"status": "error", "detail": f"Project not found: {req.project}"}
+
+    pattern = req.find
+    if req.whole_word:
+        pattern = rf"\b{_re.escape(req.find)}\b"
+    flags = 0 if req.case_sensitive else _re.IGNORECASE
+
+    changes: list[dict[str, Any]] = []
+    glob_pattern = req.file_pattern or "*"
+    for filepath in sorted(project_dir.rglob(glob_pattern)):
+        if not filepath.is_file():
+            continue
+        try:
+            original = filepath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if req.whole_word:
+            if not _re.search(pattern, original, flags):
+                continue
+        else:
+            if req.find not in original:
+                continue
+        updated = _re.sub(pattern, req.replace, original, flags=flags)
+        if updated == original:
+            continue
+        count = len(_re.findall(pattern, original, flags))
+        try:
+            filepath.write_text(updated, encoding="utf-8")
+        except OSError as exc:
+            changes.append({"file": str(filepath.relative_to(project_dir)),
+                            "replacements": 0, "error": str(exc)})
+            continue
+        changes.append({"file": str(filepath.relative_to(project_dir)), "replacements": count})
+
+    total = sum(c.get("replacements", 0) for c in changes)
+    logger.info("[refactor/find-replace] project=%s find=%r replace=%r changes=%d total=%d",
+                req.project, req.find, req.replace, len(changes), total)
+    return {"status": "ok", "changes": changes, "total_replacements": total}
+
+
 @app.post("/refactor/rename")
-def refactor_stub(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok", "changes": []}
+def refactor_rename(req: _RenameRequest) -> dict:
+    """Rename a symbol across all matching project files (M9-3)."""
+    project_dir = Path("Projects") / req.project
+    if not project_dir.is_dir():
+        return {"status": "error", "detail": f"Project not found: {req.project}"}
+
+    pattern = rf"\b{_re.escape(req.old_name)}\b"
+    changes: list[dict[str, Any]] = []
+    for filepath in sorted(project_dir.rglob(req.file_pattern)):
+        if not filepath.is_file():
+            continue
+        try:
+            original = filepath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        updated = _re.sub(pattern, req.new_name, original)
+        if updated == original:
+            continue
+        count = len(_re.findall(pattern, original))
+        try:
+            filepath.write_text(updated, encoding="utf-8")
+        except OSError as exc:
+            changes.append({"file": str(filepath.relative_to(project_dir)),
+                            "replacements": 0, "error": str(exc)})
+            continue
+        changes.append({"file": str(filepath.relative_to(project_dir)), "replacements": count})
+
+    total = sum(c.get("replacements", 0) for c in changes)
+    logger.info("[refactor/rename] project=%s old=%r new=%r changes=%d total=%d",
+                req.project, req.old_name, req.new_name, len(changes), total)
+    return {"status": "ok", "changes": changes, "total_replacements": total}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-7: AI Brainstorm Sessions — LLM-powered ideation with persistence
+# ─────────────────────────────────────────────────────────────────────────────
+_BRAINSTORM_DB = _BASE / "logs" / "brainstorm_sessions.json"
+_brainstorm_sessions: dict[str, dict[str, Any]] = {}
+
+
+def _load_brainstorm_sessions() -> None:
+    global _brainstorm_sessions
+    if _BRAINSTORM_DB.is_file():
+        try:
+            _brainstorm_sessions = json.loads(_BRAINSTORM_DB.read_text(encoding="utf-8"))
+        except Exception:
+            _brainstorm_sessions = {}
+
+
+def _save_brainstorm_sessions() -> None:
+    try:
+        _BRAINSTORM_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _BRAINSTORM_DB.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_brainstorm_sessions, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+        tmp.replace(_BRAINSTORM_DB)
+    except Exception as exc:
+        logger.warning("Could not save brainstorm sessions: %s", exc)
+
+
+_load_brainstorm_sessions()
+
+
+class _BrainstormRequest(BaseModel):
+    topic: str
+    project: str = "default"
+    count: int = 5
 
 
 @app.post("/brainstorm/session")
-def brainstorm_session(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"session_id": str(_uuid_mod.uuid4())[:8], "ideas": []}
+def brainstorm_session(req: _BrainstormRequest) -> dict:
+    """Start an AI-powered brainstorm session and return generated ideas (M9-7)."""
+    session_id = str(_uuid_mod.uuid4())[:8]
+    prompt = (
+        f"Brainstorm {req.count} distinct, actionable ideas for the following topic. "
+        f"Reply with a numbered list only.\n\nTopic: {req.topic}"
+    )
+    from core.agent import Agent
+    agent = Agent(llm=_llm, tool_registry=_registry, permission_system=_permissions,
+                  task_runner=_runner, config=_config, project_path=req.project)
+    try:
+        raw = agent.run(prompt=prompt, project_path=req.project)
+    except Exception as exc:
+        logger.error("brainstorm_session error: %s", exc)
+        raw = ""
+
+    # Parse numbered list items
+    ideas: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        cleaned = _re.sub(r"^\d+[.)]\s*", "", line)
+        if cleaned:
+            ideas.append(cleaned)
+
+    session = {
+        "session_id": session_id,
+        "topic": req.topic,
+        "project": req.project,
+        "ideas": ideas,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    _brainstorm_sessions[session_id] = session
+    _save_brainstorm_sessions()
+    logger.info("[brainstorm] session=%s topic=%r ideas=%d", session_id, req.topic, len(ideas))
+    return session
 
 
 @app.get("/brainstorm/sessions")
 def brainstorm_sessions() -> dict:
-    return {"sessions": []}
+    """List all brainstorm sessions (M9-7)."""
+    items = sorted(_brainstorm_sessions.values(),
+                   key=lambda s: s.get("created_at", ""), reverse=True)
+    return {"sessions": items}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-2: AI Documentation Generator — LLM-powered docstrings and README
+# ─────────────────────────────────────────────────────────────────────────────
+_DOCGEN_DB = _BASE / "logs" / "docgen_history.json"
+_docgen_history_store: list[dict[str, Any]] = []
+
+
+def _load_docgen_history() -> None:
+    global _docgen_history_store
+    if _DOCGEN_DB.is_file():
+        try:
+            _docgen_history_store = json.loads(_DOCGEN_DB.read_text(encoding="utf-8"))
+        except Exception:
+            _docgen_history_store = []
+
+
+def _save_docgen_history() -> None:
+    try:
+        _DOCGEN_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _DOCGEN_DB.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_docgen_history_store[-200:], indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+        tmp.replace(_DOCGEN_DB)
+    except Exception as exc:
+        logger.warning("Could not save docgen history: %s", exc)
+
+
+_load_docgen_history()
+
+
+class _DocgenRequest(BaseModel):
+    code: str
+    language: str = "python"
+    doc_type: str = "docstrings"   # "docstrings" | "readme" | "inline"
+    project: str = "default"
 
 
 @app.post("/docgen/generate")
-def docgen_generate(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"documentation": ""}
+def docgen_generate(req: _DocgenRequest) -> dict:
+    """Generate AI documentation for code (M9-2)."""
+    type_instructions: dict[str, str] = {
+        "docstrings": (
+            "Add comprehensive docstrings/doc-comments to every public function, class, "
+            "and method in the code below. Preserve the original code exactly; only add "
+            "documentation. Return the fully documented source code."
+        ),
+        "readme": (
+            "Write a concise README section (Markdown) that explains what this code does, "
+            "its public API, and usage examples."
+        ),
+        "inline": (
+            "Add brief inline comments to the most complex or non-obvious lines. "
+            "Return the fully annotated source code."
+        ),
+    }
+    instruction = type_instructions.get(req.doc_type, type_instructions["docstrings"])
+    prompt = (
+        f"{instruction}\n\nLanguage: {req.language}\n\n"
+        f"```{req.language}\n{req.code[:_MAX_AI_CODE_CHARS]}\n```"
+    )
+    from core.agent import Agent
+    agent = Agent(llm=_llm, tool_registry=_registry, permission_system=_permissions,
+                  task_runner=_runner, config=_config, project_path=req.project)
+    try:
+        documentation = agent.run(prompt=prompt, project_path=req.project)
+    except Exception as exc:
+        logger.error("docgen_generate error: %s", exc)
+        documentation = f"[Error generating documentation] {exc}"
+
+    entry = {
+        "id": str(_uuid_mod.uuid4())[:8],
+        "doc_type": req.doc_type,
+        "language": req.language,
+        "project": req.project,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "documentation": documentation,
+    }
+    _docgen_history_store.append(entry)
+    _save_docgen_history()
+    logger.info("[docgen] type=%s lang=%s project=%s", req.doc_type, req.language, req.project)
+    return {"status": "ok", "documentation": documentation, "id": entry["id"]}
 
 
 @app.get("/docgen/history")
 def docgen_history(limit: int = 20) -> dict:
-    return {"history": []}
+    """Return recent documentation generation history (M9-2)."""
+    items = _docgen_history_store[-limit:][::-1]
+    return {"history": items}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-6: API Client — built-in HTTP request tester with persistent collections
+# ─────────────────────────────────────────────────────────────────────────────
+_APICLIENT_DB = _BASE / "logs" / "apiclient_collections.json"
+_apiclient_collections_store: dict[str, dict[str, Any]] = {}
+
+
+def _load_apiclient_collections() -> None:
+    global _apiclient_collections_store
+    if _APICLIENT_DB.is_file():
+        try:
+            _apiclient_collections_store = json.loads(_APICLIENT_DB.read_text(encoding="utf-8"))
+        except Exception:
+            _apiclient_collections_store = {}
+
+
+def _save_apiclient_collections() -> None:
+    try:
+        _APICLIENT_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _APICLIENT_DB.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_apiclient_collections_store, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+        tmp.replace(_APICLIENT_DB)
+    except Exception as exc:
+        logger.warning("Could not save apiclient collections: %s", exc)
+
+
+_load_apiclient_collections()
+
+
+class _ApiCollectionRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+class _ApiRequestItem(BaseModel):
+    name: str
+    method: str = "GET"
+    url: str
+    headers: dict[str, str] = {}
+    body: str = ""
+
+
+class _ApiSendRequest(BaseModel):
+    method: str = "GET"
+    url: str
+    headers: dict[str, str] = {}
+    body: str = ""
+    timeout: float = 30.0
 
 
 @app.get("/apiclient/collections")
 def apiclient_collections() -> dict:
-    return {"collections": []}
+    """List all API client collections (M9-6)."""
+    items = [
+        {"name": k, "description": v.get("description", ""),
+         "request_count": len(v.get("requests", []))}
+        for k, v in _apiclient_collections_store.items()
+    ]
+    return {"collections": items}
 
 
 @app.get("/apiclient/collection/{name}")
 def apiclient_collection(name: str) -> dict:
-    return {"name": name, "requests": []}
+    """Get a specific API collection (M9-6)."""
+    col = _apiclient_collections_store.get(name)
+    if col is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
+    return {"name": name, "description": col.get("description", ""),
+            "requests": col.get("requests", [])}
 
 
 @app.post("/apiclient/collection")
-def apiclient_collection_create(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def apiclient_collection_create(req: _ApiCollectionRequest) -> dict:
+    """Create a new API collection (M9-6)."""
+    _apiclient_collections_store[req.name] = {
+        "description": req.description,
+        "requests": [],
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    _save_apiclient_collections()
+    return {"status": "ok", "name": req.name}
 
 
 @app.post("/apiclient/collection/{name}/request")
-def apiclient_request_create(name: str, req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def apiclient_request_create(name: str, req: _ApiRequestItem) -> dict:
+    """Add a request to a collection (M9-6)."""
+    col = _apiclient_collections_store.setdefault(name, {"description": "", "requests": []})
+    entry = {
+        "id": str(_uuid_mod.uuid4())[:8],
+        "name": req.name,
+        "method": req.method.upper(),
+        "url": req.url,
+        "headers": req.headers,
+        "body": req.body,
+    }
+    col.setdefault("requests", []).append(entry)
+    _save_apiclient_collections()
+    return {"status": "ok", "id": entry["id"]}
 
 
 @app.post("/apiclient/send")
-def apiclient_send(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": 0, "body": "", "headers": {}}
+def apiclient_send(req: _ApiSendRequest) -> dict:
+    """Send an HTTP request and return the response (M9-6).
+
+    Only http and https schemes are permitted to prevent unintended
+    protocol handlers from being invoked.
+    """
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+
+    # Restrict to safe schemes only — block file://, ftp://, etc.
+    parsed = urllib.parse.urlparse(req.url)
+    if parsed.scheme not in ("http", "https"):
+        return {"status": "error", "detail": f"Unsupported scheme '{parsed.scheme}'; only http and https are allowed"}
+
+    method = req.method.upper()
+    body_bytes = req.body.encode("utf-8") if req.body else None
+    # Build request from validated URL
+    safe_url = urllib.parse.urlunparse(parsed)
+    http_req = urllib.request.Request(safe_url, data=body_bytes, method=method)
+    for k, v in req.headers.items():
+        http_req.add_header(k, v)
+
+    try:
+        with urllib.request.urlopen(http_req, timeout=req.timeout) as resp:
+            raw = resp.read()
+            try:
+                body = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                body = raw.hex()
+            headers_out = dict(resp.headers)
+            status_code = resp.status
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = str(exc)
+        headers_out = dict(exc.headers) if exc.headers else {}
+        status_code = exc.code
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+    logger.info("[apiclient/send] %s %s -> %d", method, safe_url, status_code)
+    return {"status": status_code, "body": body, "headers": headers_out}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-5: Persistent Task Queue — async task execution with status tracking
+# ─────────────────────────────────────────────────────────────────────────────
+import threading as _queue_threading
+
+_TASK_QUEUE_DB = _BASE / "logs" / "task_queue.json"
+_task_queue_store: dict[str, dict[str, Any]] = {}   # task_id -> task record
+_task_queue_lock = _queue_threading.Lock()
+
+
+def _load_task_queue() -> None:
+    global _task_queue_store
+    if _TASK_QUEUE_DB.is_file():
+        try:
+            _task_queue_store = json.loads(_TASK_QUEUE_DB.read_text(encoding="utf-8"))
+        except Exception:
+            _task_queue_store = {}
+
+
+def _save_task_queue() -> None:
+    try:
+        _TASK_QUEUE_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _TASK_QUEUE_DB.with_suffix(".tmp")
+        with _task_queue_lock:
+            data = dict(_task_queue_store)
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_TASK_QUEUE_DB)
+    except Exception as exc:
+        logger.warning("Could not save task queue: %s", exc)
+
+
+_load_task_queue()
+
+
+class _QueueTaskRequest(BaseModel):
+    command: str
+    project: str = "default"
+    label: str = ""
+
+
+def _run_queued_task(task_id: str, command: str, project: str) -> None:
+    """Execute a queued shell command in the background."""
+    project_dir = Path("Projects") / project
+    cwd = str(project_dir) if project_dir.is_dir() else None
+    with _task_queue_lock:
+        _task_queue_store[task_id]["status"] = "running"
+        _task_queue_store[task_id]["started_at"] = (
+            datetime.datetime.now(datetime.timezone.utc).isoformat()
+        )
+    _save_task_queue()
+
+    try:
+        result = subprocess.run(
+            command, shell=True, cwd=cwd,
+            capture_output=True, text=True, timeout=300,
+        )
+        output = (result.stdout + result.stderr).strip()
+        exit_code = result.returncode
+    except subprocess.TimeoutExpired:
+        output = "Task timed out after 300 seconds."
+        exit_code = -1
+    except Exception as exc:
+        output = str(exc)
+        exit_code = -1
+
+    with _task_queue_lock:
+        _task_queue_store[task_id].update({
+            "status": "done" if exit_code == 0 else "failed",
+            "exit_code": exit_code,
+            "output": output,
+            "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        })
+    _save_task_queue()
+    logger.info("[queue] task=%s command=%r exit_code=%d", task_id, command, exit_code)
 
 
 @app.get("/queue/stats")
 def queue_stats() -> dict:
-    return {"pending": 0, "running": 0, "done": 0}
+    """Return task queue statistics (M9-5)."""
+    with _task_queue_lock:
+        statuses = [t["status"] for t in _task_queue_store.values()]
+    return {
+        "pending": statuses.count("pending"),
+        "running": statuses.count("running"),
+        "done": statuses.count("done"),
+        "failed": statuses.count("failed"),
+        "total": len(statuses),
+    }
 
 
 @app.get("/queue/tasks")
 def queue_tasks() -> dict:
-    return {"tasks": []}
+    """List all tasks in the queue (M9-5)."""
+    with _task_queue_lock:
+        items = sorted(_task_queue_store.values(),
+                       key=lambda t: t.get("created_at", ""), reverse=True)
+    return {"tasks": items}
 
 
 @app.post("/queue/task")
-def queue_task(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"task_id": str(_uuid_mod.uuid4())[:8]}
+def queue_task(req: _QueueTaskRequest) -> dict:
+    """Enqueue a shell command for background execution (M9-5)."""
+    task_id = str(_uuid_mod.uuid4())[:8]
+    record: dict[str, Any] = {
+        "task_id": task_id,
+        "command": req.command,
+        "project": req.project,
+        "label": req.label or req.command[:60],
+        "status": "pending",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "output": "",
+        "exit_code": None,
+    }
+    with _task_queue_lock:
+        _task_queue_store[task_id] = record
+    _save_task_queue()
+    t = _queue_threading.Thread(
+        target=_run_queued_task, args=(task_id, req.command, req.project), daemon=True,
+    )
+    t.start()
+    logger.info("[queue] enqueued task=%s command=%r", task_id, req.command)
+    return {"task_id": task_id, "status": "pending"}
 
 
 @app.get("/ratelimit/status")
@@ -2080,41 +2695,402 @@ def webhook_register(req: dict = {}) -> dict:  # type: ignore[assignment]
     return {"status": "ok"}
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-4: Docker Integration — list containers, build/run images from IDE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _docker_available() -> bool:
+    """Return True if the docker CLI is reachable."""
+    try:
+        result = subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+class _DockerBuildRequest(BaseModel):
+    project: str = "default"
+    tag: str = ""
+    dockerfile: str = "Dockerfile"
+    build_args: dict[str, str] = {}
+
+
+class _DockerRunRequest(BaseModel):
+    image: str
+    name: str = ""
+    ports: dict[str, str] = {}   # host_port -> container_port
+    env: dict[str, str] = {}
+    detach: bool = True
+    remove: bool = False
+
+
 @app.get("/docker/containers")
 def docker_containers() -> dict:
-    return {"containers": []}
+    """List Docker containers via the docker CLI (M9-4)."""
+    if not _docker_available():
+        return {"containers": [], "available": False,
+                "detail": "Docker daemon not reachable"}
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--format",
+             '{"id":"{{.ID}}","name":"{{.Names}}","image":"{{.Image}}",'
+             '"status":"{{.Status}}","ports":"{{.Ports}}"}'],
+            capture_output=True, text=True, timeout=10,
+        )
+        containers: list[dict[str, Any]] = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    containers.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    except Exception as exc:
+        return {"containers": [], "available": True, "detail": str(exc)}
+    return {"containers": containers, "available": True}
 
 
 @app.post("/docker/build")
+def docker_build(req: _DockerBuildRequest) -> dict:
+    """Build a Docker image from a project directory (M9-4)."""
+    if not _docker_available():
+        return {"status": "error", "detail": "Docker daemon not reachable"}
+    project_dir = Path("Projects") / req.project
+    if not project_dir.is_dir():
+        return {"status": "error", "detail": f"Project not found: {req.project}"}
+    tag = req.tag or req.project.lower()
+    cmd = ["docker", "build", "-t", tag, "-f", req.dockerfile]
+    for k, v in req.build_args.items():
+        cmd += ["--build-arg", f"{k}={v}"]
+    cmd.append(".")
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(project_dir),
+            capture_output=True, text=True, timeout=600,
+        )
+        output = (result.stdout + result.stderr).strip()
+        success = result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "detail": "docker build timed out"}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+    logger.info("[docker/build] project=%s tag=%s success=%s", req.project, tag, success)
+    return {"status": "ok" if success else "error", "tag": tag,
+            "output": output, "success": success}
+
+
 @app.post("/docker/run")
-def docker_stub(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok", "output": ""}
+def docker_run(req: _DockerRunRequest) -> dict:
+    """Run a Docker container (M9-4)."""
+    if not _docker_available():
+        return {"status": "error", "detail": "Docker daemon not reachable"}
+    cmd = ["docker", "run"]
+    if req.detach:
+        cmd.append("-d")
+    if req.remove:
+        cmd.append("--rm")
+    if req.name:
+        cmd += ["--name", req.name]
+    for host_port, container_port in req.ports.items():
+        cmd += ["-p", f"{host_port}:{container_port}"]
+    for k, v in req.env.items():
+        cmd += ["-e", f"{k}={v}"]
+    cmd.append(req.image)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        output = (result.stdout + result.stderr).strip()
+        success = result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "detail": "docker run timed out"}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+    logger.info("[docker/run] image=%s success=%s", req.image, success)
+    return {"status": "ok" if success else "error",
+            "output": output, "success": success}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-9: CI Integration — trigger local CI script, view recent run history
+# ─────────────────────────────────────────────────────────────────────────────
+_CI_RUNS_DB = _BASE / "logs" / "ci_runs.json"
+_ci_runs_store: list[dict[str, Any]] = []
+_ci_runs_lock = _queue_threading.Lock()
+
+
+def _load_ci_runs() -> None:
+    global _ci_runs_store
+    if _CI_RUNS_DB.is_file():
+        try:
+            _ci_runs_store = json.loads(_CI_RUNS_DB.read_text(encoding="utf-8"))
+        except Exception:
+            _ci_runs_store = []
+
+
+def _save_ci_runs() -> None:
+    try:
+        _CI_RUNS_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _CI_RUNS_DB.with_suffix(".tmp")
+        with _ci_runs_lock:
+            data = list(_ci_runs_store[-500:])
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_CI_RUNS_DB)
+    except Exception as exc:
+        logger.warning("Could not save CI runs: %s", exc)
+
+
+_load_ci_runs()
+
+
+class _CiRunRequest(BaseModel):
+    project: str = "default"
+    script: str = ""     # explicit script path, otherwise auto-detected
+    label: str = ""
+
+
+def _execute_ci_run(run_id: str, command: str, project: str) -> None:
+    """Run a CI command in the background and record the result."""
+    project_dir = Path("Projects") / project
+    cwd = str(project_dir) if project_dir.is_dir() else None
+
+    try:
+        result = subprocess.run(
+            command, shell=True, cwd=cwd,
+            capture_output=True, text=True, timeout=600,
+        )
+        output = (result.stdout + result.stderr).strip()
+        exit_code = result.returncode
+    except subprocess.TimeoutExpired:
+        output = "CI run timed out after 600 seconds."
+        exit_code = -1
+    except Exception as exc:
+        output = str(exc)
+        exit_code = -1
+
+    with _ci_runs_lock:
+        for run in _ci_runs_store:
+            if run.get("run_id") == run_id:
+                run.update({
+                    "status": "passed" if exit_code == 0 else "failed",
+                    "exit_code": exit_code,
+                    "output": output,
+                    "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
+                break
+    _save_ci_runs()
+    logger.info("[ci/run] run_id=%s project=%s exit_code=%d", run_id, project, exit_code)
+
+
+def _auto_detect_ci_script(project_dir: Path) -> str:
+    """Return a CI command for the project, preferring local scripts."""
+    if (project_dir / "ci.sh").is_file():
+        return "bash ci.sh"
+    if (project_dir / "Makefile").is_file():
+        return "make test"
+    if (project_dir / "package.json").is_file():
+        return "npm test"
+    if any(project_dir.glob("*.csproj")):
+        return "dotnet test"
+    if list(project_dir.glob("*.py")):
+        return "python -m pytest"
+    if (project_dir / "Cargo.toml").is_file():
+        return "cargo test"
+    return ""
 
 
 @app.get("/ci/runs")
-def ci_runs() -> dict:
-    return {"runs": []}
+def ci_runs(limit: int = 50) -> dict:
+    """Return recent CI run history (M9-9)."""
+    with _ci_runs_lock:
+        items = list(_ci_runs_store[-limit:][::-1])
+    return {"runs": items}
 
 
 @app.post("/ci/run")
-def ci_run(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def ci_run(req: _CiRunRequest) -> dict:
+    """Trigger a CI run for a project (M9-9)."""
+    project_dir = Path("Projects") / req.project
+    if not project_dir.is_dir():
+        return {"status": "error", "detail": f"Project not found: {req.project}"}
+    command = req.script or _auto_detect_ci_script(project_dir)
+    if not command:
+        return {"status": "error", "detail": "Cannot auto-detect CI command for this project"}
+
+    run_id = str(_uuid_mod.uuid4())[:8]
+    record: dict[str, Any] = {
+        "run_id": run_id,
+        "project": req.project,
+        "command": command,
+        "label": req.label or command,
+        "status": "running",
+        "exit_code": None,
+        "output": "",
+        "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "finished_at": None,
+    }
+    with _ci_runs_lock:
+        _ci_runs_store.append(record)
+    _save_ci_runs()
+    t = _queue_threading.Thread(
+        target=_execute_ci_run, args=(run_id, command, req.project), daemon=True,
+    )
+    t.start()
+    logger.info("[ci/run] run_id=%s project=%s command=%r", run_id, req.project, command)
+    return {"status": "ok", "run_id": run_id}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-10: Deployment Manager — configure and run project deployments
+# ─────────────────────────────────────────────────────────────────────────────
+_DEPLOY_DB = _BASE / "logs" / "deployments.json"
+_deploy_configs_store: dict[str, dict[str, Any]] = {}
+_deploy_history_store: list[dict[str, Any]] = []
+_deploy_lock = _queue_threading.Lock()
+
+
+def _load_deploy_data() -> None:
+    global _deploy_configs_store, _deploy_history_store
+    if _DEPLOY_DB.is_file():
+        try:
+            data = json.loads(_DEPLOY_DB.read_text(encoding="utf-8"))
+            _deploy_configs_store = data.get("configs", {})
+            _deploy_history_store = data.get("history", [])
+        except Exception:
+            pass
+
+
+def _save_deploy_data() -> None:
+    try:
+        _DEPLOY_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _DEPLOY_DB.with_suffix(".tmp")
+        with _deploy_lock:
+            data = {
+                "configs": dict(_deploy_configs_store),
+                "history": list(_deploy_history_store[-200:]),
+            }
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_DEPLOY_DB)
+    except Exception as exc:
+        logger.warning("Could not save deploy data: %s", exc)
+
+
+_load_deploy_data()
+
+
+class _DeployConfigRequest(BaseModel):
+    name: str
+    project: str = "default"
+    command: str
+    environment: dict[str, str] = {}
+    description: str = ""
+
+
+class _DeployRunRequest(BaseModel):
+    config_name: str
+    project: str = "default"
+
+
+def _execute_deployment(deploy_id: str, command: str, project: str,
+                        environment: dict[str, str]) -> None:
+    """Run a deployment command in the background."""
+    project_dir = Path("Projects") / project
+    cwd = str(project_dir) if project_dir.is_dir() else None
+    env = dict(os.environ)
+    env.update(environment)
+    try:
+        result = subprocess.run(
+            command, shell=True, cwd=cwd, env=env,
+            capture_output=True, text=True, timeout=600,
+        )
+        output = (result.stdout + result.stderr).strip()
+        exit_code = result.returncode
+    except subprocess.TimeoutExpired:
+        output = "Deployment timed out after 600 seconds."
+        exit_code = -1
+    except Exception as exc:
+        output = str(exc)
+        exit_code = -1
+
+    with _deploy_lock:
+        for item in _deploy_history_store:
+            if item.get("deploy_id") == deploy_id:
+                item.update({
+                    "status": "success" if exit_code == 0 else "failed",
+                    "exit_code": exit_code,
+                    "output": output,
+                    "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
+                break
+    _save_deploy_data()
+    logger.info("[deploy] deploy_id=%s project=%s exit_code=%d", deploy_id, project, exit_code)
 
 
 @app.get("/deploy/configs")
+def deploy_configs() -> dict:
+    """List deploy configurations (M9-10)."""
+    with _deploy_lock:
+        items = list(_deploy_configs_store.values())
+    return {"items": items}
+
+
 @app.get("/deploy/history")
-def deploy_list() -> dict:
-    return {"items": []}
+def deploy_history(limit: int = 50) -> dict:
+    """Return deployment run history (M9-10)."""
+    with _deploy_lock:
+        items = list(_deploy_history_store[-limit:][::-1])
+    return {"items": items}
 
 
 @app.post("/deploy/config")
-def deploy_config(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def deploy_config(req: _DeployConfigRequest) -> dict:
+    """Create or update a deploy configuration (M9-10)."""
+    config: dict[str, Any] = {
+        "name": req.name,
+        "project": req.project,
+        "command": req.command,
+        "environment": req.environment,
+        "description": req.description,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    with _deploy_lock:
+        _deploy_configs_store[req.name] = config
+    _save_deploy_data()
+    return {"status": "ok", "name": req.name}
 
 
 @app.post("/deploy/run")
-def deploy_run(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def deploy_run(req: _DeployRunRequest) -> dict:
+    """Run a named deploy configuration (M9-10)."""
+    with _deploy_lock:
+        cfg = _deploy_configs_store.get(req.config_name)
+    if cfg is None:
+        return {"status": "error", "detail": f"Deploy config '{req.config_name}' not found"}
+
+    deploy_id = str(_uuid_mod.uuid4())[:8]
+    record: dict[str, Any] = {
+        "deploy_id": deploy_id,
+        "config_name": req.config_name,
+        "project": cfg.get("project", req.project),
+        "command": cfg["command"],
+        "status": "running",
+        "exit_code": None,
+        "output": "",
+        "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "finished_at": None,
+    }
+    with _deploy_lock:
+        _deploy_history_store.append(record)
+    _save_deploy_data()
+    t = _queue_threading.Thread(
+        target=_execute_deployment,
+        args=(deploy_id, cfg["command"], cfg.get("project", req.project),
+              cfg.get("environment", {})),
+        daemon=True,
+    )
+    t.start()
+    logger.info("[deploy/run] deploy_id=%s config=%s", deploy_id, req.config_name)
+    return {"status": "ok", "deploy_id": deploy_id}
 
 
 @app.get("/db/connections")
@@ -2132,15 +3108,150 @@ def db_query(req: dict = {}) -> dict:  # type: ignore[assignment]
     return {"rows": [], "columns": []}
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-9 continued: Cron Job Scheduler — schedule recurring tasks
+# ─────────────────────────────────────────────────────────────────────────────
+_CRON_DB = _BASE / "logs" / "cron_jobs.json"
+_cron_jobs_store: dict[str, dict[str, Any]] = {}
+_cron_history_store: list[dict[str, Any]] = []
+_cron_lock = _queue_threading.Lock()
+_cron_thread: "_queue_threading.Thread | None" = None
+_cron_stop_event = _queue_threading.Event()
+
+
+def _load_cron_data() -> None:
+    global _cron_jobs_store, _cron_history_store
+    if _CRON_DB.is_file():
+        try:
+            data = json.loads(_CRON_DB.read_text(encoding="utf-8"))
+            _cron_jobs_store = data.get("jobs", {})
+            _cron_history_store = data.get("history", [])
+        except Exception:
+            pass
+
+
+def _save_cron_data() -> None:
+    try:
+        _CRON_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _CRON_DB.with_suffix(".tmp")
+        with _cron_lock:
+            data = {
+                "jobs": dict(_cron_jobs_store),
+                "history": list(_cron_history_store[-500:]),
+            }
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_CRON_DB)
+    except Exception as exc:
+        logger.warning("Could not save cron data: %s", exc)
+
+
+_load_cron_data()
+
+
+class _CronJobRequest(BaseModel):
+    name: str
+    command: str
+    project: str = "default"
+    interval_seconds: int = 3600   # default: every hour
+    enabled: bool = True
+
+
+def _cron_worker() -> None:
+    """Background thread that fires cron jobs at their scheduled intervals."""
+    import time
+    while not _cron_stop_event.wait(timeout=30):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        with _cron_lock:
+            jobs = list(_cron_jobs_store.values())
+        for job in jobs:
+            if not job.get("enabled", True):
+                continue
+            last_run_str = job.get("last_run_at")
+            interval = int(job.get("interval_seconds", 3600))
+            if last_run_str:
+                last_run = datetime.datetime.fromisoformat(last_run_str)
+                elapsed = (now - last_run).total_seconds()
+                if elapsed < interval:
+                    continue
+            # Execute
+            job_id = job["job_id"]
+            command = job["command"]
+            project = job.get("project", "default")
+            project_dir = Path("Projects") / project
+            cwd = str(project_dir) if project_dir.is_dir() else None
+            try:
+                result = subprocess.run(
+                    command, shell=True, cwd=cwd,
+                    capture_output=True, text=True, timeout=120,
+                )
+                output = (result.stdout + result.stderr).strip()
+                exit_code = result.returncode
+            except Exception as exc:
+                output = str(exc)
+                exit_code = -1
+            run_record = {
+                "job_id": job_id,
+                "name": job.get("name", ""),
+                "command": command,
+                "project": project,
+                "exit_code": exit_code,
+                "output": output[:2000],
+                "ran_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+            with _cron_lock:
+                _cron_jobs_store[job_id]["last_run_at"] = run_record["ran_at"]
+                _cron_history_store.append(run_record)
+            _save_cron_data()
+            logger.info("[cron] job=%s exit_code=%d", job_id, exit_code)
+
+
+_cron_thread = _queue_threading.Thread(target=_cron_worker, daemon=True, name="cron-worker")
+_cron_thread.start()
+
+
 @app.get("/cron/jobs")
+def cron_jobs_list() -> dict:
+    """List cron job definitions (M9-9)."""
+    with _cron_lock:
+        items = list(_cron_jobs_store.values())
+    return {"items": items}
+
+
 @app.get("/cron/history")
-def cron_list() -> dict:
-    return {"items": []}
+def cron_history(limit: int = 100) -> dict:
+    """Return cron execution history (M9-9)."""
+    with _cron_lock:
+        items = list(_cron_history_store[-limit:][::-1])
+    return {"items": items}
 
 
 @app.post("/cron/job")
-def cron_job(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def cron_job(req: _CronJobRequest) -> dict:
+    """Create or update a cron job (M9-9)."""
+    # Reuse existing ID if name already registered
+    existing_id: str | None = None
+    with _cron_lock:
+        for jid, j in _cron_jobs_store.items():
+            if j.get("name") == req.name:
+                existing_id = jid
+                break
+    job_id = existing_id or str(_uuid_mod.uuid4())[:8]
+    record: dict[str, Any] = {
+        "job_id": job_id,
+        "name": req.name,
+        "command": req.command,
+        "project": req.project,
+        "interval_seconds": req.interval_seconds,
+        "enabled": req.enabled,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "last_run_at": None,
+    }
+    with _cron_lock:
+        _cron_jobs_store[job_id] = record
+    _save_cron_data()
+    logger.info("[cron] registered job=%s name=%r interval=%ds", job_id, req.name,
+                req.interval_seconds)
+    return {"status": "ok", "job_id": job_id}
 
 
 @app.get("/terminal/sessions")
@@ -2153,14 +3264,128 @@ def terminal_session(req: dict = {}) -> dict:  # type: ignore[assignment]
     return {"session_id": str(_uuid_mod.uuid4())[:8]}
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  M9-8: Test Runner — collect, run, store test reports
+# ─────────────────────────────────────────────────────────────────────────────
+_TESTRUNNER_DB = _BASE / "logs" / "testrunner_reports.json"
+_testrunner_reports_store: list[dict[str, Any]] = []
+_testrunner_lock = _queue_threading.Lock()
+
+
+def _load_testrunner_reports() -> None:
+    global _testrunner_reports_store
+    if _TESTRUNNER_DB.is_file():
+        try:
+            _testrunner_reports_store = json.loads(_TESTRUNNER_DB.read_text(encoding="utf-8"))
+        except Exception:
+            _testrunner_reports_store = []
+
+
+def _save_testrunner_reports() -> None:
+    try:
+        _TESTRUNNER_DB.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _TESTRUNNER_DB.with_suffix(".tmp")
+        with _testrunner_lock:
+            data = list(_testrunner_reports_store[-200:])
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_TESTRUNNER_DB)
+    except Exception as exc:
+        logger.warning("Could not save test runner reports: %s", exc)
+
+
+_load_testrunner_reports()
+
+
+class _TestrunnerRequest(BaseModel):
+    project: str = "default"
+    command: str = ""      # explicit test command; auto-detected if blank
+    label: str = ""
+
+
+def _parse_test_summary(output: str) -> dict[str, Any]:
+    """Extract pass/fail counts from common test output formats."""
+    summary: dict[str, Any] = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    # pytest: "5 passed, 2 failed, 1 warning"
+    m = _re.search(r"(\d+) passed", output)
+    if m:
+        summary["passed"] = int(m.group(1))
+    m = _re.search(r"(\d+) failed", output)
+    if m:
+        summary["failed"] = int(m.group(1))
+    m = _re.search(r"(\d+) error", output, _re.IGNORECASE)
+    if m:
+        summary["errors"] = int(m.group(1))
+    m = _re.search(r"(\d+) skipped", output, _re.IGNORECASE)
+    if m:
+        summary["skipped"] = int(m.group(1))
+    # dotnet: "Passed: 10, Failed: 0, Skipped: 0"
+    m = _re.search(r"Passed:\s*(\d+)", output)
+    if m:
+        summary["passed"] = int(m.group(1))
+    m = _re.search(r"Failed:\s*(\d+)", output)
+    if m:
+        summary["failed"] = int(m.group(1))
+    # cargo: "test result: ok. 5 passed; 0 failed"
+    m = _re.search(r"(\d+) passed;", output)
+    if m:
+        summary["passed"] = int(m.group(1))
+    m = _re.search(r"(\d+) failed", output)
+    if m:
+        summary["failed"] = int(m.group(1))
+    return summary
+
+
 @app.get("/testrunner/reports")
 def testrunner_reports(limit: int = 20) -> dict:
-    return {"reports": []}
+    """Return recent test run reports (M9-8)."""
+    with _testrunner_lock:
+        items = list(_testrunner_reports_store[-limit:][::-1])
+    return {"reports": items}
 
 
 @app.post("/testrunner/run")
-def testrunner_run(req: dict = {}) -> dict:  # type: ignore[assignment]
-    return {"status": "ok"}
+def testrunner_run(req: _TestrunnerRequest) -> dict:
+    """Run tests for a project and store the report (M9-8)."""
+    project_dir = Path("Projects") / req.project
+    if not project_dir.is_dir():
+        return {"status": "error", "detail": f"Project not found: {req.project}"}
+    command = req.command or _auto_detect_command(project_dir, "test")
+    if not command:
+        return {"status": "error", "detail": "Cannot auto-detect test command for this project"}
+
+    report_id = str(_uuid_mod.uuid4())[:8]
+    try:
+        result = subprocess.run(
+            command, shell=True, cwd=str(project_dir),
+            capture_output=True, text=True, timeout=300,
+        )
+        output = (result.stdout + result.stderr).strip()
+        exit_code = result.returncode
+    except subprocess.TimeoutExpired:
+        output = "Tests timed out after 300 seconds."
+        exit_code = -1
+    except Exception as exc:
+        output = str(exc)
+        exit_code = -1
+
+    summary = _parse_test_summary(output)
+    report: dict[str, Any] = {
+        "report_id": report_id,
+        "project": req.project,
+        "command": command,
+        "label": req.label or command,
+        "exit_code": exit_code,
+        "success": exit_code == 0,
+        "output": output,
+        "summary": summary,
+        "ran_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    with _testrunner_lock:
+        _testrunner_reports_store.append(report)
+    _save_testrunner_reports()
+    logger.info("[testrunner] project=%s exit_code=%d passed=%d failed=%d",
+                req.project, exit_code, summary["passed"], summary["failed"])
+    return {"status": "ok", "report_id": report_id, "summary": summary, "success": exit_code == 0}
 
 
 # ─── Graceful shutdown ────────────────────────────────────────────────────────

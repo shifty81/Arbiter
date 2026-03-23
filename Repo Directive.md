@@ -1,6 +1,6 @@
 # Arbiter — Repository Directive
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Date:** 2026-03-23  
 **Status:** Active
 
@@ -18,9 +18,9 @@ Everything runs locally. No cloud required. No telemetry. Your code never leaves
 
 ---
 
-## New Project Direction
+## Platform Status & Direction
 
-The project is moving from "Monaco IDE in a WPF shell" toward a **three-pillar platform** where each pillar is fully developed and tightly integrated:
+Arbiter has evolved from a Monaco IDE in a WPF shell into a **fully realised three-pillar platform** (M0–M9 complete). All three pillars are production-ready and tightly integrated:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -274,15 +274,18 @@ GET  /self-build/log             — full self-build session log
 
 | Milestone | Focus | Status |
 |-----------|-------|--------|
-| M0 — Foundation | WPF shell, Python bridge, chat, voice, personas, git, build/run/test | ✅ Done |
-| M1 — IDE Integration | Monaco IDE, WebView2 embedding, File CRUD, AI code actions, WebSocket streaming | ✅ Done |
-| M2 — Arbiter Engine | 12 LLM backends, agentic loop, module/plugin system, self-build infrastructure | 🔄 In Progress |
-| M3 — Archive & Library | Knowledge codex, background indexer, keyword search, context injection | 🔄 In Progress |
-| M4 — WPF IDE Completion | Full native IDE client, status bar, menu bar, keyboard shortcuts, multi-window | �� Planned |
-| M5 — Advanced Chat & AI | RAG search, voice-in-IDE, AI code review, completions, session memory | 📋 Planned |
-| M6 — Visual Studio Integration | VSIX extension, chat panel, inline suggestions, VS commands, settings page | 📋 Planned |
-| M7 — Self-Iteration | Full self-build loop (4 modes), roadmap-driven autonomous development | 📋 Planned |
-| M8 — Distribution | NSIS installer, auto-update, plugin marketplace, CLI, Docker | 📋 Planned |
+| M0 — Foundation | WPF shell, Python bridge, chat, voice, personas, git, build/run/test | ✅ Complete |
+| M1 — IDE Integration | Monaco IDE, WebView2 embedding, File CRUD, AI code actions, WebSocket streaming | ✅ Complete |
+| M2 — Arbiter Engine | 12 LLM backends, agentic loop, module/plugin system, self-build infrastructure | ✅ Complete |
+| M3 — Archive & Library | Knowledge codex, background indexer, keyword search, context injection | ✅ Complete |
+| M4 — WPF IDE Completion | Full native IDE client, status bar, menu bar, keyboard shortcuts, multi-window, tray | ✅ Complete |
+| M5 — Advanced Chat & AI | RAG, slash commands, inline diff, multi-agent, voice-in-IDE, session memory | ✅ Complete |
+| M6 — Visual Studio Integration | VSIX extension, chat panel, inline suggestions, 9 VS commands, settings, events | ✅ Complete |
+| M7 — Self-Iteration | Full self-build loop (4 modes), roadmap-driven autonomous development | ✅ Complete |
+| M8 — Distribution | Inno Setup installer, auto-update, plugin marketplace, CLI, Docker, cloud sync | ✅ Complete |
+| M9 — Productivity & Integration | Scaffold, docgen, refactor engine, Docker IDE, task queue, API client, CI/cron, deploy | ✅ Complete |
+| M10 — Enhanced Chat & AI | Chat branching, templates, feedback system, multi-modal input, smart context, bookmarks | 🔜 Next |
+| M11 — Advanced AI Intelligence | Multi-model routing, agents marketplace, semantic search, knowledge graph, pair programming | 🔜 Planned |
 
 See `roadmap.json` for full task-level breakdown.
 
@@ -327,9 +330,44 @@ See `roadmap.json` for full task-level breakdown.
 This is an active solo project. The self-build loop (Pillar 3) means Arbiter itself contributes code back to the repository. All AI-generated commits are tagged with `[arbiter-self-build]` in the commit message so they are distinguishable from human commits.
 
 The development priority order is:
-1. Complete M2 (Arbiter Engine) and M3 (Archive) in-progress work
-2. Build M6 (Visual Studio Integration) — highest new priority
-3. Complete M4 (WPF IDE) finishing touches
-4. Build M7 (Self-Iteration) full pipeline
-5. Build M5 (Advanced AI) capabilities
-6. Build M8 (Distribution) for release
+1. ✅ M0–M9 complete — all foundation, IDE, engine, archive, WPF, chat, VS integration, self-build, distribution, and productivity milestones shipped
+2. 🔜 M10 (Enhanced Chat & Conversational AI) — next milestone in active development
+3. 🔜 M11 (Advanced AI Intelligence) — semantic search, multi-model routing, agents marketplace, knowledge graph
+
+---
+
+## M10 — Enhanced Chat & Conversational AI (Next Milestone)
+
+M10 expands the Chat Engine pillar with advanced conversational capabilities derived from usage patterns in the existing chat log system. All M10 features build on the existing `/chat`, `/assistant/chat`, and `/history` infrastructure.
+
+### M10 Implementation Directives
+
+| Feature | API Target | Notes |
+|---------|-----------|-------|
+| Chat session branching | `POST /chat/branch` | Fork from any `history_id`; returns new `session_id` |
+| Conversation templates | `GET/POST /chat/templates` | Stored in `Memory/chat_templates.json` |
+| AI response rating | `POST /chat/feedback` | `{message_id, rating: 1|-1, comment}` → `logs/feedback.json` |
+| Message bookmarks | `GET/POST/DELETE /chat/bookmarks` | Stored in `Memory/bookmarks.json` per project |
+| Multi-modal input | `POST /chat/context` extension | `image_data` base64 field forwarded to vision-capable LLMs |
+| Smart context | `GET /context/active` | Returns auto-detected context from active editor state |
+| Real-time streaming | `/ws/chat` upgrade | WebSocket stream for token-by-token progressive render |
+| Message threading | `POST /chat/thread` | `{parent_message_id, message}` → creates nested thread |
+| Chat analytics | `GET /chat/analytics` | Usage stats: tokens, personas, projects, response quality |
+| Conversation summarization | `POST /chat/summarize` | Summarise past N turns into compressed context string |
+
+---
+
+## M11 — Advanced AI Intelligence (Planned)
+
+M11 elevates Arbiter's core AI capabilities with semantic intelligence, multi-model coordination, and continuous learning.
+
+| Feature | Description |
+|---------|-------------|
+| Multi-model routing | Route queries to Ollama/OpenAI/Anthropic/local based on complexity + latency + cost |
+| Agents marketplace | Install specialist agents (Security, DevOps, Docs) as first-class plugins |
+| Code gen from requirements | `POST /ai/generate` — full feature from high-level natural language spec |
+| Semantic code search | `GET /search/semantic?q=` — embeddings (ChromaDB) over all project code |
+| Cross-project knowledge graph | Relationship map: files ↔ functions ↔ classes ↔ APIs across all projects |
+| AI-powered test intelligence | Generate test suites + identify untested edge cases per file |
+| Adaptive persona learning | Auto-tune persona prompts from feedback history |
+| AI pair programming mode | Continuous background analysis + real-time inline suggestions |
