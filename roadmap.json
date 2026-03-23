@@ -2,7 +2,7 @@
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform \u2014 Monaco IDE + WPF Windows client + Arbiter Engine agentic backend.",
   "version": "0.4.0",
-  "last_updated": "2026-03-22",
+  "last_updated": "2026-03-23",
   "milestones": [
     {
       "id": "M0",
