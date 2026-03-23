@@ -53,6 +53,9 @@
                 <MenuItem Header="🗂 Library &amp; Archive" Click="MenuOpenCodex_Click"/>
                 <MenuItem Header="🗺 Roadmap"              Click="MenuOpenRoadmap_Click"/>
                 <MenuItem Header="📡 Multi-Agent"          Click="MenuOpenAgents_Click"/>
+                <Separator/>
+                <MenuItem Header="💬 Toggle Chat Panel"    Click="MenuToggleChat_Click"       InputGestureText="Ctrl+`"/>
+                <MenuItem Header="🤖 Self-Build Panel"     Click="MenuToggleSelfBuild_Click"/>
             </MenuItem>
 
             <MenuItem Header="_Git" Foreground="{StaticResource ForegroundBrush}">

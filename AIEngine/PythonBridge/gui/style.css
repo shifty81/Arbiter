@@ -427,11 +427,17 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
   background: var(--bg);
   color: var(--text-dim);
   font-size: 14px;
   z-index: 10;
+}
+
+#editor-loading-sub {
+  font-size: 11px;
+  opacity: 0.6;
+  color: var(--text-dim);
 }
 
 .editor-spinner {
@@ -459,7 +465,7 @@ body {
 
 .welcome-content {
   text-align: center;
-  max-width: 380px;
+  max-width: 420px;
   padding: 24px;
 }
 
@@ -487,6 +493,31 @@ body {
   opacity: 0.7;
 }
 
+.welcome-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 12px 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  text-align: left;
+  pointer-events: all;
+}
+
+.welcome-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.welcome-shortcut span {
+  color: var(--text);
+}
+
 .welcome-content kbd {
   background: var(--surface2);
   border: 1px solid var(--border);
@@ -494,6 +525,8 @@ body {
   padding: 1px 6px;
   font-family: var(--font-mono);
   font-size: 12px;
+  min-width: 120px;
+  display: inline-block;
 }
 
 /* Fallback textarea editor */
@@ -1967,3 +2000,18 @@ body.light-theme {
   --text-dim: #6b7280;
   --danger:   #d92c2c;  /* VS Code red (light mode) */
 }
+
+/* ── Self-Build Loop panel (M7-12) ───────────────────────────────────────── */
+.sb-status-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.sb-idle    { background: var(--surface2); color: var(--text-dim); }
+.sb-running { background: #1e3a5f; color: #569cd6; }
+.sb-done    { background: #1a3a25; color: #73c991; }
+.sb-error   { background: #3d1a20; color: var(--danger); }

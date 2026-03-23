@@ -1919,6 +1919,338 @@ def archive_export():
     return _archive.export_markdown()
 
 
+# ── Chat history (GET /chat/history) ─────────────────────────────────────────
+# The IDE calls /chat/history?project_path=…&limit=N to restore context.
+
+@app.get("/chat/history")
+def chat_history(project_path: str = "", limit: int = 50):
+    """Return recent conversation history for a project.
+
+    Falls back to the ``default`` project when *project_path* is empty.
+    """
+    project = Path(project_path).name if project_path else "default"
+    try:
+        conn = get_db(project)
+        rows = conn.execute(
+            "SELECT role, message, timestamp FROM conversation ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        messages = [{"role": r, "message": m, "timestamp": t} for r, m, t in reversed(rows)]
+        return {"messages": messages, "project": project}
+    except Exception:
+        return {"messages": [], "project": project}
+
+
+# ── Roadmap endpoints ─────────────────────────────────────────────────────────
+
+_BRIDGE_ROADMAP = SCRIPT_DIR.parent.parent / "roadmap.json"
+
+
+def _bridge_roadmap_path() -> Path:
+    if _BRIDGE_ROADMAP.is_file():
+        return _BRIDGE_ROADMAP
+    alt = SCRIPT_DIR.parent / "workspace" / "roadmap.json"
+    return alt if alt.is_file() else _BRIDGE_ROADMAP
+
+
+@app.get("/roadmap")
+def roadmap_get(path: str = ""):
+    """Return the roadmap.json for the repo or an active project."""
+    rp = Path(path) / "roadmap.json" if path else _bridge_roadmap_path()
+    if not rp.is_file():
+        raise HTTPException(status_code=404, detail="roadmap.json not found")
+    try:
+        return json.loads(rp.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/roadmap/next")
+def roadmap_next(path: str = ""):
+    """Return the next pending task and its milestone."""
+    rp = Path(path) / "roadmap.json" if path else _bridge_roadmap_path()
+    if not rp.is_file():
+        return {"task": None, "milestone": None}
+    try:
+        data = json.loads(rp.read_text(encoding="utf-8"))
+        for ms in data.get("milestones", []):
+            if ms.get("status") == "done":
+                continue
+            for task in ms.get("tasks", []):
+                if task.get("status") in ("pending", "in_progress"):
+                    return {
+                        "task": task,
+                        "milestone": {"id": ms.get("id"), "title": ms.get("title")},
+                    }
+        return {"task": None, "milestone": None}
+    except Exception:
+        return {"task": None, "milestone": None}
+
+
+class _RoadmapTaskPatch(BaseModel):
+    status: str = ""
+    notes: str = ""
+
+
+@app.patch("/roadmap/task/{task_id}")
+def roadmap_task_update(task_id: str, req: _RoadmapTaskPatch, path: str = ""):
+    """Update the status (and optional notes) for a single task in roadmap.json."""
+    rp = Path(path) / "roadmap.json" if path else _bridge_roadmap_path()
+    if not rp.is_file():
+        raise HTTPException(status_code=404, detail="roadmap.json not found")
+    try:
+        data = json.loads(rp.read_text(encoding="utf-8"))
+        updated = False
+        for ms in data.get("milestones", []):
+            for task in ms.get("tasks", []):
+                if task.get("id") == task_id:
+                    if req.status:
+                        task["status"] = req.status
+                    if req.notes:
+                        task["notes"] = req.notes
+                    updated = True
+            # Update milestone status based on task statuses
+            if updated:
+                statuses = {t.get("status") for t in ms.get("tasks", [])}
+                if statuses == {"done"}:
+                    ms["status"] = "done"
+                elif "in_progress" in statuses or ("done" in statuses and "pending" in statuses):
+                    ms["status"] = "in_progress"
+        if not updated:
+            raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+        content = json.dumps(data, indent=2) + "\n"
+        fd, tmp = tempfile.mkstemp(dir=str(rp.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            Path(tmp).replace(rp)
+        except Exception:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return {"status": "updated", "task_id": task_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class _RoadmapTaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    milestone: str = "backlog"
+    project_path: str = ""
+
+
+@app.post("/roadmap/task")
+def roadmap_task_create(req: _RoadmapTaskCreate):
+    """Create a new task and append it to the appropriate milestone."""
+    rp = _bridge_roadmap_path()
+    if not rp.is_file():
+        raise HTTPException(status_code=404, detail="roadmap.json not found")
+    try:
+        data = json.loads(rp.read_text(encoding="utf-8"))
+        # Find or create the target milestone
+        target_ms = None
+        for ms in data.get("milestones", []):
+            if ms.get("id", "").lower() == req.milestone.lower() \
+                    or ms.get("title", "").lower().startswith(req.milestone.lower()):
+                target_ms = ms
+                break
+        if target_ms is None:
+            # Create a new milestone called "Backlog" if none exists
+            target_ms = {
+                "id": "backlog",
+                "title": "Backlog",
+                "status": "pending",
+                "tasks": [],
+            }
+            data.setdefault("milestones", []).append(target_ms)
+        task_id = f"BACK-{_uuid_mod.uuid4().hex[:6].upper()}"
+        new_task = {
+            "id": task_id,
+            "title": req.title,
+            "status": "pending",
+        }
+        if req.description:
+            new_task["description"] = req.description
+        target_ms.setdefault("tasks", []).append(new_task)
+        content = json.dumps(data, indent=2) + "\n"
+        fd, tmp = tempfile.mkstemp(dir=str(rp.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            Path(tmp).replace(rp)
+        except Exception:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return {"id": task_id, "title": req.title, "status": "pending"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Self-Build REST endpoints (M7-12) ─────────────────────────────────────────
+# Mirrors the ArbiterEngine server.py endpoints so the IDE panel works on both
+# port 8000 (PythonBridge) and port 8001 (ArbiterEngine).
+
+_sb_status_bridge: str = "idle"
+_sb_log_bridge: list[str] = []
+_sb_pending_bridge: dict | None = None
+_sb_lock_bridge = _threading.Lock()
+
+
+def _sb_emit_bridge(line: str):
+    with _sb_lock_bridge:
+        _sb_log_bridge.append(line.rstrip())
+        if len(_sb_log_bridge) > 2000:
+            del _sb_log_bridge[:1]
+
+
+class _SBStartReq(BaseModel):
+    task_id: str = ""
+    mode: str = "assist"  # manual | assist | semiauto | fullauto
+
+
+class _SBApproveReq(BaseModel):
+    approved: bool = True
+
+
+@app.get("/self-build/status")
+def sb_status_bridge():
+    """Return the current self-build loop status (bridge port 8000)."""
+    with _sb_lock_bridge:
+        return {
+            "status": _sb_status_bridge,
+            "pending_approval": _sb_pending_bridge is not None,
+            "pending_task_title": (_sb_pending_bridge or {}).get("task_title", ""),
+            "log_lines": len(_sb_log_bridge),
+        }
+
+
+@app.get("/self-build/log")
+def sb_log_bridge(tail: int = 100):
+    """Return the most recent self-build log lines (bridge port 8000)."""
+    with _sb_lock_bridge:
+        return {"lines": _sb_log_bridge[-max(1, tail):]}
+
+
+@app.post("/self-build/start")
+async def sb_start_bridge(req: _SBStartReq):
+    """Start (or resume) the self-build loop via the bridge (port 8000).
+
+    In *manual* mode, the next pending task is returned without running the loop.
+    In *assist / semiauto / fullauto* modes, the WebSocket endpoint ``/ws/self-build``
+    must be used for streaming; this endpoint just validates and returns the next task.
+    """
+    global _sb_status_bridge, _sb_log_bridge
+
+    mode = req.mode.lower()
+    rp = _bridge_roadmap_path()
+    if not rp.is_file():
+        raise HTTPException(status_code=404, detail="roadmap.json not found")
+
+    if mode == "manual":
+        data = json.loads(rp.read_text(encoding="utf-8"))
+        for ms in data.get("milestones", []):
+            if ms.get("status") == "done":
+                continue
+            for task in ms.get("tasks", []):
+                if task.get("status") in ("pending", "in_progress"):
+                    return {
+                        "mode": "manual",
+                        "next_task": task,
+                        "milestone": ms.get("title"),
+                    }
+        return {"mode": "manual", "status": "complete", "message": "All roadmap tasks are done!"}
+
+    # For autonomous modes, instruct the client to open the WebSocket
+    with _sb_lock_bridge:
+        _sb_status_bridge = "running"
+        _sb_log_bridge = []
+    return {
+        "status": "started",
+        "mode": mode,
+        "task_id": req.task_id or "auto",
+        "detail": "Open /ws/self-build WebSocket to receive streaming log output.",
+    }
+
+
+@app.post("/self-build/stop")
+def sb_stop_bridge():
+    """Signal the self-build loop to stop (bridge port 8000)."""
+    global _sb_status_bridge
+    with _sb_lock_bridge:
+        _sb_status_bridge = "idle"
+    _sb_emit_bridge("⏹ Stop requested by user.")
+    return {"status": "stopped"}
+
+
+@app.post("/self-build/approve")
+def sb_approve_bridge(req: _SBApproveReq):
+    """Approve or reject a pending self-build change (bridge port 8000)."""
+    global _sb_pending_bridge
+    with _sb_lock_bridge:
+        pending = _sb_pending_bridge
+        _sb_pending_bridge = None
+    if pending is None:
+        raise HTTPException(status_code=404, detail="No pending approval")
+    action = "approved" if req.approved else "rejected"
+    _sb_emit_bridge(f"{'✅' if req.approved else '❌'} Change {action} by user.")
+    return {"status": action, "task_id": pending.get("task_id", "")}
+
+
+@app.get("/self-build/next")
+def sb_next_bridge():
+    """Return the next pending task (bridge port 8000, mirrors ArbiterEngine)."""
+    return roadmap_next()
+
+
+# ── Git push / branch (for /push and /branch slash commands) ─────────────────
+
+class _GitPushReq(BaseModel):
+    project_path: str = ""
+    remote: str = "origin"
+    branch: str = ""
+
+
+@app.post("/git/push")
+def git_push(req: _GitPushReq):
+    """Push the current branch to a remote (uses subprocess git)."""
+    cwd = req.project_path or str(SCRIPT_DIR.parent.parent)
+    try:
+        remote = req.remote or "origin"
+        cmd = ["git", "push", remote]
+        if req.branch:
+            cmd.append(req.branch)
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            return {"status": "error", "detail": result.stderr.strip()}
+        return {"status": "ok", "output": result.stdout.strip()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class _GitBranchReq(BaseModel):
+    name: str
+    project_path: str = ""
+
+
+@app.post("/git/branch")
+def git_create_branch(req: _GitBranchReq):
+    """Create and check out a new git branch."""
+    cwd = req.project_path or str(SCRIPT_DIR.parent.parent)
+    try:
+        result = subprocess.run(
+            ["git", "checkout", "-b", req.name],
+            cwd=cwd, capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return {"status": "error", "detail": result.stderr.strip()}
+        return {"status": "ok", "branch": req.name}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 from fastapi import Request as _Request
@@ -1958,7 +2290,7 @@ for _stub_path, _stub_tag in [
     ("/apiclient/collections", "api-client"), ("/apiclient/collection", "api-client"),
     ("/apiclient/send", "api-client"),
     ("/deps/analyze", "deps"), ("/deps/reports", "deps"),
-    ("/roadmap/next", "roadmap"),
+    # "/roadmap/next" is now a real endpoint (implemented above)
     ("/testrunner/run", "testrunner"), ("/testrunner/reports", "testrunner"),
     ("/knowledge/fetch", "knowledge"), ("/knowledge/remove", "knowledge"),
     ("/rules", "rules"), ("/tasks", "tasks"),

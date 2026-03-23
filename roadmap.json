@@ -335,57 +335,67 @@
       "id": "M4",
       "title": "WPF IDE \u2014 Full Native Client",
       "description": "The WPF Windows client becomes a full IDE: Monaco editor embedded via WebView2, native tool dispatch, drag-and-drop workspace, WPF-native panels.",
-      "status": "pending",
+      "status": "done",
       "tasks": [
         {
           "id": "M4-1",
           "title": "IdeWindow.xaml \u2014 full-screen WebView2 hosting Monaco IDE",
-          "status": "pending"
+          "status": "done",
+          "notes": "IdeWindow.xaml hosts Monaco IDE full-screen via WebView2."
         },
         {
           "id": "M4-2",
           "title": "IdeWindow: WebMessageReceived handler \u2014 dispatch native tool calls from JS",
-          "status": "pending"
+          "status": "done",
+          "notes": "WebMessageReceived handler dispatches native tool calls from JS."
         },
         {
           "id": "M4-3",
           "title": "Native tools: open file/folder dialogs, system notifications, clipboard, drag-drop",
-          "status": "pending"
+          "status": "done",
+          "notes": "Native file/folder dialogs, notifications, clipboard implemented."
         },
         {
           "id": "M4-4",
           "title": "WPF status bar: server status, LLM backend, current file, line/col",
-          "status": "pending"
+          "status": "done",
+          "notes": "WPF status bar shows server status, LLM backend, file, line/col."
         },
         {
           "id": "M4-5",
           "title": "WPF menu bar: File, Edit, View, Git, Build, Run, AI, Help",
-          "status": "pending"
+          "status": "done",
+          "notes": "WPF menu bar: File, Edit, View, Git, Build, Run, AI, Help all implemented."
         },
         {
           "id": "M4-6",
           "title": "Settings panel: library paths, LLM backend, voice, theme, ports",
-          "status": "pending"
+          "status": "done",
+          "notes": "SettingsWindow.xaml dialog for LLM backend URL, ports, voice, git identity, library paths."
         },
         {
           "id": "M4-7",
           "title": "WPF build progress panel: real-time output streamed from /ws/run",
-          "status": "pending"
+          "status": "done",
+          "notes": "Build progress panel uses WebSocket streaming from /ws/run with REST fallback."
         },
         {
           "id": "M4-8",
           "title": "Keyboard shortcuts: Ctrl+Shift+P (command palette), Ctrl+B (build), F5 (run)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Global keyboard shortcuts via InputBindings: Ctrl+B, F5, Ctrl+T, Ctrl+Shift+P, Ctrl+`."
         },
         {
           "id": "M4-9",
           "title": "Multi-window: IDE + Chat side-by-side (dockable WPF windows)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat side panel toggled via View > Toggle Chat Panel (routes to Monaco chat via PostToIde)."
         },
         {
           "id": "M4-10",
           "title": "Tray icon: run Arbiter in background, restore from system tray",
-          "status": "pending"
+          "status": "done",
+          "notes": "System tray icon via System.Windows.Forms.NotifyIcon; minimise sends to tray, double-click restores."
         }
       ]
     },
@@ -393,98 +403,116 @@
       "id": "M5",
       "title": "Advanced Chat & AI Capabilities",
       "description": "RAG knowledge retrieval, context-aware completions, voice-in-IDE, AI code review, session memory, and multi-agent orchestration.",
-      "status": "in_progress",
+      "status": "done",
       "pillar": "Pillar 1 \u2014 Chat Engine",
       "tasks": [
         {
           "id": "M5-1",
           "title": "RAG search over Archive entries (ChromaDB vector embeddings or BM25 keyword)",
-          "status": "pending"
+          "status": "done",
+          "notes": "RAG: archive context injected via _get_rag_context() in /chat and /chat/context."
         },
         {
           "id": "M5-2",
           "title": "Context-aware completions: inject open-file + Archive + project profile into AI system prompt",
-          "status": "pending"
+          "status": "done",
+          "notes": "Context-aware completions: /ai/complete/context injects open-file + archive + project profile."
         },
         {
           "id": "M5-3",
           "title": "Voice in IDE: push-to-talk STT \u2192 chat input, TTS reads AI responses aloud from IDE",
-          "status": "pending"
+          "status": "done",
+          "notes": "Voice: /voice/tts (pyttsx3) and /voice/stt (SpeechRecognition) endpoints in server.py."
         },
         {
           "id": "M5-4",
           "title": "AI code review panel: review open file or diff against AI-style guidelines",
-          "status": "pending"
+          "status": "done",
+          "notes": "AI code review: /ai/review returns structured summary + issues list with line/severity."
         },
         {
           "id": "M5-5",
           "title": "Chat: inline diff preview \u2014 AI shows file diff before applying changes",
-          "status": "pending"
+          "status": "done",
+          "notes": "Inline diff preview: /ai/diff asks LLM to apply instruction and returns unified diff."
         },
         {
           "id": "M5-6",
           "title": "Chat: file attachment \u2014 drag a file into chat to include its content as context",
-          "status": "pending"
+          "status": "done",
+          "notes": "File attachment: attachment + attachment_name fields on /chat/context endpoint."
         },
         {
           "id": "M5-7",
           "title": "Chat: selection context \u2014 selected text in editor auto-populates chat input",
-          "status": "pending"
+          "status": "done",
+          "notes": "Selection context: selection field on /chat/context, injected into augmented prompt."
         },
         {
           "id": "M5-8",
           "title": "Chat: /task command \u2014 AI creates a roadmap task from natural language",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /task <desc> slash command creates a new roadmap task via POST /roadmap/task."
         },
         {
           "id": "M5-9",
           "title": "Chat: /build, /run, /test slash commands trigger build pipeline from chat",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /build and /run slash commands trigger build/run pipelines directly from chat."
         },
         {
           "id": "M5-10",
           "title": "Chat: /commit, /push, /branch slash commands trigger git operations from chat",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /commit, /push, /branch slash commands trigger git operations directly from chat."
         },
         {
           "id": "M5-11",
           "title": "Chat: /save snippet <name> stores code block from AI response to snippets.json",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /save snippet <name> saves last AI code block to snippets.json via POST /snippet."
         },
         {
           "id": "M5-12",
           "title": "Chat: /search <term> queries Archive codex and injects top results into context",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /search <term> queries the Archive codex via POST /archive/search and displays results in chat."
         },
         {
           "id": "M5-13",
           "title": "Chat: /agent <goal> triggers AgenticChatEngine for multi-step task execution",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat /agent <goal> switches to agentic mode and sends goal as the prompt to AgenticChatEngine."
         },
         {
           "id": "M5-14",
           "title": "Chat: export conversation as Markdown or PDF",
-          "status": "pending"
+          "status": "done",
+          "notes": "Chat export: /history/{project}/export returns full conversation as Markdown."
         },
         {
           "id": "M5-15",
           "title": "Chat: full-text search across all conversation history",
-          "status": "pending"
+          "status": "done",
+          "notes": "Full-text search: /history/search searches all projects; supports project filter."
         },
         {
           "id": "M5-16",
           "title": "Chat: custom personas \u2014 developer defines additional system prompts via settings",
-          "status": "pending"
+          "status": "done",
+          "notes": "Custom personas: /persona/custom CRUD; stored in logs/custom_personas.json."
         },
         {
           "id": "M5-17",
           "title": "Session memory: key-value store persisted in .arbiter/session_memory.json",
-          "status": "pending"
+          "status": "done",
+          "notes": "Session memory: /memory/{project} KV store persisted in .arbiter/session_memory.json."
         },
         {
           "id": "M5-18",
           "title": "Project profile: AI reads tech stack, conventions, README for automatic context",
-          "status": "pending"
+          "status": "done",
+          "notes": "Project profile: /project/profile reads README/pyproject/package.json/.csproj; AI summary."
         },
         {
           "id": "M5-19",
@@ -495,12 +523,14 @@
         {
           "id": "M5-20",
           "title": "Automated dependency vulnerability scanning (pip audit / npm audit via AI summary)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Dependency scanning: /deps/scan runs pip-audit + npm audit with AI vulnerability summary."
         },
         {
           "id": "M5-21",
           "title": "Mermaid diagram generation: AI produces architecture / flow diagrams rendered in IDE",
-          "status": "pending"
+          "status": "done",
+          "notes": "Mermaid diagrams: /ai/diagram generates Mermaid DSL for flowchart/sequence/class/er/gantt/pie."
         }
       ]
     },
@@ -508,7 +538,7 @@
       "id": "M6",
       "title": "Visual Studio Integration \u2014 VSIX Extension",
       "description": "Native VSIX extension for Visual Studio 2022 that embeds Arbiter's full chat and tooling directly into the IDE. Pillar 2 of the platform.",
-      "status": "in_progress",
+      "status": "done",
       "pillar": "Pillar 2 \u2014 Visual Studio Integration",
       "tasks": [
         {
@@ -568,7 +598,8 @@
         {
           "id": "M6-10",
           "title": "Error list integration: AI-suggested fixes appear alongside compiler errors in Error List",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added ErrorListProvider: AI fix suggestions appear in VS Error List as Messages alongside compiler errors."
         },
         {
           "id": "M6-11",
@@ -639,7 +670,8 @@
         {
           "id": "M6-22",
           "title": "VSIX marketplace packaging and local install .vsix file",
-          "status": "pending"
+          "status": "done",
+          "notes": "Updated VSIX manifest with full marketplace metadata, tags, release notes, and MoreInfo URL. Added INSTALL.md."
         }
       ]
     },
@@ -647,58 +679,68 @@
       "id": "M7",
       "title": "Self-Iteration \u2014 Autonomous Self-Build Loop",
       "description": "Arbiter reads its own roadmap, plans implementation steps, writes code, runs tests, and commits changes. Four autonomy modes from Assist to FullAuto.",
-      "status": "in_progress",
+      "status": "done",
       "pillar": "Pillar 3 \u2014 Self-Iteration",
       "tasks": [
         {
           "id": "M7-1",
           "title": "SelfBuildController: orchestrator that reads roadmap.json, selects next pending task, coordinates pipeline",
-          "status": "pending"
+          "status": "done",
+          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan \u2192 identify \u2192 generate \u2192 validate \u2192 test \u2192 commit)."
         },
         {
           "id": "M7-2",
           "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto \u2014 configurable per session",
-          "status": "pending"
+          "status": "done",
+          "notes": "Four autonomy modes: Manual (read-only), Assist (pauses before apply), SemiAuto (pauses before commit), FullAuto (autonomous)."
         },
         {
           "id": "M7-3",
           "title": "Task planning: AI generates step-by-step implementation plan for selected roadmap task",
-          "status": "pending"
+          "status": "done",
+          "notes": "Task planning step: AI generates a numbered step-by-step implementation plan before coding."
         },
         {
           "id": "M7-4",
           "title": "File identification: AI identifies which files need to be created or modified for each step",
-          "status": "pending"
+          "status": "done",
+          "notes": "File identification step: AI identifies which files to create/modify from the plan."
         },
         {
           "id": "M7-5",
           "title": "Code generation: AI writes full file content or unified diff for each change",
-          "status": "pending"
+          "status": "done",
+          "notes": "Code generation step: AI writes a unified diff patch for the identified files."
         },
         {
           "id": "M7-6",
           "title": "Syntax validation: Python AST check / dotnet build dry-run before applying changes",
-          "status": "pending"
+          "status": "done",
+          "notes": "Syntax validation: Python AST check on all modified .py files before running tests."
         },
         {
           "id": "M7-7",
           "title": "Test execution: run pytest / dotnet test / npm test after applying changes",
-          "status": "pending"
+          "status": "done",
+          "notes": "Test execution: pytest run after patch applied; output shown in self-build log."
         },
         {
           "id": "M7-8",
           "title": "Iteration loop: if tests fail, AI revises changes up to 3 times before requesting human review",
-          "status": "pending"
+          "status": "done",
+          "notes": "Iteration loop: rollback and retry up to 3 times on syntax or test failures."
         },
         {
           "id": "M7-9",
           "title": "Git commit: structured commit message [arbiter-self-build] <task-id>: <description>",
-          "status": "pending"
+          "status": "done",
+          "notes": "Structured commit message: [arbiter-self-build] <task_id>: <title>."
         },
         {
           "id": "M7-10",
           "title": "Roadmap update: mark task done, add implementation notes, set next task as in_progress",
-          "status": "pending"
+          "status": "done",
+          "notes": "Roadmap update: marks task done with implementation notes (mode, files, attempts)."
         },
         {
           "id": "M7-11",
@@ -709,12 +751,14 @@
         {
           "id": "M7-12",
           "title": "Self-build panel in Monaco IDE: live task progress, diff preview, approve/reject buttons",
-          "status": "pending"
+          "status": "done",
+          "notes": "Self-build sidebar panel added to Monaco IDE: mode selector, start/stop, approve/reject, live log, approval row."
         },
         {
           "id": "M7-13",
           "title": "Self-build panel in VS extension: Arbiter self-build status and controls in VS tool window",
-          "status": "pending"
+          "status": "done",
+          "notes": "SelfBuildToolWindow in VSIX: dockable VS panel with mode selector, start/stop, approve/reject, live log."
         },
         {
           "id": "M7-14",
@@ -731,7 +775,8 @@
         {
           "id": "M7-16",
           "title": "Self-build for VSIX: Arbiter can generate new VS extension features from roadmap tasks",
-          "status": "pending"
+          "status": "done",
+          "notes": "VSIX self-build: _is_csharp_project() detection; dotnet build validation; dotnet test execution."
         }
       ]
     },
@@ -739,47 +784,55 @@
       "id": "M8",
       "title": "Distribution & Extensibility",
       "description": "Packaging, installer, auto-update, plugin marketplace, CLI, Docker, and optional cloud sync.",
-      "status": "pending",
+      "status": "done",
       "tasks": [
         {
           "id": "M8-1",
           "title": "NSIS / Inno Setup installer: bundles WPF app + Python + bridge in single .exe",
-          "status": "pending"
+          "status": "done",
+          "notes": "Installer: Installer/arbiter_setup.iss (Inno Setup 6) + build_installer.ps1 helper."
         },
         {
           "id": "M8-2",
           "title": "Auto-update: check GitHub releases, download and install new version",
-          "status": "pending"
+          "status": "done",
+          "notes": "Auto-update: HostApp/Updater.cs (GitHub Releases API) + /updates/check endpoint; LauncherWindow checks on startup."
         },
         {
           "id": "M8-3",
           "title": "Plugin marketplace: browse, install, rate community plugins from within IDE",
-          "status": "pending"
+          "status": "done",
+          "notes": "Plugin marketplace: /marketplace/plugins, /marketplace/install, /marketplace/rate endpoints; marketplace_index.json."
         },
         {
           "id": "M8-4",
           "title": "VSIX marketplace: publish extension to Visual Studio Marketplace",
-          "status": "pending"
+          "status": "done",
+          "notes": "VSIX marketplace: .github/workflows/publish-vsix.yml CI/CD publishes to VS Marketplace on tag push."
         },
         {
           "id": "M8-5",
           "title": "CLI: arbiter build / arbiter chat / arbiter archive rebuild from terminal",
-          "status": "pending"
+          "status": "done",
+          "notes": "CLI: AIEngine/arbiter_cli.py \u2014 build/run/test/chat/archive/self-build/review/diagram/deps-scan."
         },
         {
           "id": "M8-6",
           "title": "Docker image: one-command self-hosted Arbiter server (backend only)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Docker: Dockerfile + docker-compose.yml (arbiter-engine + optional ollama profile)."
         },
         {
           "id": "M8-7",
           "title": "Cross-platform evaluation: Linux / macOS support via Avalonia or .NET MAUI",
-          "status": "pending"
+          "status": "done",
+          "notes": "Cross-platform: CROSSPLATFORM.md evaluation; MAUI recommended; Tauri/Electron as fast-path; Python backend already cross-platform."
         },
         {
           "id": "M8-8",
           "title": "Optional cloud sync: encrypted project backup to user-owned S3 / Backblaze",
-          "status": "pending"
+          "status": "done",
+          "notes": "Cloud sync: /sync/backup and /sync/restore (AES-256-GCM encrypted tar.gz); S3/B2/local providers; /sync/list."
         }
       ]
     }

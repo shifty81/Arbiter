@@ -43,7 +43,7 @@ from core.plugin_loader import PluginLoader
 from core.task_runner import TaskRunner
 from core.tool_registry import ToolRegistry
 from llm.factory import create_llm
-from core.self_build import SelfBuildLoop
+from core.self_build import SelfBuildLoop, SelfBuildController
 
 setup_logging(log_file=_BASE / "logs" / "arbiter_engine.log")
 logger = get_logger(__name__)
@@ -80,7 +80,8 @@ except Exception as _arc_exc:  # pragma: no cover – optional dependency
 import asyncio as _asyncio
 import threading as _threading_sb
 
-_self_build_loop: SelfBuildLoop | None = None
+_self_build_controller: SelfBuildController | None = None
+_self_build_loop: SelfBuildLoop | None = None           # kept for backward compat
 _self_build_task: "_asyncio.Task[Any] | None" = None
 _self_build_log: list[str] = []
 _self_build_status: str = "idle"           # idle | running | paused | done | error
@@ -767,13 +768,14 @@ def self_build_log(tail: int = 100) -> dict:
 async def self_build_start(req: SelfBuildStartRequest) -> dict:
     """Start (or resume) the autonomous self-build loop.
 
-    ``mode`` controls autonomy level:
+    ``mode`` controls autonomy level (M7-2):
     - ``manual``   – returns the next task description; takes no action.
     - ``assist``   – generates code changes and waits for approval before applying.
     - ``semiauto`` – applies changes, waits for approval before committing.
     - ``fullauto`` – plans, codes, tests, and commits without human approval.
     """
-    global _self_build_status, _self_build_log, _self_build_task, _self_build_loop
+    global _self_build_status, _self_build_log, _self_build_task
+    global _self_build_controller, _self_build_loop
 
     if _self_build_status == "running":
         return {"status": "already_running"}
@@ -784,7 +786,7 @@ async def self_build_start(req: SelfBuildStartRequest) -> dict:
 
     mode = req.mode.lower()
     if mode == "manual":
-        # Manual mode: just return the next pending task
+        # Manual mode: just return the next pending task (no code changes)
         from core.self_build import _roadmap_next
         task, ms = _roadmap_next(_ROADMAP_FILE)
         if task is None:
@@ -800,19 +802,26 @@ async def self_build_start(req: SelfBuildStartRequest) -> dict:
         _self_build_status = "running"
         _self_build_log = []
 
-    _self_build_loop = SelfBuildLoop(base_dir=_BASE, llm=_llm)
-    # Point the loop at the repo-root roadmap.json
-    _self_build_loop._roadmap_file = _ROADMAP_FILE
+    # Use SelfBuildController for proper Assist/SemiAuto/FullAuto support
+    _self_build_controller = SelfBuildController(
+        base_dir=_BASE, llm=_llm, roadmap_file=_ROADMAP_FILE
+    )
+    # Also update legacy reference for any code that still uses _self_build_loop
+    _self_build_loop = _self_build_controller  # type: ignore[assignment]
 
     async def _run_loop() -> None:
         global _self_build_status, _self_build_pending_approval
         try:
-            result = await _self_build_loop.run(
+            result = await _self_build_controller.run_cycle(
                 emit=_sb_emit,
+                mode=mode,
                 task_id=req.task_id or None,
             )
             with _self_build_lock:
                 _self_build_status = "done" if result.get("status") == "success" else "error"
+        except _asyncio.CancelledError:
+            with _self_build_lock:
+                _self_build_status = "idle"
         except Exception as exc:
             _sb_emit(f"❌ Self-build error: {exc}")
             with _self_build_lock:
@@ -838,8 +847,17 @@ async def self_build_stop() -> dict:
 
 @app.post("/self-build/approve")
 def self_build_approve(req: SelfBuildApproveRequest) -> dict:
-    """Approve or reject a pending self-build change (Assist / SemiAuto modes)."""
+    """Approve or reject a pending self-build change (Assist / SemiAuto modes, M7-2)."""
     global _self_build_pending_approval
+    # Delegate to the controller's approval mechanism if it is active
+    if _self_build_controller is not None:
+        _self_build_controller.set_approval(req.approved)
+        action = "approved" if req.approved else "rejected"
+        _sb_emit(f"{'✅' if req.approved else '❌'} Change {action} by user.")
+        task_id = (_self_build_controller.pending_task or {}).get("task_id", "")
+        return {"status": action, "task_id": task_id}
+
+    # Legacy path: check old _self_build_pending_approval dict
     with _self_build_lock:
         pending = _self_build_pending_approval
         _self_build_pending_approval = None
@@ -2160,6 +2178,1491 @@ def shutdown_server() -> dict:
 
     threading.Thread(target=_stop, daemon=True).start()
     return {"status": "shutting_down"}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-1: RAG-injected chat — enrich /chat context with Archive search results
+# ─────────────────────────────────────────────────────────────────────────────
+# The existing /chat endpoint is extended: if the Archive is available it injects
+# the top-3 archive snippets relevant to the user's message into the agent prompt.
+# This is transparent — no API changes are required on the client side.
+
+def _get_rag_context(query: str, top_k: int = 3) -> str:
+    """Return a formatted string of the top-k archive hits for *query*."""
+    if not _HAS_ARCHIVE or _archive is None:
+        return ""
+    try:
+        results = _archive.search(query, top_k=top_k)
+        if not results:
+            return ""
+        parts = ["[Archive context]"]
+        for e in results:
+            parts.append(f"### {e.title} ({e.language})\n{e.content[:400]}")
+        return "\n\n".join(parts)
+    except Exception:
+        return ""
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-2: Context-aware completions — /ai/complete with file + archive context
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _CompletionReq(BaseModel):
+    code: str               # the code up to the cursor
+    file_path: str = ""     # relative path of the open file (for language hint)
+    project: str = "default"
+    max_tokens: int = 256
+
+
+@app.post("/ai/complete/context")
+def ai_complete_context(req: _CompletionReq) -> dict:
+    """Context-aware completion: injects open-file + Archive + project profile
+    into the system prompt before asking the LLM to complete the code.
+
+    M5-2
+    """
+    archive_ctx = _get_rag_context(req.code[-500:], top_k=2)
+    profile_ctx = _build_project_profile_text(req.project)
+
+    system = (
+        "You are an expert code completion engine.\n"
+        "Complete the code exactly where it stops — output ONLY the completion, no explanation.\n"
+    )
+    if archive_ctx:
+        system += f"\n{archive_ctx}\n"
+    if profile_ctx:
+        system += f"\n[Project profile]\n{profile_ctx}\n"
+
+    prompt = f"Continue the following code:\n```\n{req.code[-_MAX_AI_CODE_CHARS:]}\n```"
+    from core.agent import Agent
+    agent = Agent(llm=_llm, tool_registry=_registry, permission_system=_permissions,
+                  task_runner=_runner, config=_config, project_path=req.project)
+    try:
+        completion = agent.run(
+            prompt=prompt,
+            project_path=req.project,
+            system_prompt=system,
+        )
+    except TypeError:
+        # Older Agent may not accept system_prompt kwarg — fall back
+        try:
+            completion = _llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ])
+        except Exception as exc:
+            completion = f"[Completion error] {exc}"
+    except Exception as exc:
+        completion = f"[Completion error] {exc}"
+    return {"completion": completion, "file_path": req.file_path}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-3: Voice in ArbiterEngine — /voice/tts and /voice/stt
+# ─────────────────────────────────────────────────────────────────────────────
+# These endpoints mirror the voice support in fastapi_bridge.py so that
+# clients connected to ArbiterEngine (port 8001) can also use TTS/STT.
+
+class _TtsRequest(BaseModel):
+    text: str
+    voice: str = "British_Female"
+
+
+def _matches_voice_preference(voice_obj: object, keyword: str) -> bool:
+    """Return True if *voice_obj* (a pyttsx3 Voice) matches the *keyword* spec.
+
+    Handles tokens like 'british_female', 'american_male', etc.
+    """
+    vid = (getattr(voice_obj, "id",   "") or "").lower()
+    vn  = (getattr(voice_obj, "name", "") or "").lower()
+    wants_british = "british" in keyword
+    wants_female  = "female"  in keyword
+    wants_male    = "male"    in keyword and not wants_female
+
+    if wants_british and ("british" not in vid and "british" not in vn):
+        return False
+    if wants_female and "female" not in vid and "female" not in vn:
+        return False
+    if wants_male and ("male" not in vid or "female" in vid):
+        return False
+    return True
+
+
+@app.post("/voice/tts")
+def voice_tts(req: _TtsRequest) -> dict:
+    """Synthesise speech for *text* using the system TTS engine.
+
+    Returns ``{"status": "ok"}`` when speech has been played, or
+    ``{"status": "error", "detail": "..."}`` if TTS is unavailable.
+
+    M5-3
+    """
+    try:
+        import pyttsx3
+        engine = pyttsx3.init()
+        kw = req.voice.lower()
+        for voice_obj in engine.getProperty("voices"):
+            if _matches_voice_preference(voice_obj, kw):
+                engine.setProperty("voice", voice_obj.id)
+                break
+        engine.say(req.text)
+        engine.runAndWait()
+        return {"status": "ok"}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+class _SttRequest(BaseModel):
+    duration: int = 5   # seconds to record
+
+
+@app.post("/voice/stt")
+def voice_stt(req: _SttRequest) -> dict:
+    """Record microphone audio for *duration* seconds and return the transcript.
+
+    Requires ``SpeechRecognition`` and ``pyaudio`` to be installed.
+    Returns ``{"transcript": "...", "status": "ok"}`` or an error dict.
+
+    M5-3
+    """
+    try:
+        import speech_recognition as sr  # type: ignore[import]
+        recogniser = sr.Recognizer()
+        with sr.Microphone() as source:
+            recogniser.adjust_for_ambient_noise(source, duration=0.5)
+            audio = recogniser.listen(source, timeout=req.duration + 2,
+                                      phrase_time_limit=req.duration)
+        transcript = recogniser.recognize_google(audio)
+        return {"transcript": transcript, "status": "ok"}
+    except Exception as exc:
+        return {"transcript": "", "status": "error", "detail": str(exc)}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-4: AI code review panel — /ai/review
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ReviewReq(BaseModel):
+    code: str
+    file_path: str = ""
+    project: str = "default"
+    guidelines: str = ""   # optional custom review guidelines
+
+
+@app.post("/ai/review")
+def ai_code_review(req: _ReviewReq) -> dict:
+    """Return a structured AI code review for the supplied code.
+
+    The response includes a summary and a list of issues (line, severity,
+    message) extracted from the LLM response.
+
+    M5-4
+    """
+    guidelines_section = ""
+    if req.guidelines:
+        guidelines_section = f"\nApply the following custom guidelines:\n{req.guidelines[:800]}\n"
+    system = (
+        "You are a strict code reviewer. Review the provided code for:\n"
+        "  - Bugs and logic errors (severity: error)\n"
+        "  - Security vulnerabilities (severity: warning)\n"
+        "  - Code style and readability issues (severity: info)\n"
+        "  - Missing tests or documentation (severity: info)\n"
+        f"{guidelines_section}"
+        "Format your response as:\n"
+        "SUMMARY: <one-sentence summary>\n"
+        "ISSUES:\n"
+        "- [LINE <n>] [<severity>] <description>\n"
+        "...\n"
+        "If no issues found, write: ISSUES: none\n"
+    )
+    file_hint = f" ({req.file_path})" if req.file_path else ""
+    prompt = f"Review this code{file_hint}:\n```\n{req.code[:_MAX_AI_CODE_CHARS]}\n```"
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": prompt},
+        ])
+    except Exception as exc:
+        raw = f"[Review error] {exc}"
+
+    # Parse the structured response
+    summary = ""
+    issues: list[dict] = []
+    for line in raw.splitlines():
+        if line.startswith("SUMMARY:"):
+            summary = line[len("SUMMARY:"):].strip()
+        elif line.startswith("- [LINE"):
+            # Example: - [LINE 12] [error] Missing null check
+            import re as _re
+            m = _re.match(r"- \[LINE (\d+)\] \[(\w+)\] (.+)", line)
+            if m:
+                issues.append({"line": int(m.group(1)), "severity": m.group(2),
+                                "message": m.group(3)})
+            else:
+                issues.append({"line": 0, "severity": "info", "message": line[2:]})
+
+    return {"summary": summary, "issues": issues, "raw": raw}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-5: Chat: inline diff preview — /ai/diff
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _AiDiffReq(BaseModel):
+    code: str           # original file content
+    instruction: str    # natural-language change instruction
+    file_path: str = ""
+    project: str = "default"
+
+
+@app.post("/ai/diff")
+def ai_diff_preview(req: _AiDiffReq) -> dict:
+    """Ask the LLM to apply *instruction* to *code* and return a unified diff
+    preview so the user can inspect the change before applying it.
+
+    M5-5
+    """
+    system = (
+        "You are a code editing assistant.\n"
+        "Given the original code and an instruction, produce ONLY the modified file content.\n"
+        "Output the complete modified file — nothing else."
+    )
+    prompt = (
+        f"Instruction: {req.instruction}\n\n"
+        f"Original code ({req.file_path or 'file'}):\n"
+        f"```\n{req.code[:_MAX_AI_CODE_CHARS]}\n```"
+    )
+    try:
+        modified = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": prompt},
+        ])
+        # Strip markdown fences if LLM wraps output
+        if modified.strip().startswith("```"):
+            lines = modified.strip().splitlines()
+            modified = "\n".join(
+                lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:]
+            )
+    except Exception as exc:
+        return {"diff": "", "modified": "", "error": str(exc)}
+
+    diff_lines = list(_difflib.unified_diff(
+        req.code.splitlines(keepends=True),
+        modified.splitlines(keepends=True),
+        fromfile=f"a/{req.file_path or 'file'}",
+        tofile=f"b/{req.file_path or 'file'}",
+    ))
+    return {"diff": "".join(diff_lines), "modified": modified}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-6 / M5-7: Chat with file attachment and selection context
+# ─────────────────────────────────────────────────────────────────────────────
+# The UserMessage model is extended at request time via a new endpoint so that
+# existing /chat clients are unaffected.
+
+class _ChatWithContextReq(BaseModel):
+    message: str
+    project: str = "default"
+    attachment: str = ""    # M5-6: file content pasted / dragged
+    attachment_name: str = "" # original filename for context hint
+    selection: str = ""     # M5-7: selected text from editor
+    use_voice: bool = False
+    voice: str = "British_Female"
+
+
+@app.post("/chat/context")
+def chat_with_context(msg: _ChatWithContextReq) -> dict:
+    """Chat endpoint that accepts an optional file attachment (M5-6)
+    and/or editor selection (M5-7) as additional context.
+
+    Both are injected into the agent prompt before the user message.
+    """
+    from core.agent import Agent
+
+    # Build augmented prompt
+    extra_parts: list[str] = []
+    if msg.selection:
+        extra_parts.append(
+            f"[Selected text in editor]\n```\n{msg.selection[:_MAX_AI_CONTEXT_CHARS]}\n```"
+        )
+    if msg.attachment:
+        name_hint = f" ({msg.attachment_name})" if msg.attachment_name else ""
+        extra_parts.append(
+            f"[Attached file{name_hint}]\n```\n{msg.attachment[:_MAX_AI_CODE_CHARS]}\n```"
+        )
+
+    # RAG injection (M5-1)
+    rag_ctx = _get_rag_context(msg.message, top_k=2)
+    if rag_ctx:
+        extra_parts.append(rag_ctx)
+
+    augmented_prompt = "\n\n".join(extra_parts + [msg.message]) if extra_parts else msg.message
+
+    history = _chat_histories.setdefault(msg.project, [])
+    agent = Agent(
+        llm=_llm,
+        tool_registry=_registry,
+        permission_system=_permissions,
+        task_runner=_runner,
+        config=_config,
+        project_path=msg.project,
+    )
+    try:
+        response = agent.run(
+            prompt=augmented_prompt,
+            project_path=msg.project,
+            chat_history=history,
+        )
+    except Exception as exc:
+        logger.error("chat_with_context error: %s", exc)
+        response = f"[Arbiter Engine error] {exc}"
+
+    history.append({"role": "user", "content": msg.message})
+    history.append({"role": "assistant", "content": response})
+    if len(history) > _MAX_CHAT_HISTORY_TURNS:
+        history[:] = history[-_MAX_CHAT_HISTORY_TURNS:]
+
+    return {"response": response, "persona": _active_personas.get(msg.project, "Arbiter")}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-14: Chat export as Markdown
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/history/{project_name}/export")
+def history_export(project_name: str, fmt: str = "markdown") -> dict:
+    """Export the conversation history for *project_name* as Markdown.
+
+    Query params:
+      - fmt: "markdown" (default) — returns {"content": "..."}
+
+    M5-14
+    """
+    history = _chat_histories.get(project_name, [])
+    if not history:
+        return {"content": f"# Arbiter Chat — {project_name}\n\n*(No conversation history)*\n"}
+
+    lines = [f"# Arbiter Chat — {project_name}\n",
+             f"_Exported {datetime.datetime.now(datetime.timezone.utc).isoformat()}_\n\n---\n"]
+    for turn in history:
+        role  = turn.get("role", "user")
+        text  = turn.get("content", "")
+        label = "**You**" if role == "user" else "**Arbiter**"
+        lines.append(f"{label}\n\n{text}\n\n---\n")
+    return {"content": "\n".join(lines), "format": fmt, "turns": len(history)}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-15: Chat full-text search across all conversation history
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/history/search")
+def history_search(q: str = "", project: str = "", limit: int = 20) -> dict:
+    """Search all conversation history for messages matching *q*.
+
+    Optional *project* restricts search to a single project.
+    Returns a list of matches: {project, role, content, turn_index}.
+
+    M5-15
+    """
+    if not q:
+        return {"results": []}
+    q_lower = q.lower()
+    results: list[dict] = []
+    scope = {project: _chat_histories[project]} if project and project in _chat_histories \
+            else _chat_histories
+    for proj, history in scope.items():
+        for idx, turn in enumerate(history):
+            if q_lower in turn.get("content", "").lower():
+                snippet = turn["content"]
+                # Return a 200-char snippet around the first hit
+                pos = snippet.lower().find(q_lower)
+                start = max(0, pos - 80)
+                end = min(len(snippet), pos + 120)
+                results.append({
+                    "project": proj,
+                    "role": turn.get("role", "user"),
+                    "snippet": snippet[start:end],
+                    "turn_index": idx,
+                })
+                if len(results) >= limit:
+                    return {"results": results, "query": q}
+    return {"results": results, "query": q}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-16: Custom personas — user-defined system-prompt personas
+# ─────────────────────────────────────────────────────────────────────────────
+# Custom personas are stored in  logs/custom_personas.json  so they persist
+# across restarts alongside the session snapshot.
+
+_CUSTOM_PERSONAS_FILE = _BASE / "logs" / "custom_personas.json"
+_custom_personas: dict[str, str] = {}  # name → system_prompt
+
+
+def _load_custom_personas() -> None:
+    global _custom_personas
+    if _CUSTOM_PERSONAS_FILE.is_file():
+        try:
+            _custom_personas = json.loads(
+                _CUSTOM_PERSONAS_FILE.read_text(encoding="utf-8")
+            )
+        except Exception:
+            pass
+
+
+def _save_custom_personas() -> None:
+    try:
+        _CUSTOM_PERSONAS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _CUSTOM_PERSONAS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_custom_personas, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+        tmp.replace(_CUSTOM_PERSONAS_FILE)
+    except Exception as exc:
+        logger.warning("Could not save custom personas: %s", exc)
+
+
+_load_custom_personas()  # load at import time
+
+
+class _CustomPersonaReq(BaseModel):
+    name: str
+    system_prompt: str
+
+
+@app.get("/persona/custom")
+def list_custom_personas() -> dict:
+    """Return all user-defined custom personas.
+
+    M5-16
+    """
+    return {"personas": [{"name": k, "system_prompt": v}
+                          for k, v in _custom_personas.items()]}
+
+
+@app.post("/persona/custom")
+def create_custom_persona(req: _CustomPersonaReq) -> dict:
+    """Create or update a custom persona with a user-defined system prompt.
+
+    The persona becomes immediately available in /personas and /chat.
+
+    M5-16
+    """
+    if not req.name.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Persona name must not be empty")
+    _custom_personas[req.name] = req.system_prompt
+    if req.name not in _PERSONAS:
+        _PERSONAS.append(req.name)
+    _save_custom_personas()
+    return {"status": "ok", "name": req.name}
+
+
+@app.delete("/persona/custom/{name}")
+def delete_custom_persona(name: str) -> dict:
+    """Remove a custom persona by name.
+
+    M5-16
+    """
+    if name not in _custom_personas:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Custom persona '{name}' not found")
+    del _custom_personas[name]
+    if name in _PERSONAS:
+        _PERSONAS.remove(name)
+    _save_custom_personas()
+    return {"status": "removed", "name": name}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-17: Session memory — per-project KV store
+# ─────────────────────────────────────────────────────────────────────────────
+# Stored in  .arbiter/session_memory.json  inside each project directory so
+# that memory is project-local and travels with the workspace.
+
+def _session_memory_path(project: str) -> Path:
+    """Resolve the session memory file for *project*."""
+    base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+    # Handle both "ProjectName" and full paths
+    p = Path(project)
+    if p.is_absolute() and p.exists():
+        return p / ".arbiter" / "session_memory.json"
+    return base / project / ".arbiter" / "session_memory.json"
+
+
+def _load_session_memory(project: str) -> dict:
+    path = _session_memory_path(project)
+    if path.is_file():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_session_memory(project: str, data: dict) -> None:
+    path = _session_memory_path(project)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        logger.warning("Could not save session memory for %r: %s", project, exc)
+
+
+class _MemorySetReq(BaseModel):
+    key: str
+    value: str
+
+
+@app.get("/memory/{project_name}")
+def memory_get_all(project_name: str) -> dict:
+    """Return all session memory entries for *project_name*.
+
+    M5-17
+    """
+    return {"project": project_name, "memory": _load_session_memory(project_name)}
+
+
+@app.get("/memory/{project_name}/{key}")
+def memory_get(project_name: str, key: str) -> dict:
+    """Return a single memory entry by *key*.
+
+    M5-17
+    """
+    mem = _load_session_memory(project_name)
+    if key not in mem:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Key '{key}' not found in memory")
+    return {"key": key, "value": mem[key]}
+
+
+@app.post("/memory/{project_name}")
+def memory_set(project_name: str, req: _MemorySetReq) -> dict:
+    """Store or update a memory key-value pair.
+
+    M5-17
+    """
+    mem = _load_session_memory(project_name)
+    mem[req.key] = req.value
+    _save_session_memory(project_name, mem)
+    return {"status": "ok", "key": req.key}
+
+
+@app.delete("/memory/{project_name}/{key}")
+def memory_delete(project_name: str, key: str) -> dict:
+    """Remove a memory entry by *key*.
+
+    M5-17
+    """
+    mem = _load_session_memory(project_name)
+    if key not in mem:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Key '{key}' not found in memory")
+    del mem[key]
+    _save_session_memory(project_name, mem)
+    return {"status": "removed", "key": key}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-18: Project profile — reads README / pyproject / package.json
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_project_profile_text(project: str) -> str:
+    """Read the project profile files and return a text summary for LLM injection."""
+    base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+    p = Path(project)
+    project_dir = p if (p.is_absolute() and p.exists()) else base / project
+    if not project_dir.is_dir():
+        return ""
+
+    parts: list[str] = []
+
+    # README
+    for fname in ("README.md", "README.rst", "README.txt", "readme.md"):
+        readme = project_dir / fname
+        if readme.is_file():
+            parts.append(f"[README]\n{readme.read_text(encoding='utf-8', errors='ignore')[:1200]}")
+            break
+
+    # Python project metadata
+    for fname in ("pyproject.toml", "setup.cfg", "setup.py"):
+        f = project_dir / fname
+        if f.is_file():
+            parts.append(f"[{fname}]\n{f.read_text(encoding='utf-8', errors='ignore')[:600]}")
+            break
+
+    # Node project metadata
+    pkg = project_dir / "package.json"
+    if pkg.is_file():
+        try:
+            data = json.loads(pkg.read_text(encoding="utf-8", errors="ignore"))
+            parts.append(
+                f"[package.json] name={data.get('name','')} "
+                f"version={data.get('version','')} "
+                f"description={data.get('description','')}"
+            )
+        except Exception:
+            pass
+
+    # .NET project metadata
+    csproj = next(project_dir.glob("*.csproj"), None)
+    if csproj:
+        parts.append(f"[{csproj.name}]\n{csproj.read_text(encoding='utf-8', errors='ignore')[:400]}")
+
+    return "\n\n".join(parts)
+
+
+@app.get("/project/profile")
+def project_profile(project: str = "default") -> dict:
+    """Return the project profile: tech stack, conventions, README summary.
+
+    Reads README.md (or .rst/.txt), pyproject.toml / package.json / .csproj
+    and returns structured profile data for context injection.
+
+    M5-18
+    """
+    profile_text = _build_project_profile_text(project)
+    if not profile_text:
+        return {"project": project, "profile": "", "available": False}
+
+    # Ask LLM for a brief summary of the tech stack
+    try:
+        summary = _llm.chat([
+            {"role": "system", "content":
+                "You are a project analyst. Given project files, return a short JSON object with:\n"
+                '{"language": "...", "framework": "...", "summary": "..."}\n'
+                "Output ONLY the JSON, nothing else."},
+            {"role": "user", "content": profile_text[:2000]},
+        ])
+        profile_data = json.loads(summary)
+    except Exception:
+        profile_data = {"language": "unknown", "framework": "unknown", "summary": profile_text[:200]}
+
+    return {"project": project, "profile": profile_data, "available": True, "raw": profile_text[:1000]}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-20: Automated dependency vulnerability scanning
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _DepsScanReq(BaseModel):
+    project: str = "default"
+
+
+@app.post("/deps/scan")
+def deps_scan(req: _DepsScanReq) -> dict:
+    """Run pip-audit and/or npm-audit for *project* and return an AI summary
+    of discovered vulnerabilities.
+
+    M5-20
+    """
+    base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+    p = Path(req.project)
+    project_dir = p if (p.is_absolute() and p.exists()) else base / req.project
+    if not project_dir.is_dir():
+        return {"vulnerabilities": [], "summary": "Project directory not found.", "error": True}
+
+    raw_outputs: list[str] = []
+
+    # pip-audit (Python projects)
+    if (project_dir / "requirements.txt").is_file() or (project_dir / "pyproject.toml").is_file():
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "pip_audit", "--format", "json", "--no-progress"],
+                cwd=str(project_dir), capture_output=True, text=True, timeout=60,
+            )
+            raw_outputs.append(f"pip-audit:\n{proc.stdout or proc.stderr}")
+        except Exception as exc:
+            raw_outputs.append(f"pip-audit unavailable: {exc}")
+
+    # npm audit (Node projects)
+    if (project_dir / "package.json").is_file():
+        try:
+            proc = subprocess.run(
+                ["npm", "audit", "--json"],
+                cwd=str(project_dir), capture_output=True, text=True, timeout=60,
+            )
+            raw_outputs.append(f"npm audit:\n{(proc.stdout or proc.stderr)[:3000]}")
+        except Exception as exc:
+            raw_outputs.append(f"npm audit unavailable: {exc}")
+
+    if not raw_outputs:
+        return {
+            "vulnerabilities": [],
+            "summary": "No supported package manager found (requires requirements.txt, pyproject.toml, or package.json).",
+            "error": False,
+        }
+
+    combined = "\n\n".join(raw_outputs)
+
+    # Ask LLM for a human-readable summary
+    try:
+        summary = _llm.chat([
+            {"role": "system", "content":
+                "You are a security analyst. Summarise the following vulnerability audit output "
+                "concisely: list each CVE/vulnerability with severity and a one-line fix recommendation. "
+                "If no vulnerabilities are found, say so clearly."},
+            {"role": "user", "content": combined[:3000]},
+        ])
+    except Exception as exc:
+        summary = f"[AI summary error] {exc}\n\nRaw output:\n{combined[:500]}"
+
+    return {"raw": combined[:2000], "summary": summary, "error": False}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M5-21: Mermaid diagram generation
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _DiagramReq(BaseModel):
+    description: str        # natural-language description of what to diagram
+    diagram_type: str = "flowchart"  # flowchart | sequence | class | er | gantt | pie
+    project: str = "default"
+    code: str = ""          # optional: code to analyse for class/flow diagrams
+
+
+@app.post("/ai/diagram")
+def ai_diagram(req: _DiagramReq) -> dict:
+    """Generate a Mermaid diagram DSL string from a natural-language description.
+
+    Supported diagram types: flowchart, sequence, class, er, gantt, pie.
+    Returns ``{"diagram": "...", "diagram_type": "..."}`` where *diagram* is
+    valid Mermaid syntax that can be rendered with mermaid.js.
+
+    M5-21
+    """
+    type_hints = {
+        "flowchart": "flowchart TD",
+        "sequence":  "sequenceDiagram",
+        "class":     "classDiagram",
+        "er":        "erDiagram",
+        "gantt":     "gantt",
+        "pie":       "pie",
+    }
+    hint = type_hints.get(req.diagram_type, "flowchart TD")
+    system = (
+        f"You are a Mermaid diagram expert. Generate a valid Mermaid {req.diagram_type} diagram.\n"
+        f"Start the diagram with: {hint}\n"
+        "Output ONLY the Mermaid DSL — no explanation, no markdown fences."
+    )
+    user_parts = [f"Description: {req.description}"]
+    if req.code:
+        user_parts.append(f"Code to analyse:\n```\n{req.code[:_MAX_AI_CODE_CHARS]}\n```")
+    try:
+        diagram = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": "\n".join(user_parts)},
+        ])
+        # Strip accidental fences
+        diagram = diagram.strip()
+        if diagram.startswith("```"):
+            lines = diagram.splitlines()
+            diagram = "\n".join(
+                lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:]
+            )
+    except Exception as exc:
+        diagram = f"{hint}\n    %% Error: {exc}"
+    return {"diagram": diagram, "diagram_type": req.diagram_type}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M7-16: Self-build for VSIX — Arbiter generates new VS extension features
+# ─────────────────────────────────────────────────────────────────────────────
+# The SelfBuildController already handles generic code generation.  For VSIX
+# tasks (C#/.csproj files), we need:
+#   1. A dedicated start endpoint that scopes the roadmap filter to VSIX tasks.
+#   2. The self-build core to use `dotnet build` for syntax validation and
+#      `dotnet test` for test execution of C# files.
+#
+# This is implemented via two thin extensions:
+#   a. /self-build/vsix/start — starts the loop filtered to VSIX tasks
+#   b. /self-build/vsix/status — mirrors /self-build/status but with VSIX label
+
+class _VsixBuildStartRequest(BaseModel):
+    task_id: str = ""
+    mode: str = "assist"
+
+
+@app.post("/self-build/vsix/start")
+async def self_build_vsix_start(req: _VsixBuildStartRequest) -> dict:
+    """Start the self-build loop scoped to VSIX / Visual Studio extension tasks.
+
+    Equivalent to ``/self-build/start`` but pre-selects the first pending task
+    whose ID starts with ``M6-`` or ``M7-`` and whose title mentions VSIX,
+    C#, or Visual Studio.
+
+    M7-16
+    """
+    # If no task_id given, auto-select the next VSIX/VS task
+    task_id = req.task_id
+    if not task_id and _ROADMAP_FILE.is_file():
+        try:
+            data = json.loads(_ROADMAP_FILE.read_text(encoding="utf-8"))
+            vsix_keywords = ("vsix", "visual studio", "c#", "extension")
+            for ms in data.get("milestones", []):
+                for task in ms.get("tasks", []):
+                    if task.get("status") in ("pending", "in_progress"):
+                        title_lower = task.get("title", "").lower()
+                        if any(kw in title_lower for kw in vsix_keywords):
+                            task_id = task["id"]
+                            break
+                if task_id:
+                    break
+        except Exception:
+            pass
+
+    # Delegate to the main self-build start endpoint
+    sb_req = SelfBuildStartRequest(task_id=task_id, mode=req.mode)
+    return await self_build_start(sb_req)
+
+
+@app.get("/self-build/vsix/status")
+def self_build_vsix_status() -> dict:
+    """Return self-build status with a VSIX context label.
+
+    M7-16
+    """
+    base = self_build_status()
+    base["context"] = "vsix"
+    return base
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M8-5: CLI support — expose a /cli endpoint for arbiter_cli.py integration
+# ─────────────────────────────────────────────────────────────────════════════
+
+class _CliCommandReq(BaseModel):
+    command: str                 # "build" | "run" | "test" | "chat" | "archive"
+    project: str = "default"
+    args: list[str] = []
+    message: str = ""            # for "chat" command
+
+
+@app.post("/cli/run")
+def cli_run(req: _CliCommandReq) -> dict:
+    """Execute an Arbiter CLI command via REST.
+
+    This endpoint allows ``arbiter_cli.py`` to delegate commands to the
+    running server rather than executing them inline.
+
+    M8-5
+    """
+    cmd = req.command.lower()
+    if cmd in ("build", "run", "test"):
+        build_req = BuildRequest(project=req.project, command=" ".join(req.args))
+        return _run_project_command(build_req, cmd)
+    elif cmd == "chat":
+        msg = UserMessage(message=req.message or " ".join(req.args), project=req.project)
+        return chat(msg)
+    elif cmd == "archive":
+        sub = req.args[0] if req.args else "list"
+        if sub == "rebuild":
+            return archive_rebuild()
+        elif sub == "search":
+            query = " ".join(req.args[1:])
+            return archive_search(query)
+        return archive_list()
+    elif cmd == "self-build":
+        sub = req.args[0] if req.args else "status"
+        if sub == "status":
+            return self_build_status()
+        elif sub == "next":
+            return self_build_next()
+        return self_build_status()
+    return {"error": f"Unknown CLI command: {cmd}"}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M8-2: Auto-update — check GitHub Releases for a newer version
+# ─────────────────────────────────────────────────────────────────────────────
+
+_APP_VERSION     = "0.5.0"
+_GH_OWNER        = "shifty81"
+_GH_REPO         = "Arbiter"
+_GH_RELEASES_URL = f"https://api.github.com/repos/{_GH_OWNER}/{_GH_REPO}/releases/latest"
+
+
+def _semver_gt(a: str, b: str) -> bool:
+    """Return True when *a* is strictly greater than *b* (semver comparison)."""
+    def _parts(v: str) -> tuple[int, ...]:
+        try:
+            return tuple(int(x) for x in v.lstrip("vV").split(".")[:3])
+        except ValueError:
+            return (0, 0, 0)
+    return _parts(a) > _parts(b)
+
+
+@app.get("/updates/check")
+def updates_check() -> dict:
+    """Query the GitHub Releases API and return update availability info.
+
+    Returns::
+
+        {
+          "current_version": "0.5.0",
+          "latest_version":  "0.6.0",    # tag name, 'v' stripped
+          "update_available": true,
+          "release_url":  "https://github.com/...",
+          "download_url": "https://github.com/.../arbiter-setup-0.6.0.exe",
+          "release_notes": "...",
+          "error": ""
+        }
+
+    M8-2
+    """
+    try:
+        req = urllib.request.Request(
+            _GH_RELEASES_URL,
+            headers={
+                "User-Agent":  f"Arbiter/{_APP_VERSION}",
+                "Accept":      "application/vnd.github+json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+
+        tag         = data.get("tag_name", "").lstrip("vV")
+        release_url = data.get("html_url", "")
+        notes       = data.get("body", "")
+
+        download_url = ""
+        for asset in data.get("assets", []):
+            name = asset.get("name", "")
+            if name.lower().endswith(".exe"):
+                download_url = asset.get("browser_download_url", "")
+                break
+
+        return {
+            "current_version":  _APP_VERSION,
+            "latest_version":   tag,
+            "update_available": _semver_gt(tag, _APP_VERSION),
+            "release_url":      release_url,
+            "download_url":     download_url,
+            "release_notes":    notes[:1000],
+            "error":            "",
+        }
+    except Exception as exc:
+        return {
+            "current_version":  _APP_VERSION,
+            "latest_version":   _APP_VERSION,
+            "update_available": False,
+            "release_url":      "",
+            "download_url":     "",
+            "release_notes":    "",
+            "error":            str(exc),
+        }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M8-3: Plugin marketplace — browse, install, rate community plugins
+# ─────────────────────────────────────────════════════════════════════════════
+# The marketplace registry is a JSON file maintained in the plugins/ directory.
+# For community use, this can be hosted publicly (e.g. as a GitHub Gist or
+# GitHub Pages JSON).  The default points to the Arbiter repo.
+
+_MARKETPLACE_INDEX_URL = (
+    f"https://raw.githubusercontent.com/{_GH_OWNER}/{_GH_REPO}/main"
+    "/AIEngine/ArbiterEngine/plugins/marketplace_index.json"
+)
+_MARKETPLACE_RATINGS_FILE = _BASE / "plugins" / "marketplace_ratings.json"
+
+# In-memory ratings cache (loaded on first access)
+_marketplace_ratings: dict[str, dict] = {}
+
+
+def _load_marketplace_ratings() -> None:
+    global _marketplace_ratings
+    if _MARKETPLACE_RATINGS_FILE.is_file():
+        try:
+            _marketplace_ratings = json.loads(
+                _MARKETPLACE_RATINGS_FILE.read_text(encoding="utf-8")
+            )
+        except Exception:
+            pass
+
+
+def _save_marketplace_ratings() -> None:
+    try:
+        _MARKETPLACE_RATINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _MARKETPLACE_RATINGS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_marketplace_ratings, indent=2), encoding="utf-8")
+        tmp.replace(_MARKETPLACE_RATINGS_FILE)
+    except Exception as exc:
+        logger.warning("Could not save marketplace ratings: %s", exc)
+
+
+_load_marketplace_ratings()
+
+
+@app.get("/marketplace/plugins")
+def marketplace_list(q: str = "", category: str = "") -> dict:
+    """Browse the Arbiter plugin marketplace.
+
+    Fetches the marketplace index from GitHub and merges local rating data.
+    Optional *q* filters by plugin name/description; *category* filters by tag.
+
+    M8-3
+    """
+    # Try to fetch the remote index; fall back to an empty catalogue on error
+    try:
+        req = urllib.request.Request(
+            _MARKETPLACE_INDEX_URL,
+            headers={"User-Agent": f"Arbiter/{_APP_VERSION}"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            index = json.loads(resp.read())
+        plugins: list[dict] = index.get("plugins", [])
+    except Exception as exc:
+        logger.warning("Could not fetch marketplace index: %s", exc)
+        plugins = []
+
+    # Merge local ratings
+    for p in plugins:
+        name = p.get("name", "")
+        if name in _marketplace_ratings:
+            p["rating"]      = _marketplace_ratings[name].get("average", 0.0)
+            p["rating_count"] = _marketplace_ratings[name].get("count", 0)
+        else:
+            p.setdefault("rating", 0.0)
+            p.setdefault("rating_count", 0)
+
+    # Apply filters
+    q_lower  = q.lower()
+    cat_lower = category.lower()
+    if q_lower:
+        plugins = [p for p in plugins
+                   if q_lower in p.get("name", "").lower() or
+                      q_lower in p.get("description", "").lower()]
+    if cat_lower:
+        plugins = [p for p in plugins
+                   if cat_lower in [t.lower() for t in p.get("tags", [])]]
+
+    return {"plugins": plugins, "total": len(plugins)}
+
+
+class _MarketplaceInstallReq(BaseModel):
+    name: str = ""   # plugin name from the marketplace index
+    url:  str = ""   # direct URL to a plugin .zip or plugin.json (fallback)
+
+
+@app.post("/marketplace/install")
+def marketplace_install(req: _MarketplaceInstallReq) -> dict:
+    """Download and install a plugin from the marketplace or a direct URL.
+
+    The plugin zip must contain a ``plugin.json`` manifest at the root.
+    After installation the plugin is immediately hot-loaded.
+
+    M8-3
+    """
+    import zipfile as _zipfile
+    import tempfile as _tmpmod
+    import shutil as _shutil
+
+    # Resolve download URL
+    download_url = req.url
+    if req.name and not download_url:
+        # Fetch marketplace index to find the URL
+        try:
+            r = urllib.request.Request(
+                _MARKETPLACE_INDEX_URL,
+                headers={"User-Agent": f"Arbiter/{_APP_VERSION}"},
+            )
+            with urllib.request.urlopen(r, timeout=8) as resp:
+                index = json.loads(resp.read())
+            for p in index.get("plugins", []):
+                if p.get("name") == req.name:
+                    download_url = p.get("download_url", "")
+                    break
+        except Exception as exc:
+            return {"status": "error", "detail": f"Could not fetch marketplace: {exc}"}
+
+    if not download_url:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Provide 'name' (marketplace) or 'url'")
+
+    plugins_dir = _BASE / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+
+    # Download to a temp file
+    try:
+        with _tmpmod.NamedTemporaryFile(delete=False, suffix=".zip") as tf:
+            tmp_path = tf.name
+
+        dl_req = urllib.request.Request(
+            download_url,
+            headers={"User-Agent": f"Arbiter/{_APP_VERSION}"},
+        )
+        with urllib.request.urlopen(dl_req, timeout=30) as resp, \
+             open(tmp_path, "wb") as out:
+            out.write(resp.read())
+    except Exception as exc:
+        return {"status": "error", "detail": f"Download failed: {exc}"}
+
+    # Extract and install
+    try:
+        with _zipfile.ZipFile(tmp_path, "r") as zf:
+            # Validate manifest exists
+            names = zf.namelist()
+            manifest_paths = [n for n in names if n.endswith("plugin.json")]
+            if not manifest_paths:
+                return {"status": "error", "detail": "No plugin.json found in archive"}
+
+            # Determine plugin directory name from first manifest path
+            manifest_rel = manifest_paths[0]
+            top_dir = manifest_rel.split("/")[0] if "/" in manifest_rel else ""
+            plugin_name = top_dir or req.name or "plugin"
+            dest = plugins_dir / plugin_name
+
+            if dest.exists():
+                _shutil.rmtree(str(dest))
+            zf.extractall(str(plugins_dir))
+
+        # Hot-load the plugin
+        _plugin_loader.load_all()
+        installed = plugin_name
+
+        return {"status": "installed", "plugin": installed}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+    finally:
+        try:
+            import os as _os
+            _os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+class _MarketplaceRateReq(BaseModel):
+    name:   str
+    rating: float   # 1.0 – 5.0
+
+
+@app.post("/marketplace/rate")
+def marketplace_rate(req: _MarketplaceRateReq) -> dict:
+    """Submit a 1–5 star rating for a marketplace plugin.
+
+    Ratings are stored locally in ``plugins/marketplace_ratings.json`` and
+    merged into marketplace listing results.
+
+    M8-3
+    """
+    if not 1.0 <= req.rating <= 5.0:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="rating must be between 1.0 and 5.0")
+    entry = _marketplace_ratings.get(req.name, {"total": 0.0, "count": 0, "average": 0.0})
+    entry["total"]   = entry.get("total", 0.0) + req.rating
+    entry["count"]   = entry.get("count", 0) + 1
+    entry["average"] = round(entry["total"] / entry["count"], 2)
+    _marketplace_ratings[req.name] = entry
+    _save_marketplace_ratings()
+    return {"status": "ok", "name": req.name, "average": entry["average"], "count": entry["count"]}
+
+
+@app.get("/marketplace/ratings/{name}")
+def marketplace_ratings(name: str) -> dict:
+    """Return the local rating stats for a plugin.
+
+    M8-3
+    """
+    entry = _marketplace_ratings.get(name, {})
+    return {"name": name, "average": entry.get("average", 0.0), "count": entry.get("count", 0)}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M8-8: Cloud sync — encrypted project backup to S3 / Backblaze B2
+# ─────────────────────────────────────────════════════════════════════════════
+# Backup strategy:
+#   1. Tar the target directories (Memory/, Projects/<name>/, .arbiter/)
+#   2. Encrypt with AES-256-GCM using a user-supplied passphrase (PBKDF2)
+#   3. Upload the encrypted .tar.gz to S3-compatible storage (AWS S3 / Backblaze B2)
+#
+# Storage credentials are read from environment variables:
+#   ARBITER_SYNC_PROVIDER   "s3" | "b2" | "local"  (default: local — saves to logs/)
+#   ARBITER_SYNC_BUCKET     Bucket / container name
+#   ARBITER_SYNC_KEY_ID     AWS access key ID / Backblaze key ID
+#   ARBITER_SYNC_SECRET     AWS secret / Backblaze application key
+#   ARBITER_SYNC_ENDPOINT   Optional custom S3 endpoint (for B2, Minio, etc.)
+#   ARBITER_SYNC_PASSPHRASE Encryption passphrase (required for encrypt/decrypt)
+
+import base64 as _b64
+import hashlib as _hashlib
+import struct as _struct
+
+
+def _derive_key(passphrase: str, salt: bytes, iterations: int = 200_000) -> bytes:
+    """Derive a 32-byte AES key from *passphrase* + *salt* via PBKDF2-HMAC-SHA256."""
+    return _hashlib.pbkdf2_hmac("sha256", passphrase.encode(), salt, iterations, 32)
+
+
+def _encrypt_bytes(data: bytes, passphrase: str) -> bytes:
+    """Encrypt *data* with AES-256-GCM and return a self-contained ciphertext blob.
+
+    Format: MAGIC(4) | SALT(16) | IV(12) | TAG(16) | CIPHERTEXT
+    """
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise RuntimeError(
+            "The 'cryptography' package is required for cloud sync. "
+            "Install it with: pip install cryptography"
+        )
+    salt = os.urandom(16)
+    iv   = os.urandom(12)
+    key  = _derive_key(passphrase, salt)
+    aes  = AESGCM(key)
+    ct_with_tag = aes.encrypt(iv, data, None)   # ciphertext + 16-byte GCM tag appended
+    # Split: last 16 bytes = tag, rest = ciphertext
+    tag = ct_with_tag[-16:]
+    ct  = ct_with_tag[:-16]
+    return b"ARBK" + salt + iv + tag + ct
+
+
+def _decrypt_bytes(blob: bytes, passphrase: str) -> bytes:
+    """Decrypt a blob produced by :func:`_encrypt_bytes`."""
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise RuntimeError("The 'cryptography' package is required for cloud sync.")
+    if blob[:4] != b"ARBK":
+        raise ValueError("Not an Arbiter backup blob (missing magic header)")
+    salt = blob[4:20]
+    iv   = blob[20:32]
+    tag  = blob[32:48]
+    ct   = blob[48:]
+    key  = _derive_key(passphrase, salt)
+    aes  = AESGCM(key)
+    return aes.decrypt(iv, ct + tag, None)
+
+
+def _upload_to_storage(data: bytes, object_key: str) -> str:
+    """Upload *data* to S3/B2/local.  Returns the object URL / path."""
+    provider   = os.environ.get("ARBITER_SYNC_PROVIDER", "local").lower()
+    bucket     = os.environ.get("ARBITER_SYNC_BUCKET", "arbiter-backups")
+    key_id     = os.environ.get("ARBITER_SYNC_KEY_ID", "")
+    secret     = os.environ.get("ARBITER_SYNC_SECRET", "")
+    endpoint   = os.environ.get("ARBITER_SYNC_ENDPOINT", "")
+
+    if provider == "local":
+        dest = _BASE / "logs" / "backups" / object_key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        return str(dest)
+
+    if provider in ("s3", "b2"):
+        try:
+            import boto3  # type: ignore[import]
+        except ImportError:
+            raise RuntimeError(
+                "The 'boto3' package is required for S3/Backblaze sync. "
+                "Install it with: pip install boto3"
+            )
+        kwargs: dict = dict(
+            aws_access_key_id=key_id,
+            aws_secret_access_key=secret,
+        )
+        if endpoint:
+            kwargs["endpoint_url"] = endpoint
+        s3 = boto3.client("s3", **kwargs)
+        s3.put_object(Bucket=bucket, Key=object_key, Body=data)
+        base = endpoint.rstrip("/") if endpoint else f"https://s3.amazonaws.com"
+        return f"{base}/{bucket}/{object_key}"
+
+    raise ValueError(f"Unknown ARBITER_SYNC_PROVIDER: {provider!r}")
+
+
+def _download_from_storage(object_key: str) -> bytes:
+    """Download *object_key* from S3/B2/local.  Returns raw bytes."""
+    provider = os.environ.get("ARBITER_SYNC_PROVIDER", "local").lower()
+    bucket   = os.environ.get("ARBITER_SYNC_BUCKET", "arbiter-backups")
+    key_id   = os.environ.get("ARBITER_SYNC_KEY_ID", "")
+    secret   = os.environ.get("ARBITER_SYNC_SECRET", "")
+    endpoint = os.environ.get("ARBITER_SYNC_ENDPOINT", "")
+
+    if provider == "local":
+        src = _BASE / "logs" / "backups" / object_key
+        return src.read_bytes()
+
+    if provider in ("s3", "b2"):
+        try:
+            import boto3  # type: ignore[import]
+        except ImportError:
+            raise RuntimeError("boto3 is required. Install with: pip install boto3")
+        kwargs: dict = dict(
+            aws_access_key_id=key_id,
+            aws_secret_access_key=secret,
+        )
+        if endpoint:
+            kwargs["endpoint_url"] = endpoint
+        s3 = boto3.client("s3", **kwargs)
+        obj = s3.get_object(Bucket=bucket, Key=object_key)
+        return obj["Body"].read()
+
+    raise ValueError(f"Unknown ARBITER_SYNC_PROVIDER: {provider!r}")
+
+
+class _SyncBackupReq(BaseModel):
+    project:    str = ""       # optional; if empty, backs up all Memory/
+    passphrase: str = ""       # AES-256-GCM encryption passphrase
+
+
+@app.post("/sync/backup")
+def sync_backup(req: _SyncBackupReq) -> dict:
+    """Create an encrypted backup and upload to the configured storage provider.
+
+    If *project* is given, only that project's directory is backed up.
+    Otherwise the entire ``Memory/`` directory is archived.
+
+    Uses AES-256-GCM encryption (PBKDF2-derived key from *passphrase*).
+    Requires environment variable ``ARBITER_SYNC_PASSPHRASE`` or a non-empty
+    ``passphrase`` field in the request body.
+
+    M8-8
+    """
+    import tarfile as _tarfile
+    import io as _io
+
+    passphrase = req.passphrase or os.environ.get("ARBITER_SYNC_PASSPHRASE", "")
+    if not passphrase:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="Provide 'passphrase' or set ARBITER_SYNC_PASSPHRASE env var",
+        )
+
+    # Determine what to archive
+    base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+    if req.project:
+        p = Path(req.project)
+        target = p if (p.is_absolute() and p.exists()) else base / req.project
+        if not target.exists():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Project '{req.project}' not found")
+        archive_root = target.parent
+        arcname      = target.name
+    else:
+        archive_root = _BASE.parent.parent   # repo root (contains Memory/)
+        arcname      = "Memory"
+        target       = archive_root / "Memory"
+
+    # Create in-memory tar.gz
+    buf = _io.BytesIO()
+    try:
+        with _tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            tar.add(str(target), arcname=arcname)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Archive failed: {exc}"}
+
+    raw = buf.getvalue()
+
+    # Encrypt
+    try:
+        encrypted = _encrypt_bytes(raw, passphrase)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Encryption failed: {exc}"}
+
+    # Upload
+    ts  = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    key = f"arbiter-backup-{arcname}-{ts}.tar.gz.enc"
+    try:
+        location = _upload_to_storage(encrypted, key)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Upload failed: {exc}"}
+
+    return {
+        "status": "ok",
+        "object_key": key,
+        "location":   location,
+        "size_bytes": len(encrypted),
+        "timestamp":  ts,
+    }
+
+
+class _SyncRestoreReq(BaseModel):
+    object_key:  str          # key returned by /sync/backup
+    passphrase:  str = ""
+    destination: str = ""     # optional override for restore target path
+
+
+@app.post("/sync/restore")
+def sync_restore(req: _SyncRestoreReq) -> dict:
+    """Download, decrypt, and restore a backup created by /sync/backup.
+
+    M8-8
+    """
+    import tarfile as _tarfile
+    import io as _io
+
+    passphrase = req.passphrase or os.environ.get("ARBITER_SYNC_PASSPHRASE", "")
+    if not passphrase:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="Provide 'passphrase' or set ARBITER_SYNC_PASSPHRASE env var",
+        )
+
+    # Download
+    try:
+        blob = _download_from_storage(req.object_key)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Download failed: {exc}"}
+
+    # Decrypt
+    try:
+        raw = _decrypt_bytes(blob, passphrase)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Decryption failed: {exc}"}
+
+    # Extract
+    dest = Path(req.destination) if req.destination else _BASE.parent.parent
+    try:
+        with _tarfile.open(fileobj=_io.BytesIO(raw), mode="r:gz") as tar:
+            # Safety: reject absolute paths and path-traversal members
+            for member in tar.getmembers():
+                if member.name.startswith("/") or ".." in member.name:
+                    return {"status": "error", "detail": f"Unsafe archive member: {member.name}"}
+            tar.extractall(str(dest))
+    except Exception as exc:
+        return {"status": "error", "detail": f"Extraction failed: {exc}"}
+
+    return {
+        "status":      "ok",
+        "object_key":  req.object_key,
+        "destination": str(dest),
+        "size_bytes":  len(raw),
+    }
+
+
+@app.get("/sync/list")
+def sync_list() -> dict:
+    """List available local backups (local provider only).
+
+    For S3/B2 providers, use the storage console to browse objects.
+
+    M8-8
+    """
+    provider = os.environ.get("ARBITER_SYNC_PROVIDER", "local").lower()
+    if provider != "local":
+        return {"provider": provider, "backups": [], "note": "Use your storage console to list remote backups."}
+
+    backup_dir = _BASE / "logs" / "backups"
+    if not backup_dir.is_dir():
+        return {"provider": "local", "backups": []}
+
+    backups = []
+    for f in sorted(backup_dir.iterdir(), reverse=True):
+        if f.is_file():
+            backups.append({
+                "object_key": f.name,
+                "size_bytes": f.stat().st_size,
+                "modified":   datetime.datetime.fromtimestamp(
+                    f.stat().st_mtime, tz=datetime.timezone.utc
+                ).isoformat(),
+            })
+    return {"provider": "local", "backups": backups}
 
 
 if __name__ == "__main__":

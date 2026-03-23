@@ -2,9 +2,13 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.WebSockets;
+using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using ArbiterHost.BuildInterface;
 using ArbiterHost.Utilities;
@@ -17,6 +21,12 @@ namespace ArbiterHost
     /// Provides a native WPF menu bar, toolbar and status bar, and a
     /// bidirectional postMessage bridge so Monaco JS can request native Windows
     /// actions (file pickers, notifications) without any HTTP polling.
+    ///
+    /// M4-6:  Settings dialog (SettingsWindow)
+    /// M4-7:  Build progress via WebSocket streaming from /ws/run
+    /// M4-8:  Global keyboard shortcuts (Ctrl+B, F5, Ctrl+Shift+P, Ctrl+T)
+    /// M4-9:  Chat side panel toggled via View menu / toolbar
+    /// M4-10: System tray icon for background mode
     /// </summary>
     public partial class IdeWindow : Window
     {
@@ -29,6 +39,12 @@ namespace ArbiterHost
         private BuildManager? _buildManager;
         private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
 
+        // ── M4-7: Build WebSocket ──────────────────────────────────────────────
+        private CancellationTokenSource? _buildWsCts;
+
+        // ── M4-10: System Tray icon ────────────────────────────────────────────
+        private System.Windows.Forms.NotifyIcon? _trayIcon;
+
         // ── Constructor ────────────────────────────────────────────────────────
         public IdeWindow()
         {
@@ -36,6 +52,8 @@ namespace ArbiterHost
             _projectsRoot = Path.Combine(Directory.GetCurrentDirectory(), "Projects");
             Directory.CreateDirectory(_projectsRoot);
             ModeLabel.Text = AppConfig.Mode;
+            SetupKeyboardShortcuts();  // M4-8
+            SetupTrayIcon();           // M4-10
             _ = PollLlmBackendAsync();
         }
 
@@ -56,7 +74,110 @@ namespace ArbiterHost
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            // Nothing extra needed; App_Exit handles process cleanup.
+            // Cancel and dispose any in-flight build WebSocket before closing.
+            _buildWsCts?.Cancel();
+            _buildWsCts?.Dispose();
+            _buildWsCts = null;
+        }
+
+        // ── M4-8: Global keyboard shortcuts ───────────────────────────────────
+        private void SetupKeyboardShortcuts()
+        {
+            // Ctrl+B → Build
+            InputBindings.Add(new KeyBinding(
+                new RelayCommand(_ => Build_Click(this, new RoutedEventArgs())),
+                new KeyGesture(Key.B, ModifierKeys.Control)));
+
+            // F5 → Run
+            InputBindings.Add(new KeyBinding(
+                new RelayCommand(_ => Run_Click(this, new RoutedEventArgs())),
+                new KeyGesture(Key.F5)));
+
+            // Ctrl+T → Test
+            InputBindings.Add(new KeyBinding(
+                new RelayCommand(_ => Test_Click(this, new RoutedEventArgs())),
+                new KeyGesture(Key.T, ModifierKeys.Control)));
+
+            // Ctrl+Shift+P → Command palette
+            InputBindings.Add(new KeyBinding(
+                new RelayCommand(_ => MenuCommandPalette_Click(this, new RoutedEventArgs())),
+                new KeyGesture(Key.P, ModifierKeys.Control | ModifierKeys.Shift)));
+
+            // Ctrl+O → Open file
+            InputBindings.Add(new KeyBinding(
+                new RelayCommand(_ => OpenFile_Click(this, new RoutedEventArgs())),
+                new KeyGesture(Key.O, ModifierKeys.Control)));
+
+            // Ctrl+S → Save
+            InputBindings.Add(new KeyBinding(
+                new RelayCommand(_ => Save_Click(this, new RoutedEventArgs())),
+                new KeyGesture(Key.S, ModifierKeys.Control)));
+
+            // Ctrl+` → Toggle chat panel
+            InputBindings.Add(new KeyBinding(
+                new RelayCommand(_ => MenuToggleChat_Click(this, new RoutedEventArgs())),
+                new KeyGesture(Key.OemTilde, ModifierKeys.Control)));
+        }
+
+        // ── M4-10: System tray icon setup ─────────────────────────────────────
+        private void SetupTrayIcon()
+        {
+            try
+            {
+                _trayIcon = new System.Windows.Forms.NotifyIcon
+                {
+                    Text = "Arbiter IDE",
+                    Icon = System.Drawing.SystemIcons.Application,
+                    Visible = false,
+                };
+                var menu = new System.Windows.Forms.ContextMenuStrip();
+                menu.Items.Add("Show Arbiter IDE", null, (_, _) => RestoreFromTray());
+                menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+                menu.Items.Add("Exit", null, (_, _) => Application.Current.Shutdown());
+                _trayIcon.ContextMenuStrip = menu;
+                _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+            }
+            catch
+            {
+                // Non-fatal: tray icon may not be available in all environments.
+            }
+        }
+
+        private void MinimizeToTray()
+        {
+            if (_trayIcon != null)
+            {
+                _trayIcon.Visible = true;
+                Hide();
+                _trayIcon.ShowBalloonTip(
+                    2000, "Arbiter IDE",
+                    "Arbiter is running in the background. Double-click to restore.",
+                    System.Windows.Forms.ToolTipIcon.Info);
+            }
+            else
+            {
+                WindowState = WindowState.Minimized;
+            }
+        }
+
+        private void RestoreFromTray()
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            if (_trayIcon != null)
+                _trayIcon.Visible = false;
+        }
+
+        protected override void OnStateChanged(EventArgs e)
+        {
+            // Intercept minimise to send to tray instead (only when tray icon is available).
+            if (WindowState == WindowState.Minimized && _trayIcon != null)
+            {
+                // Delay slightly to let WPF finish the state transition before hiding.
+                Dispatcher.BeginInvoke(MinimizeToTray, System.Windows.Threading.DispatcherPriority.Background);
+            }
+            base.OnStateChanged(e);
         }
 
         // ── WebView2 initialisation ────────────────────────────────────────────
@@ -296,13 +417,93 @@ namespace ArbiterHost
         private async void Test_Click(object sender, RoutedEventArgs e)
             => await RunProjectActionAsync("test", "Running tests…");
 
-        // ── Build/Run/Test via REST API ────────────────────────────────────────
+        // ── Build/Run/Test via WebSocket streaming (M4-7) ────────────────────
         private async Task RunProjectActionAsync(string action, string statusMessage)
         {
             SetStatus(statusMessage);
             string project = string.IsNullOrWhiteSpace(_activeProjectPath)
                 ? "default"
                 : Path.GetFileName(_activeProjectPath.TrimEnd(Path.DirectorySeparatorChar));
+
+            // Cancel any previous build WebSocket
+            _buildWsCts?.Cancel();
+            _buildWsCts = new CancellationTokenSource();
+            var cts = _buildWsCts;
+
+            // Try WebSocket streaming from /ws/run first; fall back to REST.
+            bool wsOk = false;
+            try
+            {
+                string wsBase = AppConfig.ApiBaseUrl
+                    .Replace("https://", "wss://")
+                    .Replace("http://", "ws://");
+                var wsUri = new Uri($"{wsBase}/ws/run");
+
+                using var ws = new ClientWebSocket();
+                await ws.ConnectAsync(wsUri, cts.Token);
+
+                // Send the start command
+                string startMsg = JsonSerializer.Serialize(new { action, project });
+                await ws.SendAsync(
+                    new ArraySegment<byte>(Encoding.UTF8.GetBytes(startMsg)),
+                    WebSocketMessageType.Text, true, cts.Token);
+
+                // Stream chunks to the IDE
+                var buf = new byte[4096];
+                bool success = true;
+                var outputBuilder = new System.Text.StringBuilder();
+                while (!cts.IsCancellationRequested)
+                {
+                    var recv = await ws.ReceiveAsync(new ArraySegment<byte>(buf), cts.Token);
+                    if (recv.MessageType == WebSocketMessageType.Close) break;
+                    string chunk = Encoding.UTF8.GetString(buf, 0, recv.Count);
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(chunk);
+                        string msgType = doc.RootElement.TryGetProperty("type", out var t)
+                            ? t.GetString() ?? "" : "";
+                        if (msgType == "output" || msgType == "log")
+                        {
+                            string line = doc.RootElement.TryGetProperty("data", out var d)
+                                ? d.GetString() ?? "" : chunk;
+                            outputBuilder.Append(line);
+                            PostToIde("build_chunk", new { action, line });
+                        }
+                        else if (msgType == "done")
+                        {
+                            success = doc.RootElement.TryGetProperty("success", out var s)
+                                      ? s.GetBoolean() : true;
+                            break;
+                        }
+                        else if (msgType == "error")
+                        {
+                            success = false;
+                            string err = doc.RootElement.TryGetProperty("data", out var er)
+                                ? er.GetString() ?? chunk : chunk;
+                            PostToIde("build_chunk", new { action, line = err });
+                            break;
+                        }
+                    }
+                    catch
+                    {
+                        // Non-JSON chunk → treat as plain text output
+                        outputBuilder.Append(chunk);
+                        PostToIde("build_chunk", new { action, line = chunk });
+                    }
+                }
+                PostToIde("build_output", new { action, success, output = outputBuilder.ToString() });
+                SetStatus(success ? $"{action} succeeded" : $"{action} failed");
+                wsOk = true;
+            }
+            catch (OperationCanceledException) { return; }
+            catch
+            {
+                // WebSocket unavailable — fall through to REST fallback
+            }
+
+            if (wsOk) return;
+
+            // ── REST fallback ─────────────────────────────────────────────────
             try
             {
                 var body = JsonSerializer.Serialize(new { project, command = "" });
@@ -313,7 +514,6 @@ namespace ArbiterHost
                 using var doc = JsonDocument.Parse(json);
                 string output = doc.RootElement.TryGetProperty("output", out var o) ? o.GetString() ?? "" : json;
                 bool success = !doc.RootElement.TryGetProperty("success", out var s) || s.GetBoolean();
-
                 SetStatus(success ? $"{action} succeeded" : $"{action} failed");
                 PostToIde("build_output", new { action, success, output });
             }
@@ -330,7 +530,16 @@ namespace ArbiterHost
 
         // ── File menu ─────────────────────────────────────────────────────────
         private void MenuSettings_Click(object sender, RoutedEventArgs e)
-            => PostToIde("open_panel", new { panel = "cfgprofile" });
+        {
+            // M4-6: Open native settings dialog instead of routing to Monaco panel
+            var dlg = new SettingsWindow { Owner = this };
+            if (dlg.ShowDialog() == true)
+            {
+                // Reload the IDE URL in case the port changed
+                IdeWebView.CoreWebView2?.Navigate($"{AppConfig.ApiBaseUrl}/gui/index.html");
+                SetStatus("Settings saved. IDE reloaded.");
+            }
+        }
 
         private void MenuExit_Click(object sender, RoutedEventArgs e)
             => Application.Current.Shutdown();
@@ -369,6 +578,13 @@ namespace ArbiterHost
 
         private void MenuOpenAgents_Click(object sender, RoutedEventArgs e)
             => PostToIde("open_panel", new { panel = "agents" });
+
+        /// <summary>M4-9: Toggle the docked chat panel inside IdeWindow.</summary>
+        private void MenuToggleChat_Click(object sender, RoutedEventArgs e)
+            => PostToIde("toggle_chat_panel", new { });
+
+        private void MenuToggleSelfBuild_Click(object sender, RoutedEventArgs e)
+            => PostToIde("open_panel", new { panel = "selfbuild" });
 
         // ── Git menu ──────────────────────────────────────────────────────────
         private void MenuGitRefresh_Click(object sender, RoutedEventArgs e)
@@ -540,5 +756,31 @@ namespace ArbiterHost
         // ── Status helper ──────────────────────────────────────────────────────
         private void SetStatus(string message)
             => Dispatcher.Invoke(() => StatusLabel.Text = message);
+    }
+
+    // ── M4-8: RelayCommand helper ────────────────────────────────────────────
+    /// <summary>
+    /// Minimal ICommand implementation used to bind keyboard shortcuts to
+    /// anonymous delegates without requiring full MVVM infrastructure.
+    /// </summary>
+    internal sealed class RelayCommand : ICommand
+    {
+        private readonly Action<object?> _execute;
+        private readonly Func<object?, bool>? _canExecute;
+
+        public RelayCommand(Action<object?> execute, Func<object?, bool>? canExecute = null)
+        {
+            _execute    = execute;
+            _canExecute = canExecute;
+        }
+
+        public event EventHandler? CanExecuteChanged
+        {
+            add    => CommandManager.RequerySuggested += value;
+            remove => CommandManager.RequerySuggested -= value;
+        }
+
+        public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
+        public void Execute(object? parameter)    => _execute(parameter);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using EnvDTE80;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Task = System.Threading.Tasks.Task;
@@ -26,6 +27,11 @@ namespace ArbiterVSIX
         Window = "DocumentWell",
         Transient = false,
         Orientation = ToolWindowOrientation.Right)]
+    [ProvideToolWindow(typeof(SelfBuildToolWindow),
+        Style = VsDockStyle.Tabbed,
+        Window = "DocumentWell",
+        Transient = false,
+        Orientation = ToolWindowOrientation.Right)]
     [ProvideOptionPage(typeof(ArbiterSettingsPage),
         "Arbiter AI", "General", 0, 0, true)]
     [ProvideAutoLoad(UIContextGuids80.SolutionExists,
@@ -41,6 +47,9 @@ namespace ArbiterVSIX
 
         /// <summary>Status bar service cached at init time.</summary>
         private IVsStatusbar? _statusBar;
+
+        /// <summary>DTE event subscriptions — kept alive to prevent GC-collection of event delegates.</summary>
+        private EventHandlers? _eventHandlers;
 
         // ── AsyncPackage lifecycle ────────────────────────────────────────────
 
@@ -63,6 +72,14 @@ namespace ArbiterVSIX
             // Register all commands.
             await ArbiterCommands.InitializeAsync(this);
 
+            // Register DTE event handlers (document, build, solution events — M6-7 through M6-10).
+            var dte = await GetServiceAsync(typeof(EnvDTE.DTE)) as EnvDTE80.DTE2;
+            if (dte != null)
+            {
+                _eventHandlers = new EventHandlers(dte, this);
+                _eventHandlers.Register();
+            }
+
             // Probe backend in background — do not block VS startup.
             _ = Task.Run(async () =>
             {
@@ -79,6 +96,9 @@ namespace ArbiterVSIX
         {
             if (disposing)
             {
+                _eventHandlers?.Unregister();
+                _eventHandlers?.Dispose();
+                _eventHandlers = null;
                 ApiClient?.Dispose();
                 ApiClient = null;
             }
@@ -93,6 +113,16 @@ namespace ArbiterVSIX
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             var window = await FindToolWindowAsync(
                 typeof(ChatToolWindow), 0, true, DisposalToken);
+            if (window?.Frame is IVsWindowFrame frame)
+                frame.Show();
+        }
+
+        /// <summary>Show or activate the Arbiter Self-Build tool window (M7-13).</summary>
+        public async Task ShowSelfBuildWindowAsync()
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            var window = await FindToolWindowAsync(
+                typeof(SelfBuildToolWindow), 0, true, DisposalToken);
             if (window?.Frame is IVsWindowFrame frame)
                 frame.Show();
         }
