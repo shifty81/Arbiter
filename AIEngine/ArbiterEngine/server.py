@@ -365,6 +365,179 @@ async def stream_run(req: StreamBuildRequest):
     return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
+# ── M2-13: Multi-Agent Orchestration ─────────────────────────────────────────
+#
+#  Spawn specialist sub-agents (DevOps, Security, Docs, Frontend, Backend, …)
+#  each with a focused system prompt.  The orchestrator runs them sequentially
+#  (or reports their planned outputs) and aggregates results.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import uuid as _uuid
+import datetime as _datetime
+
+# Registry of active and completed agent runs (in-memory; resets on restart)
+_agent_runs: dict[str, dict] = {}
+
+_SPECIALIST_PROMPTS: dict[str, str] = {
+    "devops": (
+        "You are a DevOps specialist. Focus on CI/CD pipelines, infrastructure, "
+        "Docker, deployment automation, and operational reliability."
+    ),
+    "security": (
+        "You are a security auditor. Identify vulnerabilities, insecure patterns, "
+        "hardcoded secrets, OWASP risks, and recommend mitigations."
+    ),
+    "docs": (
+        "You are a documentation writer. Produce clear, comprehensive docstrings, "
+        "README sections, and API reference documentation."
+    ),
+    "frontend": (
+        "You are a frontend developer specialising in UI/UX, HTML/CSS/JS, "
+        "accessibility, and responsive design."
+    ),
+    "backend": (
+        "You are a backend developer focusing on API design, database optimisation, "
+        "concurrency, and server-side performance."
+    ),
+    "architect": (
+        "You are a software architect. Evaluate system design, suggest scalable "
+        "patterns, and identify technical debt."
+    ),
+    "test": (
+        "You are a QA engineer. Write unit tests, integration tests, and identify "
+        "edge cases. Aim for high coverage."
+    ),
+}
+
+
+class SpawnAgentRequest(BaseModel):
+    task: str                    # the task description to hand to the sub-agent
+    specialization: str = "backend"  # one of _SPECIALIST_PROMPTS keys
+    project: str = "default"
+    parent_run_id: str = ""      # link to an orchestration run
+
+
+class OrchestrateRequest(BaseModel):
+    task: str
+    project: str = "default"
+    # Comma-separated list of specializations (empty = auto-select)
+    agents: str = ""
+
+
+@app.get("/agents")
+def list_agents() -> dict:
+    """Return all agent runs (active and completed)."""
+    return {
+        "runs": list(_agent_runs.values()),
+        "specializations": list(_SPECIALIST_PROMPTS.keys()),
+    }
+
+
+@app.post("/agents/spawn")
+def spawn_agent(req: SpawnAgentRequest) -> dict:
+    """Spawn a single specialist sub-agent and return its response synchronously.
+
+    For long tasks consider using ``/stream/agent`` (SSE) instead.
+    """
+    spec = req.specialization.lower()
+    system_prompt = _SPECIALIST_PROMPTS.get(spec, _SPECIALIST_PROMPTS["backend"])
+
+    run_id = str(_uuid.uuid4())[:8]
+    run: dict = {
+        "run_id": run_id,
+        "specialization": spec,
+        "task": req.task,
+        "project": req.project,
+        "parent_run_id": req.parent_run_id,
+        "status": "running",
+        "started_at": _datetime.datetime.now(_datetime.timezone.utc).isoformat(),
+        "response": "",
+    }
+    _agent_runs[run_id] = run
+
+    try:
+        from core.agent import Agent
+        agent = Agent(
+            llm=_llm,
+            tool_registry=_registry,
+            permission_system=_permissions,
+            task_runner=_runner,
+            config=_config,
+            project_path=req.project,
+        )
+        # Override the agent's effective system prompt via a wrapped message
+        full_task = f"[{spec.upper()} SPECIALIST]\n{system_prompt}\n\nTask: {req.task}"
+        response = agent.run(prompt=full_task, project_path=req.project)
+    except Exception as exc:
+        logger.error("Sub-agent %r error: %s", run_id, exc)
+        response = f"[Agent error] {exc}"
+        run["status"] = "error"
+    else:
+        run["status"] = "done"
+
+    run["response"] = response
+    run["completed_at"] = _datetime.datetime.now(_datetime.timezone.utc).isoformat()
+    return {"run_id": run_id, "specialization": spec, "response": response, "status": run["status"]}
+
+
+@app.post("/agents/orchestrate")
+def orchestrate_agents(req: OrchestrateRequest) -> dict:
+    """Orchestrate multiple specialist sub-agents for a single task.
+
+    Each agent runs sequentially and receives the previous agent's output
+    as additional context, producing a synthesised result.
+    """
+    if req.agents.strip():
+        specs = [s.strip().lower() for s in req.agents.split(",") if s.strip()]
+    else:
+        # Auto-select agents based on task keywords
+        task_lower = req.task.lower()
+        specs = []
+        if any(w in task_lower for w in ("deploy", "docker", "ci", "pipeline")):
+            specs.append("devops")
+        if any(w in task_lower for w in ("security", "auth", "secret", "vuln")):
+            specs.append("security")
+        if any(w in task_lower for w in ("test", "spec", "assert")):
+            specs.append("test")
+        if any(w in task_lower for w in ("doc", "readme", "comment")):
+            specs.append("docs")
+        if not specs:
+            specs = ["architect", "backend"]
+
+    orch_id = str(_uuid.uuid4())[:8]
+    results: list[dict] = []
+    context = req.task
+
+    for spec in specs:
+        sub_req = SpawnAgentRequest(
+            task=context,
+            specialization=spec,
+            project=req.project,
+            parent_run_id=orch_id,
+        )
+        result = spawn_agent(sub_req)
+        results.append(result)
+        # Feed this agent's output into the next agent's context
+        context = f"Previous {spec} analysis:\n{result['response']}\n\nOriginal task: {req.task}"
+
+    return {
+        "orchestration_id": orch_id,
+        "task": req.task,
+        "agents_used": specs,
+        "results": results,
+        "final_response": results[-1]["response"] if results else "",
+    }
+
+
+@app.get("/agents/{run_id}")
+def get_agent_run(run_id: str) -> dict:
+    """Return details for a specific agent run."""
+    if run_id not in _agent_runs:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Agent run '{run_id}' not found")
+    return _agent_runs[run_id]
+
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))
