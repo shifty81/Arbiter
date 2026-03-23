@@ -1550,17 +1550,20 @@
       var vsBase = _useLocal ? _local : _cdn;
       window.__monacoVsBase = vsBase;
       window.require = { paths: { vs: vsBase } };
+
+      // Dynamically create the loader <script> so its src is set correctly
+      // before it is inserted into the DOM.  Setting src="" in static HTML and
+      // then overwriting it via JS is unreliable in some Chromium / WebView2
+      // versions because the element may already be "prepared" (no-op'd) by
+      // the time the second <script> block runs.
+      var s = document.createElement("script");
+      s.id    = "monaco-loader-script";
+      s.async = true;
+      s.onload = function () { window.__monacoLoaderReady  = true; };
+      s.onerror = function () { window.__monacoLoaderFailed = true; };
+      s.src = vsBase + "/loader.js";
+      document.head.appendChild(s);
     })();
-  </script>
-  <script id="monaco-loader-script"
-          src=""
-          async
-          onload="window.__monacoLoaderReady=true"
-          onerror="window.__monacoLoaderFailed=true"></script>
-  <script>
-    // Set the src on the loader script tag now that we know which base to use.
-    document.getElementById("monaco-loader-script").src =
-      (window.__monacoVsBase || "https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs") + "/loader.js";
   </script>
   <!-- xterm.js for the PTY terminal tab (async — non-blocking) -->
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"
