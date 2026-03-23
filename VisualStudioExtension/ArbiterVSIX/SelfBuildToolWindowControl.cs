@@ -305,18 +305,9 @@ namespace ArbiterVSIX
         }
     }
 
-    // ── LINQ helper (avoid taking a full LINQ dependency just for ToList) ──────
+    // ── LINQ helper ──────────────────────────────────────────────────────────
     internal static class EnumeratorExtensions
     {
-        internal static System.Collections.Generic.List<T> ToList<T>(
-            this System.Text.Json.JsonElement.ArrayEnumerator enumerator)
-        {
-            var list = new System.Collections.Generic.List<T>();
-            while (enumerator.MoveNext())
-                if (enumerator.Current is T item) list.Add(item);
-            return list;
-        }
-
         internal static System.Collections.Generic.List<JsonElement> ToList(
             this System.Text.Json.JsonElement.ArrayEnumerator enumerator)
         {

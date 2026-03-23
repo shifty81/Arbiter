@@ -74,8 +74,10 @@ namespace ArbiterHost
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            // Cancel any in-flight build WebSocket before closing.
+            // Cancel and dispose any in-flight build WebSocket before closing.
             _buildWsCts?.Cancel();
+            _buildWsCts?.Dispose();
+            _buildWsCts = null;
         }
 
         // ── M4-8: Global keyboard shortcuts ───────────────────────────────────

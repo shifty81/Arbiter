@@ -221,7 +221,7 @@ namespace ArbiterVSIX
                     ErrorCategory = TaskErrorCategory.Message,
                     Category      = TaskCategory.BuildCompile,
                     Document      = sourceFile,
-                    Line          = Math.Max(0, sourceLine - 1),   // 0-based in ErrorTask
+                    Line          = Math.Max(0, sourceLine - 1),   // ErrorTask.Line is 0-based; sourceLine from regex is 1-based
                 };
                 _arbiterTaskProvider.Tasks.Add(task);
                 count++;
