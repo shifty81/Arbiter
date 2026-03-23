@@ -47,7 +47,8 @@ _config.load()
 
 _registry = ToolRegistry()
 ModuleLoader(_BASE / "modules", _registry).load_all()
-PluginLoader(_BASE / "plugins", _registry).load_all()
+_plugin_loader = PluginLoader(_BASE / "plugins", _registry)
+_plugin_loader.load_all()
 
 _backend = _config.get("agent.default_llm_backend", "ollama")
 _llm = create_llm(_backend, _config)
@@ -247,6 +248,121 @@ def _auto_detect_command(project_dir: Path, action: str) -> str:
     if list(project_dir.glob("*.py")):
         return {"build": "", "run": "python main.py", "test": "python -m pytest"}.get(action, "")
     return ""
+
+
+# ── Plugin hot-reload endpoints (M2-11) ───────────────────────────────────────
+
+class PluginReloadRequest(BaseModel):
+    name: str = ""  # empty string means reload all changed plugins
+
+
+@app.get("/plugins")
+def list_plugins() -> dict:
+    """Return all currently loaded plugins."""
+    return {"plugins": list(_plugin_loader.loaded_plugins.values())}
+
+
+@app.post("/plugins/reload")
+def reload_plugins(req: PluginReloadRequest) -> dict:
+    """Hot-reload a plugin (or all changed plugins) without restarting the server.
+
+    If ``name`` is provided, reload that specific plugin.
+    If ``name`` is empty, reload all plugins whose manifest has changed on disk.
+    """
+    if req.name:
+        ok = _plugin_loader.reload_plugin(req.name)
+        if not ok:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Plugin '{req.name}' not found")
+        return {"status": "reloaded", "plugins": [req.name]}
+    reloaded = _plugin_loader.reload_all()
+    return {"status": "reloaded", "plugins": reloaded}
+
+
+@app.post("/plugins/install")
+def install_plugin(req: dict = {}) -> dict:
+    """Placeholder for plugin installation (marketplace integration)."""
+    return {"status": "not_implemented", "detail": "Plugin marketplace not yet available."}
+
+
+# ── Tool call streaming via Server-Sent Events (M2-12) ────────────────────────
+
+import asyncio
+import queue as _queue
+from fastapi.responses import StreamingResponse
+
+
+class StreamBuildRequest(BaseModel):
+    project: str
+    command: str = ""
+    action: str = "build"  # "build" | "run" | "test"
+
+
+@app.post("/stream/run")
+async def stream_run(req: StreamBuildRequest):
+    """Stream build/run/test output as Server-Sent Events (text/event-stream).
+
+    The client receives a sequence of ``data: <line>\\n\\n`` SSE events and a
+    final ``data: [DONE]\\n\\n`` event when the process exits.
+
+    Example::
+
+        curl -N -X POST http://localhost:8001/stream/run \\
+             -H 'Content-Type: application/json' \\
+             -d '{"project":"myapp","action":"build"}'
+    """
+    project_dir = Path("Projects") / req.project
+    if not project_dir.exists():
+        async def _err():
+            yield f"data: ERROR: Project not found: {req.project}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream")
+
+    cmd = req.command or _auto_detect_command(project_dir, req.action)
+    if not cmd:
+        async def _err2():
+            yield f"data: ERROR: Cannot detect {req.action} command\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_err2(), media_type="text/event-stream")
+
+    async def _generate():
+        loop = asyncio.get_event_loop()
+        line_queue: _queue.Queue[str | None] = _queue.Queue()
+
+        def _reader():
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    cwd=str(project_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    line_queue.put(line.rstrip())
+                proc.wait()
+            except Exception as exc:
+                line_queue.put(f"ERROR: {exc}")
+            finally:
+                line_queue.put(None)  # sentinel
+
+        import threading
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+
+        while True:
+            try:
+                item = await loop.run_in_executor(None, lambda: line_queue.get(timeout=1))
+            except _queue.Empty:
+                continue
+            if item is None:
+                break
+            yield f"data: {item}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":

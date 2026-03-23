@@ -371,6 +371,15 @@ def chat(msg: UserMessage):
 
     persona = get_active_persona(conn)
     system_prompt = get_system_prompt(persona, msg.project)
+
+    # ── M3-8: Inject archive context ─────────────────────────────────────────
+    try:
+        archive_ctx = _archive.get_context(msg.message, top_k=5)
+        if archive_ctx:
+            system_prompt = system_prompt + "\n\n" + archive_ctx
+    except Exception:
+        pass  # Archive not ready yet — proceed without context
+
     response = generate_response(msg.message, msg.project, system_prompt=system_prompt)
 
     c.execute(
@@ -1538,8 +1547,139 @@ def search_in_files(req: _SearchReq):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  STUB ENDPOINTS  (advanced features — modules loaded via setup_modules.py)
+#  LIBRARY & ARCHIVE  (M3 — Living Knowledge Codex)
 # ═════════════════════════════════════════════════════════════════════════════
+
+from library_manager import LibraryManager as _LibraryManager
+from archive_manager import ArchiveManager as _ArchiveManager
+from fastapi.responses import PlainTextResponse as _PlainTextResponse
+
+_library = _LibraryManager()
+_archive = _ArchiveManager()
+# Start incremental watcher in background
+_archive.start_watcher(_library)
+
+
+# ── Library endpoints ──────────────────────────────────────────────────────────
+
+class _LibraryAddReq(BaseModel):
+    path: str
+    label: str = ""
+    extensions: list[str] = []
+
+
+@app.get("/library")
+def library_list():
+    """Return all registered library paths."""
+    return {"paths": _library.list_paths()}
+
+
+@app.post("/library")
+def library_add(req: _LibraryAddReq):
+    """Add a filesystem path to the library."""
+    entry = _library.add_path(req.path, label=req.label, extensions=req.extensions or None)
+    return {"status": "added", "entry": entry}
+
+
+@app.delete("/library/{path_id}")
+def library_remove(path_id: str):
+    """Remove a library path by ID or exact path."""
+    removed = _library.remove_path(path_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Library path not found")
+    return {"status": "removed"}
+
+
+@app.get("/library/{path_id}/files")
+def library_files(path_id: str):
+    """List all indexable files under a library path."""
+    files = _library.list_files(path_id)
+    return {"files": files}
+
+
+@app.get("/library/{path_id}/file")
+def library_read_file(path_id: str, path: str):
+    """Read a single file from a library path (query param: path)."""
+    content = _library.read_file(path_id, path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"content": content}
+
+
+# ── Archive endpoints ──────────────────────────────────────────────────────────
+
+@app.get("/archive")
+def archive_list():
+    """Return all archive entries (id, title, summary, language, source_file)."""
+    entries = _archive.entries
+    return {
+        "count": len(entries),
+        "entries": [
+            {
+                "id": e.id,
+                "title": e.title,
+                "summary": e.summary,
+                "language": e.language,
+                "entry_type": e.entry_type,
+                "source_file": e.source_file,
+                "tags": e.tags,
+                "indexed_at": e.indexed_at,
+            }
+            for e in entries
+        ],
+    }
+
+
+@app.post("/archive/rebuild")
+def archive_rebuild():
+    """Full rebuild — re-index all library files."""
+    count = _archive.rebuild(_library)
+    return {"status": "rebuilt", "entries": count}
+
+
+class _ArchiveSearchReq(BaseModel):
+    query: str
+    top_k: int = 10
+
+
+@app.post("/archive/search")
+def archive_search(req: _ArchiveSearchReq):
+    """Search archive entries by keyword relevance."""
+    results = _archive.search(req.query, top_k=req.top_k)
+    return {
+        "query": req.query,
+        "results": [
+            {
+                "id": e.id,
+                "title": e.title,
+                "summary": e.summary,
+                "content_snippet": e.content[:300],
+                "language": e.language,
+                "entry_type": e.entry_type,
+                "source_file": e.source_file,
+                "tags": e.tags,
+            }
+            for e in results
+        ],
+    }
+
+
+@app.delete("/archive/entry/{entry_id}")
+def archive_delete_entry(entry_id: str):
+    """Remove a single entry from the archive."""
+    removed = _archive.delete_entry(entry_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Archive entry not found")
+    return {"status": "removed"}
+
+
+@app.get("/archive/export", response_class=_PlainTextResponse)
+def archive_export():
+    """Export the full archive as a Markdown codex document."""
+    return _archive.export_markdown()
+
+
+
 
 from fastapi import Request as _Request
 

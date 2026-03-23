@@ -161,9 +161,9 @@ namespace ArbiterHost
 
         private void OpenMainWindow()
         {
-            var main = new MainWindow();
-            Application.Current.MainWindow = main;
-            main.Show();
+            var ide = new IdeWindow();
+            Application.Current.MainWindow = ide;
+            ide.Show();
             Close();
         }
 
