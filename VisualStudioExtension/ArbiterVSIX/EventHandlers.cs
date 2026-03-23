@@ -190,7 +190,7 @@ namespace ArbiterVSIX
             string sourceFile = "";
             int sourceLine = 0;
             var firstErrorLine = buildErrorContext.Split('\n')[0];
-            var fileMatch = System.Text.RegularExpressions.Regex.Match(
+            var fileMatch = Regex.Match(
                 firstErrorLine, @"^([^(]+)\((\d+)\)");
             if (fileMatch.Success)
             {

@@ -2019,12 +2019,10 @@ def roadmap_task_update(task_id: str, req: _RoadmapTaskPatch, path: str = ""):
                     ms["status"] = "in_progress"
         if not updated:
             raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-        import tempfile as _tmp_rt
         content = json.dumps(data, indent=2) + "\n"
-        fd, tmp = _tmp_rt.mkstemp(dir=str(rp.parent), suffix=".tmp")
+        fd, tmp = tempfile.mkstemp(dir=str(rp.parent), suffix=".tmp")
         try:
-            import os as _os_rt
-            with _os_rt.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
             Path(tmp).replace(rp)
         except Exception:
@@ -2051,7 +2049,6 @@ def roadmap_task_create(req: _RoadmapTaskCreate):
     if not rp.is_file():
         raise HTTPException(status_code=404, detail="roadmap.json not found")
     try:
-        import uuid as _uuid_rt
         data = json.loads(rp.read_text(encoding="utf-8"))
         # Find or create the target milestone
         target_ms = None
@@ -2069,7 +2066,7 @@ def roadmap_task_create(req: _RoadmapTaskCreate):
                 "tasks": [],
             }
             data.setdefault("milestones", []).append(target_ms)
-        task_id = f"BACK-{_uuid_rt.uuid4().hex[:6].upper()}"
+        task_id = f"BACK-{_uuid_mod.uuid4().hex[:6].upper()}"
         new_task = {
             "id": task_id,
             "title": req.title,
@@ -2078,12 +2075,10 @@ def roadmap_task_create(req: _RoadmapTaskCreate):
         if req.description:
             new_task["description"] = req.description
         target_ms.setdefault("tasks", []).append(new_task)
-        import tempfile as _tmp_tc
         content = json.dumps(data, indent=2) + "\n"
-        fd, tmp = _tmp_tc.mkstemp(dir=str(rp.parent), suffix=".tmp")
+        fd, tmp = tempfile.mkstemp(dir=str(rp.parent), suffix=".tmp")
         try:
-            import os as _os_tc
-            with _os_tc.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
             Path(tmp).replace(rp)
         except Exception:
@@ -2103,8 +2098,7 @@ def roadmap_task_create(req: _RoadmapTaskCreate):
 _sb_status_bridge: str = "idle"
 _sb_log_bridge: list[str] = []
 _sb_pending_bridge: dict | None = None
-import threading as _sb_threading
-_sb_lock_bridge = _sb_threading.Lock()
+_sb_lock_bridge = _threading.Lock()
 
 
 def _sb_emit_bridge(line: str):
@@ -2225,13 +2219,12 @@ class _GitPushReq(BaseModel):
 def git_push(req: _GitPushReq):
     """Push the current branch to a remote (uses subprocess git)."""
     cwd = req.project_path or str(SCRIPT_DIR.parent.parent)
-    import subprocess as _sub_gp
     try:
         remote = req.remote or "origin"
         cmd = ["git", "push", remote]
         if req.branch:
             cmd.append(req.branch)
-        result = _sub_gp.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             return {"status": "error", "detail": result.stderr.strip()}
         return {"status": "ok", "output": result.stdout.strip()}
@@ -2248,9 +2241,8 @@ class _GitBranchReq(BaseModel):
 def git_create_branch(req: _GitBranchReq):
     """Create and check out a new git branch."""
     cwd = req.project_path or str(SCRIPT_DIR.parent.parent)
-    import subprocess as _sub_gb
     try:
-        result = _sub_gb.run(
+        result = subprocess.run(
             ["git", "checkout", "-b", req.name],
             cwd=cwd, capture_output=True, text=True, timeout=30,
         )
