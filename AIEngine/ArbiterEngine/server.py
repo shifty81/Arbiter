@@ -4999,8 +4999,8 @@ def chat_branch_create(req: _BranchCreateReq) -> dict:
     """
     history = _chat_histories.get(req.project, [])
     forked_history = history[:req.from_message_index]
-    bid     = str(_uuid.uuid4())[:8]
-    name    = req.branch_name or f"branch-{bid}"
+    bid     = str(_uuid.uuid4())
+    name    = req.branch_name or f"branch-{bid[:8]}"
     _chat_branches.setdefault(req.project, {})[bid] = {
         "name":    name,
         "history": list(forked_history),
@@ -5193,7 +5193,7 @@ def chat_bookmark_create(req: _BookmarkReq) -> dict:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="message_index out of range")
     msg = history[req.message_index]
-    bid = str(_uuid.uuid4())[:8]
+    bid = str(_uuid.uuid4())
     bookmark = {
         "bookmark_id":    bid,
         "message_index":  req.message_index,
@@ -5313,7 +5313,7 @@ def chat_context_file_set(req: _FileContextReq) -> dict:
         if not p.is_file():
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail=f"File not found: {req.file_path}")
-        content = p.read_text(encoding="utf-8", errors="ignore")[:4000]
+        content = p.read_text(encoding="utf-8", errors="replace")[:4000]
     except Exception as exc:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=str(exc))
@@ -5390,9 +5390,7 @@ async def chat_stream(req: _StreamChatReq):
                 words   = full.split()
                 chunks2: list[str] = []
                 for i in range(0, len(words), _STREAM_CHUNK_WORDS):
-                    chunk = " ".join(words[i:i + _STREAM_CHUNK_WORDS]) + (
-                        " " if i + _STREAM_CHUNK_WORDS < len(words) else ""
-                    )
+                    chunk = " ".join(words[i:i + _STREAM_CHUNK_WORDS])
                     chunks2.append(chunk)
                     yield f"data: {_json_mod.dumps({'token': chunk, 'done': False})}\n\n"
                     await asyncio.sleep(0.03)
@@ -5529,7 +5527,7 @@ def chat_analytics(project: str = "") -> dict:
         for msgs in threads.values()
     )
 
-    avg_len = int(sum(assistant_lengths) / len(assistant_lengths)) if assistant_lengths else 0
+    avg_len = sum(assistant_lengths) // len(assistant_lengths) if assistant_lengths else 0
 
     return {
         "total_messages":          total_messages,
@@ -5854,7 +5852,8 @@ def agents_specialist_install(req: _SpecialistInstallReq) -> dict:
     if not req.name.strip():
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Agent name must not be empty")
-    agent_id = req.name.lower().replace(" ", "_")
+    import re as _re
+    agent_id = _re.sub(r"[^a-z0-9_]", "_", req.name.lower().strip().replace(" ", "_"))
     _SPECIALIST_AGENTS[agent_id] = {
         "name":          req.name,
         "description":   req.description,
@@ -6051,9 +6050,14 @@ def ai_tests_generate(req: _TestsGenerateReq) -> dict:
     except Exception as exc:
         tests = f"# [Arbiter Engine error] {exc}"
 
-    framework = req.test_framework or ("pytest" if req.language == "python" else
-                                       "jest"   if req.language in ("javascript", "typescript") else
-                                       "xunit")
+    if req.test_framework:
+        framework = req.test_framework
+    elif req.language == "python":
+        framework = "pytest"
+    elif req.language in ("javascript", "typescript"):
+        framework = "jest"
+    else:
+        framework = "xunit"
     return {
         "tests":              tests,
         "language":           req.language,
@@ -6263,7 +6267,7 @@ def persona_adapt(req: _PersonaAdaptReq) -> dict:
     """
     feedback = _persona_feedback_log.get(req.persona, [])
     # Gather current prompt preview
-    from_custom = _custom_personas.get(req.persona, "")  # type: ignore[name-defined]
+    from_custom = _custom_personas.get(req.persona, "")
     current_preview = from_custom[:200] if from_custom else f"Default persona: {req.persona}"
 
     feedback_text = "\n".join(
