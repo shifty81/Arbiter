@@ -20,7 +20,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.6.36389" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.6.2164" />
-    <PackageReference Include="Microsoft.VisualStudio.Shell.Interop.17.0" Version="17.6.36389" />
     <PackageReference Include="Microsoft.VisualStudio.Interop" Version="17.6.36389" />
   </ItemGroup>
 
@@ -28,17 +27,6 @@
     <Content Include="source.extension.vsixmanifest">
       <SubType>Designer</SubType>
     </Content>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="ArbiterPackage.cs" />
-    <Compile Include="ArbiterCommands.cs" />
-    <Compile Include="ChatToolWindow.cs" />
-    <Compile Include="ChatToolWindowControl.cs" />
-    <Compile Include="InlineSuggestionProvider.cs" />
-    <Compile Include="ArbiterSettings.cs" />
-    <Compile Include="EventHandlers.cs" />
-    <Compile Include="ArbiterApiClient.cs" />
   </ItemGroup>
 
 </Project>
