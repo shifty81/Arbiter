@@ -14,9 +14,9 @@ namespace ArbiterHost
 {
     /// <summary>
     /// Full-screen Monaco IDE window hosted via WebView2.
-    /// Provides a native WPF toolbar and a bidirectional postMessage bridge so
-    /// Monaco JS can request native Windows actions (file pickers, notifications)
-    /// without any HTTP polling.
+    /// Provides a native WPF menu bar, toolbar and status bar, and a
+    /// bidirectional postMessage bridge so Monaco JS can request native Windows
+    /// actions (file pickers, notifications) without any HTTP polling.
     /// </summary>
     public partial class IdeWindow : Window
     {
@@ -36,6 +36,7 @@ namespace ArbiterHost
             _projectsRoot = Path.Combine(Directory.GetCurrentDirectory(), "Projects");
             Directory.CreateDirectory(_projectsRoot);
             ModeLabel.Text = AppConfig.Mode;
+            _ = PollLlmBackendAsync();
         }
 
         // ── Dark title bar ─────────────────────────────────────────────────────
@@ -128,6 +129,23 @@ namespace ArbiterHost
                             if (!string.IsNullOrWhiteSpace(_activeProjectPath))
                                 PostToIde("set_workspace", new { path = _activeProjectPath });
                         });
+                        break;
+                    case "cursor_position":
+                        // Monaco reports { line, column } so we can update the status bar
+                        if (root.TryGetProperty("payload", out var cp))
+                        {
+                            int line = cp.TryGetProperty("line", out var l) ? l.GetInt32() : 0;
+                            int col  = cp.TryGetProperty("column", out var c) ? c.GetInt32() : 0;
+                            Dispatcher.Invoke(() => LineColLabel.Text = $"Ln {line}, Col {col}");
+                        }
+                        break;
+                    case "file_opened":
+                        if (root.TryGetProperty("payload", out var fo) &&
+                            fo.TryGetProperty("path", out var fp))
+                        {
+                            string fname = Path.GetFileName(fp.GetString() ?? "");
+                            Dispatcher.Invoke(() => FileLabel.Text = fname);
+                        }
                         break;
                     default:
                         // Unknown message types are silently ignored
@@ -260,6 +278,7 @@ namespace ArbiterHost
             if (dlg.ShowDialog() != true) return;
             PostToIde("open_file", new { path = dlg.FileName });
             SetStatus($"Opened: {Path.GetFileName(dlg.FileName)}");
+            FileLabel.Text = Path.GetFileName(dlg.FileName);
         }
 
         private void Save_Click(object sender, RoutedEventArgs e)
@@ -304,6 +323,122 @@ namespace ArbiterHost
                 PostToIde("build_output", new { action, success = false, output = ex.Message });
             }
         }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        //  Menu bar handlers  (M4-5)
+        // ═══════════════════════════════════════════════════════════════════════
+
+        // ── File menu ─────────────────────────────────────────────────────────
+        private void MenuSettings_Click(object sender, RoutedEventArgs e)
+            => PostToIde("open_panel", new { panel = "cfgprofile" });
+
+        private void MenuExit_Click(object sender, RoutedEventArgs e)
+            => Application.Current.Shutdown();
+
+        // ── Edit menu ─────────────────────────────────────────────────────────
+        private void MenuUndo_Click(object sender, RoutedEventArgs e)
+            => PostToIde("editor_command", new { command = "undo" });
+
+        private void MenuRedo_Click(object sender, RoutedEventArgs e)
+            => PostToIde("editor_command", new { command = "redo" });
+
+        private void MenuCut_Click(object sender, RoutedEventArgs e)
+            => PostToIde("editor_command", new { command = "cut" });
+
+        private void MenuCopy_Click(object sender, RoutedEventArgs e)
+            => PostToIde("editor_command", new { command = "copy" });
+
+        private void MenuPaste_Click(object sender, RoutedEventArgs e)
+            => PostToIde("editor_command", new { command = "paste" });
+
+        private void MenuFind_Click(object sender, RoutedEventArgs e)
+            => PostToIde("editor_command", new { command = "find" });
+
+        private void MenuReplace_Click(object sender, RoutedEventArgs e)
+            => PostToIde("editor_command", new { command = "replace" });
+
+        // ── View menu ─────────────────────────────────────────────────────────
+        private void MenuCommandPalette_Click(object sender, RoutedEventArgs e)
+            => PostToIde("open_command_palette", new { });
+
+        private void MenuOpenCodex_Click(object sender, RoutedEventArgs e)
+            => PostToIde("open_panel", new { panel = "codex" });
+
+        private void MenuOpenRoadmap_Click(object sender, RoutedEventArgs e)
+            => PostToIde("open_panel", new { panel = "roadmap" });
+
+        private void MenuOpenAgents_Click(object sender, RoutedEventArgs e)
+            => PostToIde("open_panel", new { panel = "agents" });
+
+        // ── Git menu ──────────────────────────────────────────────────────────
+        private void MenuGitRefresh_Click(object sender, RoutedEventArgs e)
+            => PostToIde("git_action", new { action = "refresh" });
+
+        private void MenuGitStageAll_Click(object sender, RoutedEventArgs e)
+            => PostToIde("git_action", new { action = "stage_all" });
+
+        private void MenuGitCommit_Click(object sender, RoutedEventArgs e)
+        {
+            string? msg = InputDialog.Show("Git Commit", "Commit message:");
+            if (!string.IsNullOrWhiteSpace(msg))
+                PostToIde("git_action", new { action = "commit", message = msg });
+        }
+
+        private void MenuGitPush_Click(object sender, RoutedEventArgs e)
+            => PostToIde("git_action", new { action = "push" });
+
+        private void MenuGitPull_Click(object sender, RoutedEventArgs e)
+            => PostToIde("git_action", new { action = "pull" });
+
+        private void MenuGitClone_Click(object sender, RoutedEventArgs e)
+        {
+            string? url = InputDialog.Show("Clone Repository", "Repository URL:");
+            if (!string.IsNullOrWhiteSpace(url))
+                PostToIde("git_action", new { action = "clone", url });
+        }
+
+        // ── AI menu ───────────────────────────────────────────────────────────
+        private void MenuAutoBuild_Click(object sender, RoutedEventArgs e)
+            => PostToIde("self_build_start", new { });
+
+        private void MenuOpenChat_Click(object sender, RoutedEventArgs e)
+            => PostToIde("open_chat", new { });
+
+        private void MenuAgentFile_Click(object sender, RoutedEventArgs e)
+            => PostToIde("agent_on_file", new { });
+
+        private async void MenuRebuildArchive_Click(object sender, RoutedEventArgs e)
+        {
+            SetStatus("Rebuilding archive…");
+            try
+            {
+                await _http.PostAsync($"{AppConfig.ApiBaseUrl}/archive/rebuild", null);
+                SetStatus("Archive rebuild triggered.");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Archive rebuild failed: {ex.Message}");
+            }
+        }
+
+        // ── Help menu ─────────────────────────────────────────────────────────
+        private void MenuOpenDocs_Click(object sender, RoutedEventArgs e)
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                { FileName = "https://github.com/shifty81/Arbiter", UseShellExecute = true }); }
+            catch { /* ignore */ }
+        }
+
+        private void MenuOpenRoadmapTab_Click(object sender, RoutedEventArgs e)
+            => PostToIde("switch_output_tab", new { tab = "roadmap" });
+
+        private void MenuAbout_Click(object sender, RoutedEventArgs e)
+            => MessageBox.Show(
+                "Arbiter IDE\nSelf-hosted AI-powered development platform.\n\n" +
+                $"Mode: {AppConfig.Mode}\nAPI: {AppConfig.ApiBaseUrl}\nRuntime: .NET 9 / WPF",
+                "About Arbiter",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
 
         // ═══════════════════════════════════════════════════════════════════════
         //  Project selector
@@ -373,6 +508,32 @@ namespace ArbiterHost
                     });
                 }
                 await Task.Delay(5000);
+            }
+        }
+
+        // ── LLM backend polling (M4-4) ─────────────────────────────────────────
+        private async Task PollLlmBackendAsync()
+        {
+            while (true)
+            {
+                try
+                {
+                    var resp = await _http.GetAsync($"{AppConfig.ApiBaseUrl}/status");
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        string json = await resp.Content.ReadAsStringAsync();
+                        using var doc = JsonDocument.Parse(json);
+                        string backend = doc.RootElement.TryGetProperty("llm_backend", out var b)
+                            ? b.GetString() ?? ""
+                            : doc.RootElement.TryGetProperty("active_backend", out var ab)
+                                ? ab.GetString() ?? ""
+                                : "";
+                        if (!string.IsNullOrEmpty(backend))
+                            Dispatcher.Invoke(() => LlmLabel.Text = $"LLM: {backend}");
+                    }
+                }
+                catch { /* server may not be up yet */ }
+                await Task.Delay(30_000); // refresh every 30 seconds
             }
         }
 

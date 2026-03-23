@@ -47,7 +47,104 @@
   const sbLanguage = $("sb-language");
   const sbAiStatus = $("sb-ai-status");
 
-  // ── Utilities ──────────────────────────────────────────────────────────────
+  // ── WPF WebView2 Bridge (bidirectional postMessage) ───────────────────────
+  //  JS → WPF:  window.chrome.webview.postMessage({ type, payload })
+  //  WPF → JS:  window.chrome.webview 'message' event → { type, payload }
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Send a message to the WPF host (no-op when running in a plain browser). */
+  function postToWpf(type, payload = {}) {
+    try {
+      if (window.chrome?.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ type, payload }));
+      }
+    } catch (e) { /* not running inside WebView2 */ }
+  }
+
+  // Handle messages arriving FROM the WPF host
+  if (window.chrome?.webview) {
+    window.chrome.webview.addEventListener("message", (ev) => {
+      let msg;
+      try { msg = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data; }
+      catch { return; }
+      const { type, payload = {} } = msg;
+      switch (type) {
+        case "set_workspace":
+          if (payload.path) {
+            state.activeProject = payload.path;
+            loadFileTree();
+          }
+          break;
+        case "open_file":
+          if (payload.path) openFile(payload.path);
+          break;
+        case "request_save":
+          saveActiveFile?.();
+          break;
+        case "build_output":
+          appendOutput(payload.output || "");
+          break;
+        case "open_panel":
+          if (payload.panel) activatePanel(payload.panel);
+          break;
+        case "editor_command":
+          if (state.editor && payload.command) {
+            state.editor.trigger("wpf", payload.command, null);
+          }
+          break;
+        case "git_action":
+          _handleWpfGitAction(payload);
+          break;
+        case "self_build_start":
+          $("btn-roadmap-auto-build")?.click();
+          break;
+        case "open_chat":
+          switchOutputTab?.("chat");
+          break;
+        case "agent_on_file":
+          $("btn-run-file")?.click();
+          break;
+        case "open_command_palette":
+          $("cmd-palette-input")?.focus();
+          document.getElementById("cmd-palette")?.classList.remove("hidden");
+          break;
+        case "switch_output_tab":
+          if (payload.tab) switchOutputTab?.(payload.tab);
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  /** Handle git actions dispatched from the WPF menu. */
+  function _handleWpfGitAction(payload) {
+    switch (payload.action) {
+      case "refresh":   $("btn-git-refresh")?.click(); break;
+      case "stage_all": $("btn-git-stage-all")?.click(); break;
+      case "commit":
+        if (payload.message) {
+          const inp = $("git-commit-msg");
+          if (inp) inp.value = payload.message;
+          $("btn-git-commit")?.click();
+        }
+        break;
+      case "push": loadGitPanel?.(); break;
+      case "pull": loadGitPanel?.(); break;
+      case "clone":
+        if (payload.url) {
+          const cloneInput = document.querySelector("#panel-explorer input#clone-url-input");
+          if (cloneInput) cloneInput.value = payload.url;
+          $("btn-clone-repo")?.click();
+        }
+        break;
+    }
+  }
+
+  // Announce IDE ready to the WPF host once the page has loaded
+  window.addEventListener("load", () => postToWpf("ide_ready", {}));
+
+
   function appendOutput(text) {
     outputContent.textContent += text;
     outputContent.scrollTop = outputContent.scrollHeight;
@@ -195,6 +292,7 @@
       const pos = state.editor.getPosition();
       if (pos) {
         sbCursor.textContent = `Ln ${pos.lineNumber}, Col ${pos.column}`;
+        postToWpf("cursor_position", { line: pos.lineNumber, column: pos.column });
       }
     } else if (state.editorMode === "fallback") {
       const ta = $("fallback-editor");
@@ -203,6 +301,7 @@
       const line = lines.length;
       const col = lines[lines.length - 1].length + 1;
       sbCursor.textContent = `Ln ${line}, Col ${col}`;
+      postToWpf("cursor_position", { line, column: col });
     }
   }
 
@@ -444,9 +543,8 @@
     }
     $("editor-welcome").classList.add("hidden");
     updateStatusBar();
+    postToWpf("file_opened", { path });
   }
-
-  function closeTab(path) {
     const file = state.openFiles[path];
     if (file && file.modified) {
       if (!confirm(`${path} has unsaved changes. Close anyway?`)) return;
@@ -2652,6 +2750,7 @@
     if (panel === "healthdash") loadHealthPanel();
     if (panel === "testrunner") loadTestRunnerPanel();
     if (panel === "terminal")   loadTerminalPanel();
+    if (panel === "codex")      window.loadCodexPanel?.();
   }
 
   document.querySelectorAll(".ab-icon[data-panel]").forEach((btn) => {
@@ -7114,6 +7213,192 @@
         }
       });
     }
+  })();
+
+  // ── M3-12 + M3-13: Library & Archive Knowledge Codex panel ──────────────────
+  (function () {
+    const entryList    = $("codex-entry-list");
+    const libList      = $("codex-lib-list");
+    const statusEl     = $("codex-status");
+    const previewArea  = $("codex-preview-area");
+    const previewTitle = $("codex-preview-title");
+    const previewBody  = $("codex-preview-content");
+
+    function escHtml(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function setStatus(msg) {
+      if (statusEl) statusEl.textContent = msg;
+    }
+
+    // ── Library path management ─────────────────────────────────────────────
+
+    async function loadLibraryPaths() {
+      if (!libList) return;
+      try {
+        const res = await fetch("/library");
+        if (!res.ok) { libList.innerHTML = '<span style="color:var(--danger)">Failed to load paths</span>'; return; }
+        const data = await res.json();
+        const paths = data.paths || [];
+        if (paths.length === 0) {
+          libList.innerHTML = '<span style="color:var(--text-dim)">No library paths configured.</span>';
+          return;
+        }
+        libList.innerHTML = paths.map(p =>
+          `<div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">` +
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)" title="${escHtml(p.path || p.id)}">${escHtml(p.label || p.path || p.id)}</span>` +
+          `<button data-lib-id="${escHtml(p.id)}" class="codex-lib-remove" title="Remove" style="font-size:10px;padding:1px 5px;flex-shrink:0">✕</button>` +
+          `</div>`
+        ).join("");
+      } catch (e) {
+        libList.innerHTML = '<span style="color:var(--text-dim)">Library API unavailable</span>';
+      }
+    }
+
+    libList?.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".codex-lib-remove");
+      if (!btn) return;
+      const id = btn.dataset.libId;
+      if (!id) return;
+      try {
+        await fetch(`/library/${encodeURIComponent(id)}`, { method: "DELETE" });
+        await loadLibraryPaths();
+        setStatus("Library path removed.");
+      } catch (err) {
+        setStatus(`Error: ${err.message}`);
+      }
+    });
+
+    $("btn-codex-lib-add")?.addEventListener("click", async () => {
+      const input = $("codex-lib-path");
+      const path = input?.value.trim();
+      if (!path) return;
+      try {
+        const res = await fetch("/library", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        });
+        if (!res.ok) { const d = await res.json(); setStatus(`Error: ${d.detail || res.statusText}`); return; }
+        if (input) input.value = "";
+        await loadLibraryPaths();
+        setStatus("Library path added.");
+      } catch (err) {
+        setStatus(`Error: ${err.message}`);
+      }
+    });
+
+    // ── Archive entry list ──────────────────────────────────────────────────
+
+    let _allEntries = [];
+
+    function renderEntries(entries) {
+      if (!entryList) return;
+      if (entries.length === 0) {
+        entryList.innerHTML = '<span style="color:var(--text-dim);font-size:11px">No entries. Add library paths and click Rebuild.</span>';
+        return;
+      }
+      entryList.innerHTML = entries.map(e =>
+        `<div class="codex-entry" data-id="${escHtml(e.id)}"
+          style="padding:6px 8px;border-radius:4px;background:var(--surface,#252526);cursor:pointer;border:1px solid transparent"
+          title="${escHtml(e.source_file || "")}">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+            <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg3,#3c3c3c);color:var(--text-dim)">${escHtml(e.language || "?")}</span>
+            <span style="font-weight:600;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.title || e.id)}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.summary || "")}</div>
+        </div>`
+      ).join("");
+    }
+
+    async function loadArchiveEntries() {
+      if (!entryList) return;
+      setStatus("Loading…");
+      try {
+        const res = await fetch("/archive");
+        if (!res.ok) { setStatus("Archive API unavailable"); return; }
+        const data = await res.json();
+        _allEntries = data.entries || data || [];
+        setStatus(`${_allEntries.length} entr${_allEntries.length === 1 ? "y" : "ies"}`);
+        renderEntries(_allEntries);
+      } catch (e) {
+        setStatus("Archive unavailable");
+        if (entryList) entryList.innerHTML = '<span style="color:var(--text-dim);font-size:11px">Archive API not reachable.</span>';
+      }
+    }
+
+    // ── Entry click → content preview ──────────────────────────────────────
+
+    entryList?.addEventListener("click", (e) => {
+      const card = e.target.closest(".codex-entry");
+      if (!card) return;
+      const id = card.dataset.id;
+      const entry = _allEntries.find(en => en.id === id);
+      if (!entry) return;
+      if (previewTitle) previewTitle.textContent = entry.title || entry.id;
+      if (previewBody) previewBody.textContent = entry.content || "(no content)";
+      previewArea?.classList.remove("hidden");
+    });
+
+    $("btn-codex-preview-close")?.addEventListener("click", () => {
+      previewArea?.classList.add("hidden");
+    });
+
+    // ── Search ──────────────────────────────────────────────────────────────
+
+    async function doSearch() {
+      const query = $("codex-search-input")?.value.trim();
+      if (!query) { renderEntries(_allEntries); setStatus(`${_allEntries.length} entries`); return; }
+      setStatus("Searching…");
+      try {
+        const res = await fetch("/archive/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, top_k: 20 }),
+        });
+        if (!res.ok) { setStatus("Search failed"); return; }
+        const data = await res.json();
+        const results = data.results || data.entries || [];
+        setStatus(`${results.length} result${results.length === 1 ? "" : "s"} for "${query}"`);
+        renderEntries(results);
+      } catch (e) {
+        setStatus("Search error");
+      }
+    }
+
+    $("btn-codex-search")?.addEventListener("click", doSearch);
+    $("codex-search-input")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doSearch();
+    });
+
+    // ── Rebuild ─────────────────────────────────────────────────────────────
+
+    $("btn-codex-rebuild")?.addEventListener("click", async () => {
+      setStatus("Rebuilding archive…");
+      try {
+        const res = await fetch("/archive/rebuild", { method: "POST" });
+        if (!res.ok) { setStatus("Rebuild failed"); return; }
+        const data = await res.json();
+        setStatus(`Rebuilt: ${data.count ?? data.indexed ?? "?"} entries`);
+        await loadArchiveEntries();
+      } catch (e) {
+        setStatus("Rebuild error");
+      }
+    });
+
+    // ── Refresh button ───────────────────────────────────────────────────────
+
+    $("btn-codex-refresh")?.addEventListener("click", async () => {
+      await loadLibraryPaths();
+      await loadArchiveEntries();
+    });
+
+    // ── Load when panel is opened ────────────────────────────────────────────
+    window.loadCodexPanel = async function () {
+      await loadLibraryPaths();
+      await loadArchiveEntries();
+    };
   })();
 
 })();

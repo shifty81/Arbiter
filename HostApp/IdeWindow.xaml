@@ -11,13 +11,84 @@
 
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- menu bar -->
             <RowDefinition Height="Auto"/>   <!-- toolbar -->
             <RowDefinition Height="*"/>      <!-- Monaco editor -->
             <RowDefinition Height="Auto"/>   <!-- status bar -->
         </Grid.RowDefinitions>
 
+        <!-- ── Menu Bar (M4-5) ── -->
+        <Menu Grid.Row="0"
+              Background="{StaticResource PanelBgBrush}"
+              Foreground="{StaticResource ForegroundBrush}"
+              BorderBrush="{StaticResource BorderBrush}"
+              BorderThickness="0,0,0,1"
+              Padding="2,1">
+
+            <MenuItem Header="_File" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="📂 Open Folder…"  Click="OpenFolder_Click"  InputGestureText="Ctrl+K Ctrl+O"/>
+                <MenuItem Header="📄 Open File…"    Click="OpenFile_Click"    InputGestureText="Ctrl+O"/>
+                <MenuItem Header="💾 Save"           Click="Save_Click"        InputGestureText="Ctrl+S"/>
+                <Separator/>
+                <MenuItem Header="⚙️ Settings…"     Click="MenuSettings_Click"/>
+                <Separator/>
+                <MenuItem Header="Exit"              Click="MenuExit_Click"    InputGestureText="Alt+F4"/>
+            </MenuItem>
+
+            <MenuItem Header="_Edit" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="⎌ Undo"   Click="MenuUndo_Click"  InputGestureText="Ctrl+Z"/>
+                <MenuItem Header="↻ Redo"   Click="MenuRedo_Click"  InputGestureText="Ctrl+Y"/>
+                <Separator/>
+                <MenuItem Header="✂ Cut"    Click="MenuCut_Click"   InputGestureText="Ctrl+X"/>
+                <MenuItem Header="📋 Copy"  Click="MenuCopy_Click"  InputGestureText="Ctrl+C"/>
+                <MenuItem Header="📄 Paste" Click="MenuPaste_Click" InputGestureText="Ctrl+V"/>
+                <Separator/>
+                <MenuItem Header="🔍 Find…" Click="MenuFind_Click"  InputGestureText="Ctrl+F"/>
+                <MenuItem Header="↔ Replace…" Click="MenuReplace_Click" InputGestureText="Ctrl+H"/>
+            </MenuItem>
+
+            <MenuItem Header="_View" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="⌨ Command Palette" Click="MenuCommandPalette_Click" InputGestureText="Ctrl+Shift+P"/>
+                <Separator/>
+                <MenuItem Header="🗂 Library &amp; Archive" Click="MenuOpenCodex_Click"/>
+                <MenuItem Header="🗺 Roadmap"              Click="MenuOpenRoadmap_Click"/>
+                <MenuItem Header="📡 Multi-Agent"          Click="MenuOpenAgents_Click"/>
+            </MenuItem>
+
+            <MenuItem Header="_Git" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="↺ Refresh Status"  Click="MenuGitRefresh_Click"/>
+                <MenuItem Header="＋ Stage All"       Click="MenuGitStageAll_Click"/>
+                <MenuItem Header="✓ Commit…"          Click="MenuGitCommit_Click"/>
+                <Separator/>
+                <MenuItem Header="⬆ Push"             Click="MenuGitPush_Click"/>
+                <MenuItem Header="⬇ Pull"             Click="MenuGitPull_Click"/>
+                <MenuItem Header="⬇ Clone Repo…"      Click="MenuGitClone_Click"/>
+            </MenuItem>
+
+            <MenuItem Header="_Build" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="🔨 Build"   Click="Build_Click"  InputGestureText="Ctrl+B"/>
+                <MenuItem Header="▶ Run"      Click="Run_Click"    InputGestureText="F5"/>
+                <MenuItem Header="✅ Test"     Click="Test_Click"   InputGestureText="Ctrl+T"/>
+            </MenuItem>
+
+            <MenuItem Header="_AI" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="🤖 Auto-Build Next Task" Click="MenuAutoBuild_Click"/>
+                <MenuItem Header="💬 Open Chat"            Click="MenuOpenChat_Click"/>
+                <MenuItem Header="⚡ Agent on Current File" Click="MenuAgentFile_Click"/>
+                <Separator/>
+                <MenuItem Header="🔄 Rebuild Archive"       Click="MenuRebuildArchive_Click"/>
+            </MenuItem>
+
+            <MenuItem Header="_Help" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="📖 Arbiter Docs"  Click="MenuOpenDocs_Click"/>
+                <MenuItem Header="🗺 View Roadmap"  Click="MenuOpenRoadmapTab_Click"/>
+                <Separator/>
+                <MenuItem Header="ℹ About Arbiter"  Click="MenuAbout_Click"/>
+            </MenuItem>
+        </Menu>
+
         <!-- ── Toolbar ── -->
-        <Border Grid.Row="0"
+        <Border Grid.Row="1"
                 Background="{StaticResource PanelBgBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,0,0,1"
@@ -47,11 +118,11 @@
 
                 <!-- Build/Run/Test actions -->
                 <Button Name="BuildBtn"  Content="🔨 Build"  Margin="2" Padding="8,5"
-                        Click="Build_Click"  ToolTip="Build project"/>
+                        Click="Build_Click"  ToolTip="Build project (Ctrl+B)"/>
                 <Button Name="RunBtn"    Content="▶ Run"    Margin="2" Padding="8,5"
-                        Click="Run_Click"    ToolTip="Run project"/>
+                        Click="Run_Click"    ToolTip="Run project (F5)"/>
                 <Button Name="TestBtn"   Content="✅ Test"   Margin="2" Padding="8,5"
-                        Click="Test_Click"   ToolTip="Run tests"/>
+                        Click="Test_Click"   ToolTip="Run tests (Ctrl+T)"/>
 
                 <Separator Width="1" Height="20" Margin="6,0"
                            Background="{StaticResource BorderBrush}"/>
@@ -77,29 +148,59 @@
         </Border>
 
         <!-- ── Monaco IDE (WebView2) ── -->
-        <wv2:WebView2 Grid.Row="1" Name="IdeWebView"/>
+        <wv2:WebView2 Grid.Row="2" Name="IdeWebView"/>
 
-        <!-- ── Status bar ── -->
-        <Border Grid.Row="2"
+        <!-- ── Status bar (M4-4) ── -->
+        <Border Grid.Row="3"
                 Background="{StaticResource AccentBrush}"
                 Padding="8,2">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
+                <!-- General status message -->
                 <TextBlock Name="StatusLabel"
                            Grid.Column="0"
                            Text="Ready"
                            FontSize="11"
                            Foreground="White"
                            VerticalAlignment="Center"/>
-                <TextBlock Name="ModeLabel"
+                <!-- Current file name -->
+                <TextBlock Name="FileLabel"
                            Grid.Column="1"
                            FontSize="11"
                            Foreground="White"
                            VerticalAlignment="Center"
-                           HorizontalAlignment="Right"/>
+                           HorizontalAlignment="Right"
+                           Margin="12,0,0,0"/>
+                <!-- Line / Column -->
+                <TextBlock Name="LineColLabel"
+                           Grid.Column="2"
+                           FontSize="11"
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           Margin="12,0,0,0"/>
+                <!-- LLM backend -->
+                <TextBlock Name="LlmLabel"
+                           Grid.Column="3"
+                           FontSize="11"
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           Margin="12,0,0,0"/>
+                <!-- Mode label -->
+                <TextBlock Name="ModeLabel"
+                           Grid.Column="4"
+                           FontSize="11"
+                           Foreground="White"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           Margin="12,0,0,0"/>
             </Grid>
         </Border>
     </Grid>

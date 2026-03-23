@@ -975,6 +975,158 @@ async def ws_pty(ws: WebSocket):
     await ws_terminal(ws)
 
 
+# ── M2-14: Self-build WebSocket — streams autonomous patch-test-commit cycle ─
+@app.websocket("/ws/self-build")
+async def ws_self_build(ws: WebSocket):
+    """Stream the autonomous self-build loop to the IDE roadmap panel.
+
+    The client sends: {"task_id": "<optional id>"}
+    The server emits:
+        {"type": "log",   "data": "<line>"}
+        {"type": "done"}
+        {"type": "error", "data": "<message>"}
+    """
+    await ws.accept()
+    try:
+        payload = await ws.receive_json()
+        task_id: str | None = payload.get("task_id") or None
+
+        # Locate the roadmap relative to the bridge script
+        roadmap_path = SCRIPT_DIR.parent.parent / "roadmap.json"
+        workspace_roadmap = SCRIPT_DIR.parent / "workspace" / "roadmap.json"
+        if not roadmap_path.is_file() and workspace_roadmap.is_file():
+            roadmap_path = workspace_roadmap
+
+        if not roadmap_path.is_file():
+            await ws.send_json({"type": "error", "data": "roadmap.json not found"})
+            return
+
+        import json as _json_sb
+        import uuid as _uuid_sb
+        import datetime as _dt_sb
+        import tempfile as _tmp_sb
+        import re as _re_sb
+        import subprocess as _sub_sb
+
+        roadmap_data = _json_sb.loads(roadmap_path.read_text(encoding="utf-8"))
+
+        def _next_task():
+            for ms in roadmap_data.get("milestones", []):
+                if ms.get("status") == "done":
+                    continue
+                for t in ms.get("tasks", []):
+                    if t.get("status") in ("pending", "in_progress"):
+                        return t, ms
+            return None, None
+
+        if task_id:
+            task = next(
+                (t for ms in roadmap_data.get("milestones", [])
+                 for t in ms.get("tasks", []) if t.get("id") == task_id),
+                None,
+            )
+            if task is None:
+                await ws.send_json({"type": "error", "data": f"Task '{task_id}' not found"})
+                return
+        else:
+            task, _ = _next_task()
+            if task is None:
+                await ws.send_json({"type": "log", "data": "🎉 All roadmap tasks are complete!\n"})
+                await ws.send_json({"type": "done"})
+                return
+
+        task_id = task["id"]
+        task_title = task.get("title", task_id)
+
+        async def emit(line: str):
+            await ws.send_json({"type": "log", "data": line})
+
+        await emit(f"🤖 Self-build: {task_id} — {task_title}\n")
+
+        # Build a prompt asking the LLM to generate code for this task
+        from llm_interface import generate_response as _gen_resp  # type: ignore
+
+        ws_root = SCRIPT_DIR.parent / "workspace"
+        project_path = str(SCRIPT_DIR.parent.parent)
+
+        def _collect_src() -> str:
+            parts: list[str] = []
+            total = 0
+            limit = 8000
+            for suffix in ("*.py",):
+                for p in sorted(Path(project_path).rglob(suffix))[:30]:
+                    if total >= limit:
+                        break
+                    rel = str(p.relative_to(project_path))
+                    if any(skip in rel for skip in ("__pycache__", ".git", "node_modules")):
+                        continue
+                    try:
+                        snippet = p.read_text(encoding="utf-8", errors="ignore")[:1500]
+                        parts.append(f"### {rel}\n{snippet}\n")
+                        total += len(snippet)
+                    except Exception:
+                        continue
+            return "\n".join(parts)
+
+        await emit("📂 Collecting source context…\n")
+        src_ctx = await _asyncio.get_event_loop().run_in_executor(None, _collect_src)
+
+        await emit("🧠 Asking LLM to generate implementation…\n")
+        system_msg = (
+            "You are an expert developer implementing a feature for the Arbiter AI project.\n"
+            "Describe the code changes needed and provide complete file contents for any new or modified files.\n"
+            "Be concise and practical."
+        )
+        user_msg = (
+            f"Task: {task_title}\n\n"
+            f"Project source context (excerpts):\n{src_ctx[:6000]}\n\n"
+            "Describe what needs to be done and provide the key code changes."
+        )
+        try:
+            response = await _asyncio.get_event_loop().run_in_executor(
+                None, lambda: _gen_resp(user_msg, "default", system_prompt=system_msg)
+            )
+        except Exception as exc:
+            await ws.send_json({"type": "error", "data": f"LLM error: {exc}"})
+            return
+
+        await emit("💡 LLM response received.\n")
+        await emit(f"\n{response[:3000]}\n")
+
+        # Mark task as in_progress in the roadmap
+        def _update_roadmap():
+            data = _json_sb.loads(roadmap_path.read_text(encoding="utf-8"))
+            for ms in data.get("milestones", []):
+                for t in ms.get("tasks", []):
+                    if t.get("id") == task_id:
+                        t["status"] = "in_progress"
+                        t["notes"] = f"Self-build started {_dt_sb.datetime.now(_dt_sb.timezone.utc).isoformat()}"
+                if ms.get("status") == "pending":
+                    statuses = {t.get("status") for t in ms.get("tasks", [])}
+                    if "in_progress" in statuses or ("done" in statuses and "pending" in statuses):
+                        ms["status"] = "in_progress"
+            content = _json_sb.dumps(data, indent=2) + "\n"
+            fd, tmp = _tmp_sb.mkstemp(dir=str(roadmap_path.parent), suffix=".tmp")
+            try:
+                with open(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                Path(tmp).replace(roadmap_path)
+            except Exception:
+                Path(tmp).unlink(missing_ok=True)
+                raise
+
+        await _asyncio.get_event_loop().run_in_executor(None, _update_roadmap)
+        await emit(f"📋 Task {task_id} marked as in_progress in roadmap.\n")
+        await emit("✅ Self-build cycle complete. Review the output and apply changes manually or via agentic chat.\n")
+        await ws.send_json({"type": "done"})
+
+    except (WebSocketDisconnect, Exception) as exc:
+        try:
+            await ws.send_json({"type": "error", "data": str(exc)})
+        except Exception:
+            pass
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 #  NATIVE TOOL-CALL QUEUE  (WPF ↔ Monaco IDE bridge)
 # ═════════════════════════════════════════════════════════════════════════════

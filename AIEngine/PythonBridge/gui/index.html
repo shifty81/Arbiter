@@ -75,6 +75,7 @@
         <button class="ab-ov-item" data-panel="knowledge">📚 Knowledge</button>
         <button class="ab-ov-item" data-panel="models">📥 Model Downloads</button>
         <button class="ab-ov-item" data-panel="agents">🕹 Multi-Agent</button>
+        <button class="ab-ov-item" data-panel="codex">🗂 Library &amp; Archive</button>
         <button class="ab-ov-item" data-panel="refactor">🔧 Refactor</button>
         <button class="ab-ov-item" data-panel="brainstorm">💡 Brainstorm</button>
         <button class="ab-ov-item" data-panel="websearch">🌐 Web Search</button>
@@ -253,6 +254,55 @@
           <div class="roadmap-sb-actions">
             <button id="btn-roadmap-work-next-sb" title="Work on next task">▶ Work on Next</button>
           </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Library & Archive Knowledge Codex (M3-12, M3-13) ─── -->
+      <div class="sb-panel" id="panel-codex">
+        <div class="sidebar-header">
+          <span>🗂 Library &amp; Archive</span>
+          <div class="sidebar-buttons">
+            <button id="btn-codex-refresh" title="Refresh archive">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="display:flex;flex-direction:column;gap:0;overflow:hidden">
+
+          <!-- ── Library paths ── -->
+          <div class="kp-section-title" style="margin:6px 8px 4px;flex-shrink:0">
+            📁 Library Paths
+            <button id="btn-codex-rebuild" title="Rebuild entire archive" style="float:right;font-size:10px;padding:2px 6px">🔄 Rebuild</button>
+          </div>
+          <div id="codex-lib-list" style="padding:0 8px;font-size:11px;max-height:110px;overflow-y:auto;flex-shrink:0"></div>
+          <div style="display:flex;gap:4px;padding:4px 8px;flex-shrink:0">
+            <input id="codex-lib-path" type="text" placeholder="Add library path…"
+              style="flex:1;font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px" />
+            <button id="btn-codex-lib-add" title="Add path" style="padding:4px 8px">＋</button>
+          </div>
+
+          <!-- ── Search ── -->
+          <div class="kp-section-title" style="margin:6px 8px 4px;flex-shrink:0">🔍 Search Archive</div>
+          <div style="display:flex;gap:4px;padding:0 8px 4px;flex-shrink:0">
+            <input id="codex-search-input" type="text" placeholder="Search knowledge…"
+              style="flex:1;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <button id="btn-codex-search" style="padding:5px 8px">🔍</button>
+          </div>
+          <div id="codex-status" style="padding:2px 8px;font-size:11px;color:var(--text-dim);flex-shrink:0"></div>
+
+          <!-- ── Entry list ── -->
+          <div id="codex-entry-list"
+            style="flex:1;overflow-y:auto;padding:4px 8px;display:flex;flex-direction:column;gap:4px;min-height:80px"></div>
+
+          <!-- ── Content preview ── -->
+          <div id="codex-preview-area" class="hidden"
+            style="flex-shrink:0;border-top:1px solid var(--border);background:var(--bg2,#1e1e1e)">
+            <div style="display:flex;align-items:center;padding:4px 8px;gap:6px">
+              <span id="codex-preview-title" style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+              <button id="btn-codex-preview-close" style="font-size:10px;padding:1px 5px">✕</button>
+            </div>
+            <pre id="codex-preview-content"
+              style="margin:0;padding:4px 8px 8px;font-size:11px;font-family:var(--font-mono,monospace);white-space:pre-wrap;max-height:180px;overflow-y:auto;color:var(--text)"></pre>
+          </div>
+
         </div>
       </div>
 
