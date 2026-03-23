@@ -306,7 +306,8 @@ async def lifespan(app: FastAPI):
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
-app = FastAPI(title="Arbiter Engine", version="0.2.0", lifespan=lifespan)
+_VERSION = "1.0.0"
+app = FastAPI(title="Arbiter Engine", version=_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ─── M13-2: Global request timeout middleware (30 s) ─────────────────────────
@@ -368,42 +369,55 @@ def health() -> dict:
     Returns a ``backends`` map showing each backend's status, latency (ms),
     and which model is loaded, so operators can diagnose connectivity problems
     without inspecting logs.
+
+    The probe calls are short (3 s timeout) and run in FastAPI's sync-route
+    thread pool, so they never block the asyncio event loop.
     """
     import requests as _req_lib
 
     def _probe(url: str, path: str = "/api/tags", timeout: float = 3.0) -> dict[str, Any]:
+        """Probe a single backend URL; return status dict with optional body."""
         try:
             t0 = time.monotonic()
             r = _req_lib.get(f"{url.rstrip('/')}{path}", timeout=timeout)
             latency_ms = round((time.monotonic() - t0) * 1000, 1)
             ok = r.status_code < 400
-            return {"reachable": ok, "latency_ms": latency_ms, "http_status": r.status_code}
+            result: dict[str, Any] = {
+                "reachable": ok,
+                "latency_ms": latency_ms,
+                "http_status": r.status_code,
+            }
+            # Parse model list from the same response, avoiding a duplicate request
+            if ok:
+                try:
+                    body = r.json()
+                    if path == "/api/tags":
+                        result["models"] = [m.get("name", "") for m in body.get("models", [])]
+                    elif path == "/v1/models":
+                        result["models"] = [m.get("id", "") for m in body.get("data", [])]
+                except Exception:
+                    pass
+            return result
         except Exception as exc:
             return {"reachable": False, "error": str(exc)}
 
     backends: dict[str, Any] = {}
 
-    # Probe current primary backend
     if _backend == "ollama":
-        probe = _probe(_config.get("llm.ollama.base_url", "http://localhost:11434"), "/api/tags")
-        if probe.get("reachable"):
-            try:
-                import requests as _r2
-                tags = _r2.get(
-                    f"{_config.get('llm.ollama.base_url', 'http://localhost:11434')}/api/tags",
-                    timeout=3,
-                ).json()
-                models = [m.get("name", "") for m in tags.get("models", [])]
-                probe["models"] = models
-            except Exception:
-                pass
-        backends["ollama"] = {"primary": True, **probe}
-    elif _backend in ("lmstudio",):
-        probe = _probe(_config.get("llm.lmstudio.base_url", "http://localhost:1234"), "/v1/models")
-        backends["lmstudio"] = {"primary": True, **probe}
-    elif _backend in ("api",):
-        probe = _probe(_config.get("llm.api.base_url", "https://api.openai.com"), "/v1/models")
-        backends["api"] = {"primary": True, **probe}
+        backends["ollama"] = {
+            "primary": True,
+            **_probe(_config.get("llm.ollama.base_url", "http://localhost:11434"), "/api/tags"),
+        }
+    elif _backend == "lmstudio":
+        backends["lmstudio"] = {
+            "primary": True,
+            **_probe(_config.get("llm.lmstudio.base_url", "http://localhost:1234"), "/v1/models"),
+        }
+    elif _backend == "api":
+        backends["api"] = {
+            "primary": True,
+            **_probe(_config.get("llm.api.base_url", "https://api.openai.com"), "/v1/models"),
+        }
     else:
         backends[_backend] = {"primary": True, "reachable": "unknown"}
 
@@ -411,7 +425,7 @@ def health() -> dict:
     return {
         "status": "ok" if primary_ok else "degraded",
         "engine": "arbiter-engine",
-        "version": "1.0.0",
+        "version": _VERSION,
         "primary_backend": _backend,
         "backends": backends,
     }
@@ -6942,11 +6956,14 @@ async def ws_chat(websocket: WebSocket):
     M13-5
     """
     await websocket.accept()
+    # Track the active project for use in the disconnect log message
+    _active_project: str = "?"
     try:
         while True:
             data = await websocket.receive_json()
             message: str = data.get("message", "")
             project: str = data.get("project", "default")
+            _active_project = project
             if not message:
                 await websocket.send_json({"error": "Empty message"})
                 continue
@@ -6989,7 +7006,7 @@ async def ws_chat(websocket: WebSocket):
             _budget_record(project, message, full)
 
     except WebSocketDisconnect:
-        logger.debug("WebSocket /ws/chat disconnected (project=%s)", data.get("project", "?") if "data" in dir() else "?")
+        logger.debug("WebSocket /ws/chat disconnected (project=%s)", _active_project)
     except Exception as exc:
         logger.error("WebSocket /ws/chat error: %s", exc)
         try:
