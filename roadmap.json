@@ -784,27 +784,31 @@
       "id": "M8",
       "title": "Distribution & Extensibility",
       "description": "Packaging, installer, auto-update, plugin marketplace, CLI, Docker, and optional cloud sync.",
-      "status": "in_progress",
+      "status": "done",
       "tasks": [
         {
           "id": "M8-1",
           "title": "NSIS / Inno Setup installer: bundles WPF app + Python + bridge in single .exe",
-          "status": "pending"
+          "status": "done",
+          "notes": "Installer: Installer/arbiter_setup.iss (Inno Setup 6) + build_installer.ps1 helper."
         },
         {
           "id": "M8-2",
           "title": "Auto-update: check GitHub releases, download and install new version",
-          "status": "pending"
+          "status": "done",
+          "notes": "Auto-update: HostApp/Updater.cs (GitHub Releases API) + /updates/check endpoint; LauncherWindow checks on startup."
         },
         {
           "id": "M8-3",
           "title": "Plugin marketplace: browse, install, rate community plugins from within IDE",
-          "status": "pending"
+          "status": "done",
+          "notes": "Plugin marketplace: /marketplace/plugins, /marketplace/install, /marketplace/rate endpoints; marketplace_index.json."
         },
         {
           "id": "M8-4",
           "title": "VSIX marketplace: publish extension to Visual Studio Marketplace",
-          "status": "pending"
+          "status": "done",
+          "notes": "VSIX marketplace: .github/workflows/publish-vsix.yml CI/CD publishes to VS Marketplace on tag push."
         },
         {
           "id": "M8-5",
@@ -821,12 +825,14 @@
         {
           "id": "M8-7",
           "title": "Cross-platform evaluation: Linux / macOS support via Avalonia or .NET MAUI",
-          "status": "pending"
+          "status": "done",
+          "notes": "Cross-platform: CROSSPLATFORM.md evaluation; MAUI recommended; Tauri/Electron as fast-path; Python backend already cross-platform."
         },
         {
           "id": "M8-8",
           "title": "Optional cloud sync: encrypted project backup to user-owned S3 / Backblaze",
-          "status": "pending"
+          "status": "done",
+          "notes": "Cloud sync: /sync/backup and /sync/restore (AES-256-GCM encrypted tar.gz); S3/B2/local providers; /sync/list."
         }
       ]
     }

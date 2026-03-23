@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
 
 namespace ArbiterHost
@@ -27,6 +28,40 @@ namespace ArbiterHost
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             LoadEnginePathFromSettings();
+            _ = CheckForUpdateAsync();   // M8-2: fire-and-forget background update check
+        }
+
+        // ── Auto-update (M8-2) ────────────────────────────────────────────────
+
+        private async Task CheckForUpdateAsync()
+        {
+            try
+            {
+                var info = await Updater.CheckForUpdateAsync().ConfigureAwait(false);
+                if (!info.UpdateAvailable || !string.IsNullOrEmpty(info.Error))
+                    return;
+
+                // Marshal back to the UI thread
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    var result = MessageBox.Show(
+                        $"A new version of Arbiter is available!\n\n" +
+                        $"Current version : {Updater.CurrentVersion}\n" +
+                        $"Latest version  : {info.LatestVersion}\n\n" +
+                        $"{info.ReleaseNotes.Split('\n')[0]}\n\n" +
+                        "Open the GitHub release page to download?",
+                        "Arbiter Update Available",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Information);
+
+                    if (result == MessageBoxResult.Yes && !string.IsNullOrEmpty(info.ReleaseUrl))
+                        Process.Start(new ProcessStartInfo(info.ReleaseUrl) { UseShellExecute = true });
+                });
+            }
+            catch
+            {
+                // Update check is best-effort; never crash the launcher
+            }
         }
 
         // ── Settings ──────────────────────────────────────────────────────────

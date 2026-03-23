@@ -3077,6 +3077,595 @@ def cli_run(req: _CliCommandReq) -> dict:
     return {"error": f"Unknown CLI command: {cmd}"}
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  M8-2: Auto-update — check GitHub Releases for a newer version
+# ─────────────────────────────────────────────────────────────────────────────
+
+_APP_VERSION     = "0.5.0"
+_GH_OWNER        = "shifty81"
+_GH_REPO         = "Arbiter"
+_GH_RELEASES_URL = f"https://api.github.com/repos/{_GH_OWNER}/{_GH_REPO}/releases/latest"
+
+
+def _semver_gt(a: str, b: str) -> bool:
+    """Return True when *a* is strictly greater than *b* (semver comparison)."""
+    def _parts(v: str) -> tuple[int, ...]:
+        try:
+            return tuple(int(x) for x in v.lstrip("vV").split(".")[:3])
+        except ValueError:
+            return (0, 0, 0)
+    return _parts(a) > _parts(b)
+
+
+@app.get("/updates/check")
+def updates_check() -> dict:
+    """Query the GitHub Releases API and return update availability info.
+
+    Returns::
+
+        {
+          "current_version": "0.5.0",
+          "latest_version":  "0.6.0",    # tag name, 'v' stripped
+          "update_available": true,
+          "release_url":  "https://github.com/...",
+          "download_url": "https://github.com/.../arbiter-setup-0.6.0.exe",
+          "release_notes": "...",
+          "error": ""
+        }
+
+    M8-2
+    """
+    try:
+        req = urllib.request.Request(
+            _GH_RELEASES_URL,
+            headers={
+                "User-Agent":  f"Arbiter/{_APP_VERSION}",
+                "Accept":      "application/vnd.github+json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+
+        tag         = data.get("tag_name", "").lstrip("vV")
+        release_url = data.get("html_url", "")
+        notes       = data.get("body", "")
+
+        download_url = ""
+        for asset in data.get("assets", []):
+            name = asset.get("name", "")
+            if name.lower().endswith(".exe"):
+                download_url = asset.get("browser_download_url", "")
+                break
+
+        return {
+            "current_version":  _APP_VERSION,
+            "latest_version":   tag,
+            "update_available": _semver_gt(tag, _APP_VERSION),
+            "release_url":      release_url,
+            "download_url":     download_url,
+            "release_notes":    notes[:1000],
+            "error":            "",
+        }
+    except Exception as exc:
+        return {
+            "current_version":  _APP_VERSION,
+            "latest_version":   _APP_VERSION,
+            "update_available": False,
+            "release_url":      "",
+            "download_url":     "",
+            "release_notes":    "",
+            "error":            str(exc),
+        }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M8-3: Plugin marketplace — browse, install, rate community plugins
+# ─────────────────────────────────────────════════════════════════════════════
+# The marketplace registry is a JSON file maintained in the plugins/ directory.
+# For community use, this can be hosted publicly (e.g. as a GitHub Gist or
+# GitHub Pages JSON).  The default points to the Arbiter repo.
+
+_MARKETPLACE_INDEX_URL = (
+    f"https://raw.githubusercontent.com/{_GH_OWNER}/{_GH_REPO}/main"
+    "/AIEngine/ArbiterEngine/plugins/marketplace_index.json"
+)
+_MARKETPLACE_RATINGS_FILE = _BASE / "plugins" / "marketplace_ratings.json"
+
+# In-memory ratings cache (loaded on first access)
+_marketplace_ratings: dict[str, dict] = {}
+
+
+def _load_marketplace_ratings() -> None:
+    global _marketplace_ratings
+    if _MARKETPLACE_RATINGS_FILE.is_file():
+        try:
+            _marketplace_ratings = json.loads(
+                _MARKETPLACE_RATINGS_FILE.read_text(encoding="utf-8")
+            )
+        except Exception:
+            pass
+
+
+def _save_marketplace_ratings() -> None:
+    try:
+        _MARKETPLACE_RATINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _MARKETPLACE_RATINGS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_marketplace_ratings, indent=2), encoding="utf-8")
+        tmp.replace(_MARKETPLACE_RATINGS_FILE)
+    except Exception as exc:
+        logger.warning("Could not save marketplace ratings: %s", exc)
+
+
+_load_marketplace_ratings()
+
+
+@app.get("/marketplace/plugins")
+def marketplace_list(q: str = "", category: str = "") -> dict:
+    """Browse the Arbiter plugin marketplace.
+
+    Fetches the marketplace index from GitHub and merges local rating data.
+    Optional *q* filters by plugin name/description; *category* filters by tag.
+
+    M8-3
+    """
+    # Try to fetch the remote index; fall back to an empty catalogue on error
+    try:
+        req = urllib.request.Request(
+            _MARKETPLACE_INDEX_URL,
+            headers={"User-Agent": f"Arbiter/{_APP_VERSION}"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            index = json.loads(resp.read())
+        plugins: list[dict] = index.get("plugins", [])
+    except Exception as exc:
+        logger.warning("Could not fetch marketplace index: %s", exc)
+        plugins = []
+
+    # Merge local ratings
+    for p in plugins:
+        name = p.get("name", "")
+        if name in _marketplace_ratings:
+            p["rating"]      = _marketplace_ratings[name].get("average", 0.0)
+            p["rating_count"] = _marketplace_ratings[name].get("count", 0)
+        else:
+            p.setdefault("rating", 0.0)
+            p.setdefault("rating_count", 0)
+
+    # Apply filters
+    q_lower  = q.lower()
+    cat_lower = category.lower()
+    if q_lower:
+        plugins = [p for p in plugins
+                   if q_lower in p.get("name", "").lower() or
+                      q_lower in p.get("description", "").lower()]
+    if cat_lower:
+        plugins = [p for p in plugins
+                   if cat_lower in [t.lower() for t in p.get("tags", [])]]
+
+    return {"plugins": plugins, "total": len(plugins)}
+
+
+class _MarketplaceInstallReq(BaseModel):
+    name: str = ""   # plugin name from the marketplace index
+    url:  str = ""   # direct URL to a plugin .zip or plugin.json (fallback)
+
+
+@app.post("/marketplace/install")
+def marketplace_install(req: _MarketplaceInstallReq) -> dict:
+    """Download and install a plugin from the marketplace or a direct URL.
+
+    The plugin zip must contain a ``plugin.json`` manifest at the root.
+    After installation the plugin is immediately hot-loaded.
+
+    M8-3
+    """
+    import zipfile as _zipfile
+    import tempfile as _tmpmod
+    import shutil as _shutil
+
+    # Resolve download URL
+    download_url = req.url
+    if req.name and not download_url:
+        # Fetch marketplace index to find the URL
+        try:
+            r = urllib.request.Request(
+                _MARKETPLACE_INDEX_URL,
+                headers={"User-Agent": f"Arbiter/{_APP_VERSION}"},
+            )
+            with urllib.request.urlopen(r, timeout=8) as resp:
+                index = json.loads(resp.read())
+            for p in index.get("plugins", []):
+                if p.get("name") == req.name:
+                    download_url = p.get("download_url", "")
+                    break
+        except Exception as exc:
+            return {"status": "error", "detail": f"Could not fetch marketplace: {exc}"}
+
+    if not download_url:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Provide 'name' (marketplace) or 'url'")
+
+    plugins_dir = _BASE / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+
+    # Download to a temp file
+    try:
+        with _tmpmod.NamedTemporaryFile(delete=False, suffix=".zip") as tf:
+            tmp_path = tf.name
+
+        dl_req = urllib.request.Request(
+            download_url,
+            headers={"User-Agent": f"Arbiter/{_APP_VERSION}"},
+        )
+        with urllib.request.urlopen(dl_req, timeout=30) as resp, \
+             open(tmp_path, "wb") as out:
+            out.write(resp.read())
+    except Exception as exc:
+        return {"status": "error", "detail": f"Download failed: {exc}"}
+
+    # Extract and install
+    try:
+        with _zipfile.ZipFile(tmp_path, "r") as zf:
+            # Validate manifest exists
+            names = zf.namelist()
+            manifest_paths = [n for n in names if n.endswith("plugin.json")]
+            if not manifest_paths:
+                return {"status": "error", "detail": "No plugin.json found in archive"}
+
+            # Determine plugin directory name from first manifest path
+            manifest_rel = manifest_paths[0]
+            top_dir = manifest_rel.split("/")[0] if "/" in manifest_rel else ""
+            plugin_name = top_dir or req.name or "plugin"
+            dest = plugins_dir / plugin_name
+
+            if dest.exists():
+                _shutil.rmtree(str(dest))
+            zf.extractall(str(plugins_dir))
+
+        # Hot-load the plugin
+        _plugin_loader.load_all()
+        installed = plugin_name
+
+        return {"status": "installed", "plugin": installed}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+    finally:
+        try:
+            import os as _os
+            _os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+class _MarketplaceRateReq(BaseModel):
+    name:   str
+    rating: float   # 1.0 – 5.0
+
+
+@app.post("/marketplace/rate")
+def marketplace_rate(req: _MarketplaceRateReq) -> dict:
+    """Submit a 1–5 star rating for a marketplace plugin.
+
+    Ratings are stored locally in ``plugins/marketplace_ratings.json`` and
+    merged into marketplace listing results.
+
+    M8-3
+    """
+    if not 1.0 <= req.rating <= 5.0:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="rating must be between 1.0 and 5.0")
+    entry = _marketplace_ratings.get(req.name, {"total": 0.0, "count": 0, "average": 0.0})
+    entry["total"]   = entry.get("total", 0.0) + req.rating
+    entry["count"]   = entry.get("count", 0) + 1
+    entry["average"] = round(entry["total"] / entry["count"], 2)
+    _marketplace_ratings[req.name] = entry
+    _save_marketplace_ratings()
+    return {"status": "ok", "name": req.name, "average": entry["average"], "count": entry["count"]}
+
+
+@app.get("/marketplace/ratings/{name}")
+def marketplace_ratings(name: str) -> dict:
+    """Return the local rating stats for a plugin.
+
+    M8-3
+    """
+    entry = _marketplace_ratings.get(name, {})
+    return {"name": name, "average": entry.get("average", 0.0), "count": entry.get("count", 0)}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  M8-8: Cloud sync — encrypted project backup to S3 / Backblaze B2
+# ─────────────────────────────────────────════════════════════════════════════
+# Backup strategy:
+#   1. Tar the target directories (Memory/, Projects/<name>/, .arbiter/)
+#   2. Encrypt with AES-256-GCM using a user-supplied passphrase (PBKDF2)
+#   3. Upload the encrypted .tar.gz to S3-compatible storage (AWS S3 / Backblaze B2)
+#
+# Storage credentials are read from environment variables:
+#   ARBITER_SYNC_PROVIDER   "s3" | "b2" | "local"  (default: local — saves to logs/)
+#   ARBITER_SYNC_BUCKET     Bucket / container name
+#   ARBITER_SYNC_KEY_ID     AWS access key ID / Backblaze key ID
+#   ARBITER_SYNC_SECRET     AWS secret / Backblaze application key
+#   ARBITER_SYNC_ENDPOINT   Optional custom S3 endpoint (for B2, Minio, etc.)
+#   ARBITER_SYNC_PASSPHRASE Encryption passphrase (required for encrypt/decrypt)
+
+import base64 as _b64
+import hashlib as _hashlib
+import struct as _struct
+
+
+def _derive_key(passphrase: str, salt: bytes, iterations: int = 200_000) -> bytes:
+    """Derive a 32-byte AES key from *passphrase* + *salt* via PBKDF2-HMAC-SHA256."""
+    return _hashlib.pbkdf2_hmac("sha256", passphrase.encode(), salt, iterations, 32)
+
+
+def _encrypt_bytes(data: bytes, passphrase: str) -> bytes:
+    """Encrypt *data* with AES-256-GCM and return a self-contained ciphertext blob.
+
+    Format: MAGIC(4) | SALT(16) | IV(12) | TAG(16) | CIPHERTEXT
+    """
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise RuntimeError(
+            "The 'cryptography' package is required for cloud sync. "
+            "Install it with: pip install cryptography"
+        )
+    salt = os.urandom(16)
+    iv   = os.urandom(12)
+    key  = _derive_key(passphrase, salt)
+    aes  = AESGCM(key)
+    ct_with_tag = aes.encrypt(iv, data, None)   # ciphertext + 16-byte GCM tag appended
+    # Split: last 16 bytes = tag, rest = ciphertext
+    tag = ct_with_tag[-16:]
+    ct  = ct_with_tag[:-16]
+    return b"ARBK" + salt + iv + tag + ct
+
+
+def _decrypt_bytes(blob: bytes, passphrase: str) -> bytes:
+    """Decrypt a blob produced by :func:`_encrypt_bytes`."""
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise RuntimeError("The 'cryptography' package is required for cloud sync.")
+    if blob[:4] != b"ARBK":
+        raise ValueError("Not an Arbiter backup blob (missing magic header)")
+    salt = blob[4:20]
+    iv   = blob[20:32]
+    tag  = blob[32:48]
+    ct   = blob[48:]
+    key  = _derive_key(passphrase, salt)
+    aes  = AESGCM(key)
+    return aes.decrypt(iv, ct + tag, None)
+
+
+def _upload_to_storage(data: bytes, object_key: str) -> str:
+    """Upload *data* to S3/B2/local.  Returns the object URL / path."""
+    provider   = os.environ.get("ARBITER_SYNC_PROVIDER", "local").lower()
+    bucket     = os.environ.get("ARBITER_SYNC_BUCKET", "arbiter-backups")
+    key_id     = os.environ.get("ARBITER_SYNC_KEY_ID", "")
+    secret     = os.environ.get("ARBITER_SYNC_SECRET", "")
+    endpoint   = os.environ.get("ARBITER_SYNC_ENDPOINT", "")
+
+    if provider == "local":
+        dest = _BASE / "logs" / "backups" / object_key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        return str(dest)
+
+    if provider in ("s3", "b2"):
+        try:
+            import boto3  # type: ignore[import]
+        except ImportError:
+            raise RuntimeError(
+                "The 'boto3' package is required for S3/Backblaze sync. "
+                "Install it with: pip install boto3"
+            )
+        kwargs: dict = dict(
+            aws_access_key_id=key_id,
+            aws_secret_access_key=secret,
+        )
+        if endpoint:
+            kwargs["endpoint_url"] = endpoint
+        s3 = boto3.client("s3", **kwargs)
+        s3.put_object(Bucket=bucket, Key=object_key, Body=data)
+        base = endpoint.rstrip("/") if endpoint else f"https://s3.amazonaws.com"
+        return f"{base}/{bucket}/{object_key}"
+
+    raise ValueError(f"Unknown ARBITER_SYNC_PROVIDER: {provider!r}")
+
+
+def _download_from_storage(object_key: str) -> bytes:
+    """Download *object_key* from S3/B2/local.  Returns raw bytes."""
+    provider = os.environ.get("ARBITER_SYNC_PROVIDER", "local").lower()
+    bucket   = os.environ.get("ARBITER_SYNC_BUCKET", "arbiter-backups")
+    key_id   = os.environ.get("ARBITER_SYNC_KEY_ID", "")
+    secret   = os.environ.get("ARBITER_SYNC_SECRET", "")
+    endpoint = os.environ.get("ARBITER_SYNC_ENDPOINT", "")
+
+    if provider == "local":
+        src = _BASE / "logs" / "backups" / object_key
+        return src.read_bytes()
+
+    if provider in ("s3", "b2"):
+        try:
+            import boto3  # type: ignore[import]
+        except ImportError:
+            raise RuntimeError("boto3 is required. Install with: pip install boto3")
+        kwargs: dict = dict(
+            aws_access_key_id=key_id,
+            aws_secret_access_key=secret,
+        )
+        if endpoint:
+            kwargs["endpoint_url"] = endpoint
+        s3 = boto3.client("s3", **kwargs)
+        obj = s3.get_object(Bucket=bucket, Key=object_key)
+        return obj["Body"].read()
+
+    raise ValueError(f"Unknown ARBITER_SYNC_PROVIDER: {provider!r}")
+
+
+class _SyncBackupReq(BaseModel):
+    project:    str = ""       # optional; if empty, backs up all Memory/
+    passphrase: str = ""       # AES-256-GCM encryption passphrase
+
+
+@app.post("/sync/backup")
+def sync_backup(req: _SyncBackupReq) -> dict:
+    """Create an encrypted backup and upload to the configured storage provider.
+
+    If *project* is given, only that project's directory is backed up.
+    Otherwise the entire ``Memory/`` directory is archived.
+
+    Uses AES-256-GCM encryption (PBKDF2-derived key from *passphrase*).
+    Requires environment variable ``ARBITER_SYNC_PASSPHRASE`` or a non-empty
+    ``passphrase`` field in the request body.
+
+    M8-8
+    """
+    import tarfile as _tarfile
+    import io as _io
+
+    passphrase = req.passphrase or os.environ.get("ARBITER_SYNC_PASSPHRASE", "")
+    if not passphrase:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="Provide 'passphrase' or set ARBITER_SYNC_PASSPHRASE env var",
+        )
+
+    # Determine what to archive
+    base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+    if req.project:
+        p = Path(req.project)
+        target = p if (p.is_absolute() and p.exists()) else base / req.project
+        if not target.exists():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Project '{req.project}' not found")
+        archive_root = target.parent
+        arcname      = target.name
+    else:
+        archive_root = _BASE.parent.parent   # repo root (contains Memory/)
+        arcname      = "Memory"
+        target       = archive_root / "Memory"
+
+    # Create in-memory tar.gz
+    buf = _io.BytesIO()
+    try:
+        with _tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            tar.add(str(target), arcname=arcname)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Archive failed: {exc}"}
+
+    raw = buf.getvalue()
+
+    # Encrypt
+    try:
+        encrypted = _encrypt_bytes(raw, passphrase)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Encryption failed: {exc}"}
+
+    # Upload
+    ts  = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    key = f"arbiter-backup-{arcname}-{ts}.tar.gz.enc"
+    try:
+        location = _upload_to_storage(encrypted, key)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Upload failed: {exc}"}
+
+    return {
+        "status": "ok",
+        "object_key": key,
+        "location":   location,
+        "size_bytes": len(encrypted),
+        "timestamp":  ts,
+    }
+
+
+class _SyncRestoreReq(BaseModel):
+    object_key:  str          # key returned by /sync/backup
+    passphrase:  str = ""
+    destination: str = ""     # optional override for restore target path
+
+
+@app.post("/sync/restore")
+def sync_restore(req: _SyncRestoreReq) -> dict:
+    """Download, decrypt, and restore a backup created by /sync/backup.
+
+    M8-8
+    """
+    import tarfile as _tarfile
+    import io as _io
+
+    passphrase = req.passphrase or os.environ.get("ARBITER_SYNC_PASSPHRASE", "")
+    if not passphrase:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="Provide 'passphrase' or set ARBITER_SYNC_PASSPHRASE env var",
+        )
+
+    # Download
+    try:
+        blob = _download_from_storage(req.object_key)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Download failed: {exc}"}
+
+    # Decrypt
+    try:
+        raw = _decrypt_bytes(blob, passphrase)
+    except Exception as exc:
+        return {"status": "error", "detail": f"Decryption failed: {exc}"}
+
+    # Extract
+    dest = Path(req.destination) if req.destination else _BASE.parent.parent
+    try:
+        with _tarfile.open(fileobj=_io.BytesIO(raw), mode="r:gz") as tar:
+            # Safety: reject absolute paths and path-traversal members
+            for member in tar.getmembers():
+                if member.name.startswith("/") or ".." in member.name:
+                    return {"status": "error", "detail": f"Unsafe archive member: {member.name}"}
+            tar.extractall(str(dest))
+    except Exception as exc:
+        return {"status": "error", "detail": f"Extraction failed: {exc}"}
+
+    return {
+        "status":      "ok",
+        "object_key":  req.object_key,
+        "destination": str(dest),
+        "size_bytes":  len(raw),
+    }
+
+
+@app.get("/sync/list")
+def sync_list() -> dict:
+    """List available local backups (local provider only).
+
+    For S3/B2 providers, use the storage console to browse objects.
+
+    M8-8
+    """
+    provider = os.environ.get("ARBITER_SYNC_PROVIDER", "local").lower()
+    if provider != "local":
+        return {"provider": provider, "backups": [], "note": "Use your storage console to list remote backups."}
+
+    backup_dir = _BASE / "logs" / "backups"
+    if not backup_dir.is_dir():
+        return {"provider": "local", "backups": []}
+
+    backups = []
+    for f in sorted(backup_dir.iterdir(), reverse=True):
+        if f.is_file():
+            backups.append({
+                "object_key": f.name,
+                "size_bytes": f.stat().st_size,
+                "modified":   datetime.datetime.fromtimestamp(
+                    f.stat().st_mtime, tz=datetime.timezone.utc
+                ).isoformat(),
+            })
+    return {"provider": "local", "backups": backups}
+
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))
