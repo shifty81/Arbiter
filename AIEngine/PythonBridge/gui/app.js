@@ -7401,5 +7401,61 @@
     };
   })();
 
+  // ── Panel drag-to-resize ──────────────────────────────────────────────────
+  (function initPanelResizers() {
+    /**
+     * Make a panel resizer drag handle work.
+     * @param {string}  resizerId  - id of the <div class="panel-resizer"> element
+     * @param {string}  targetId   - id of the panel whose size is being changed
+     * @param {"width"|"height"} prop - CSS property to change
+     * @param {number}  min        - minimum size in px
+     * @param {number}  max        - maximum size in px
+     * @param {boolean} invert     - if true, decrease size as mouse moves right/down
+     */
+    function makeResizer(resizerId, targetId, prop, min, max, invert) {
+      const handle = document.getElementById(resizerId);
+      const panel  = document.getElementById(targetId);
+      if (!handle || !panel) return;
+
+      let startPos = 0;
+      let startSize = 0;
+
+      function onMove(e) {
+        const pos   = prop === "width" ? e.clientX : e.clientY;
+        const delta = invert ? startPos - pos : pos - startPos;
+        const newSize = Math.min(max, Math.max(min, startSize + delta));
+        panel.style[prop] = newSize + "px";
+      }
+
+      function onUp() {
+        handle.classList.remove("dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup",   onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        startPos  = prop === "width" ? e.clientX : e.clientY;
+        startSize = prop === "width"
+          ? panel.getBoundingClientRect().width
+          : panel.getBoundingClientRect().height;
+        handle.classList.add("dragging");
+        document.body.style.cursor     = prop === "width" ? "col-resize" : "row-resize";
+        document.body.style.userSelect = "none";
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup",   onUp);
+      });
+    }
+
+    // Sidebar resizer (drag right edge of sidebar)
+    makeResizer("sidebar-resizer", "sidebar", "width",  120, 500, false);
+    // Output panel resizer (drag top edge of output panel)
+    makeResizer("output-resizer",  "output-panel", "height", 60,  600, true);
+    // Agent/chat panel resizer (drag left edge of agent panel)
+    makeResizer("agent-resizer", "agent-panel", "width", 200, 600, true);
+  })();
+
 })();
 
