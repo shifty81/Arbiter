@@ -19,7 +19,7 @@
     activeProject: "",    // currently active project path
     editor: null,         // Monaco editor instance
     editorMode: null,     // "monaco" | "fallback" | null
-    ws: null,             // active WebSocket for /ws/run
+    ws: null,             // active WebSocket for /ws/chat
     currentWsAbort: null, // AbortController for fetch-based fallback
     buildErrors: [],      // parsed error objects from last build
     lastBuildOutput: "",  // raw build output for "Fix with AI"
@@ -881,7 +881,7 @@
 
     // Try WebSocket streaming first; fall back to fetch
     const wsProto = location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = `${wsProto}://${location.host}/ws/run`;
+    const wsUrl = `${wsProto}://${location.host}/ws/chat`;
 
     try {
       await streamViaWebSocket(wsUrl, expandedPrompt, backend, agentMsg);
@@ -907,7 +907,14 @@
       try { ws = new WebSocket(wsUrl); }
       catch { reject(new Error("WebSocket unavailable")); return; }
 
-      ws.onopen = () => ws.send(JSON.stringify({ prompt, llm_backend: backend, project_path: state.activeProject }));
+      // Send prompt with full context so the server can inject file + selection
+      ws.onopen = () => ws.send(JSON.stringify({
+        prompt,
+        llm_backend: backend,
+        project_path: state.activeProject,
+        context: _getActiveFileContent(),
+        selection: _getEditorSelection(),
+      }));
 
       ws.onmessage = (ev) => {
         try {
@@ -927,24 +934,56 @@
             setStatus("error");
             resolve();
           }
-        } catch { /* ignore non-JSON */ }
+          // "exit" from /ws/run or other non-chat packets — ignore
+        } catch { /* ignore non-JSON frames */ }
       };
 
+      // Resolve (not reject) on close so sendPrompt always re-enables the button
+      ws.onclose = () => resolve();
       ws.onerror = () => { ws.close(); reject(new Error("ws error")); };
     });
   }
 
+  /** Return the content of the currently open file (for context injection). */
+  function _getActiveFileContent() {
+    if (!state.activeFile) return "";
+    const f = state.openFiles[state.activeFile];
+    if (!f) return "";
+    try {
+      if (state.editor && state.editorMode === "monaco") return state.editor.getValue();
+      return f.content || "";
+    } catch { return f.content || ""; }
+  }
+
+  /** Return the current editor text selection (for context injection). */
+  function _getEditorSelection() {
+    try {
+      if (state.editor && state.editorMode === "monaco") {
+        const sel = state.editor.getSelection();
+        if (sel && !sel.isEmpty()) return state.editor.getModel()?.getValueInRange(sel) || "";
+      }
+    } catch { /* ignore */ }
+    return "";
+  }
+
   async function runViaFetch(prompt, backend, agentMsg) {
     try {
-      const res = await fetch("/run", {
+      const res = await fetch("/assistant/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, llm_backend: backend, project_path: state.activeProject }),
+        body: JSON.stringify({
+          prompt,
+          project: state.activeProject || "default",
+          context: _getActiveFileContent(),
+          selection: _getEditorSelection(),
+        }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(`Server error ${res.status}: ${await res.text()}`);
       const data = await res.json();
-      agentMsg.textContent = data.result;
-      appendOutput(data.result + "\n");
+      // /assistant/chat returns { response: "..." }
+      const reply = data.response || data.result || data.reply || JSON.stringify(data);
+      agentMsg.textContent = reply;
+      appendOutput(reply + "\n");
     } catch (e) {
       agentMsg.className = "chat-msg error";
       agentMsg.textContent = "⚠ " + e.message;
@@ -1431,10 +1470,15 @@
   function initMonaco() {
     let monacoLoaded = false;
 
-    // Hard deadline: if Monaco isn't fully ready within 3 s, use the fallback.
+    // Mark the editor as having been initialised (either Monaco or fallback).
+    // Shared between the success path and the fallback so only one runs.
+    function _markLoaded() { monacoLoaded = true; }
+
+    // Hard deadline: 10 s gives slow CDN / local disk a fair chance.
+    // If Monaco still isn't ready we show the plain-text fallback immediately.
     const fallbackTimer = setTimeout(() => {
-      if (!monacoLoaded) initFallbackEditor();
-    }, 3000);
+      if (!monacoLoaded) { _markLoaded(); initFallbackEditor(); }
+    }, 10000);
 
     // The CDN scripts are loaded asynchronously, so the AMD require() function
     // may not exist yet when this runs.  Poll briefly (every 100 ms) until the
@@ -1445,6 +1489,7 @@
       // Loader script reported a network error → fall back immediately.
       if (window.__monacoLoaderFailed) {
         clearTimeout(fallbackTimer);
+        _markLoaded();
         initFallbackEditor();
         return;
       }
@@ -1457,24 +1502,154 @@
 
       // AMD require is available — ask for the full editor module.
       require(["vs/editor/editor.main"], function () {
-      if (monacoLoaded) return; // guard against double-fire
-      monacoLoaded = true;
+      if (monacoLoaded) return; // guard: fallback timer may have already fired
+      _markLoaded();
       clearTimeout(fallbackTimer);
 
       try {
 
+      // "arbiter-dark" theme — VS Code Dark+ palette, matching WPF DarkTheme.xaml
       monaco.editor.defineTheme("arbiter-dark", {
         base: "vs-dark",
         inherit: true,
-        rules: [],
+        // VS Code Dark+ syntax token colours
+        rules: [
+          { token: "comment",                  foreground: "6a9955" }, // green
+          { token: "comment.doc",              foreground: "6a9955", fontStyle: "italic" },
+          { token: "keyword",                  foreground: "569cd6" }, // blue
+          { token: "keyword.control",          foreground: "c586c0" }, // purple (if/for/return)
+          { token: "keyword.operator",         foreground: "d4d4d4" },
+          { token: "string",                   foreground: "ce9178" }, // orange
+          { token: "string.escape",            foreground: "d7ba7d" }, // gold
+          { token: "number",                   foreground: "b5cea8" }, // light green
+          { token: "regexp",                   foreground: "d16969" }, // red
+          { token: "type",                     foreground: "4ec9b0" }, // teal
+          { token: "type.identifier",          foreground: "4ec9b0" },
+          { token: "class",                    foreground: "4ec9b0" },
+          { token: "interface",                foreground: "4ec9b0" },
+          { token: "enum",                     foreground: "4ec9b0" },
+          { token: "function",                 foreground: "dcdcaa" }, // yellow
+          { token: "function.call",            foreground: "dcdcaa" },
+          { token: "variable",                 foreground: "9cdcfe" }, // light blue
+          { token: "variable.parameter",       foreground: "9cdcfe" },
+          { token: "constant",                 foreground: "4fc1ff" }, // bright blue
+          { token: "operator",                 foreground: "d4d4d4" },
+          { token: "delimiter",                foreground: "d4d4d4" },
+          { token: "tag",                      foreground: "569cd6" },
+          { token: "attribute.name",           foreground: "9cdcfe" },
+          { token: "attribute.value",          foreground: "ce9178" },
+          { token: "metatag",                  foreground: "569cd6" },
+          { token: "annotation",               foreground: "dcdcaa" },
+          { token: "invalid",                  foreground: "f44747", fontStyle: "underline" },
+        ],
         colors: {
-          "editor.background": "#1e1e2e",
-          "editor.foreground": "#cdd6f4",
-          "editorLineNumber.foreground": "#45475a",
-          "editorCursor.foreground": "#f5c2e7",
-          "editor.selectionBackground": "#45475a",
-          "editor.lineHighlightBackground": "#2a2a3d",
-          "editorIndentGuide.background": "#313244",
+          // Editor canvas — WPF DarkBgBrush
+          "editor.background":                    "#1e1e1e",
+          "editor.foreground":                    "#d4d4d4",
+          // Line numbers
+          "editorLineNumber.foreground":          "#858585",
+          "editorLineNumber.activeForeground":    "#c6c6c6",
+          // Cursor — neutral bar
+          "editorCursor.foreground":              "#aeafad",
+          "editorCursor.background":              "#000000",
+          // Selections — WPF SelectionBrush
+          "editor.selectionBackground":           "#264f78",
+          "editor.inactiveSelectionBackground":   "#3a3d41",
+          "editor.selectionHighlightBackground":  "#add6ff26",
+          // Line highlight
+          "editor.lineHighlightBackground":       "#2a2d2e",
+          "editor.lineHighlightBorder":           "#00000000",
+          // Word highlight
+          "editor.wordHighlightBackground":       "#575757b8",
+          "editor.wordHighlightStrongBackground": "#004972b8",
+          // Find / match
+          "editor.findMatchBackground":           "#515c6a",
+          "editor.findMatchHighlightBackground":  "#ea5c0055",
+          // Indent guides
+          "editorIndentGuide.background1":        "#404040",
+          "editorIndentGuide.activeBackground1":  "#707070",
+          // Whitespace
+          "editorWhitespace.foreground":          "#3b3b3b",
+          // Bracket matching — WPF SelectionBrush tint
+          "editorBracketMatch.background":        "#0d3a58",
+          "editorBracketMatch.border":            "#888888",
+          // Rulers / overview
+          "editorRuler.foreground":               "#5a5a5a",
+          "editorOverviewRuler.border":           "#7f7f7f4d",
+          "editorOverviewRuler.errorForeground":  "#f44747",
+          "editorOverviewRuler.warningForeground":"#ffcc00",
+          // Gutter decorations
+          "editorGutter.background":              "#1e1e1e",
+          "editorGutter.addedBackground":         "#487e02",
+          "editorGutter.modifiedBackground":      "#1b81a8",
+          "editorGutter.deletedBackground":       "#f44747",
+          // Hover / suggest widget
+          "editorHoverWidget.background":         "#252526",
+          "editorHoverWidget.border":             "#454545",
+          "editorSuggestWidget.background":       "#252526",
+          "editorSuggestWidget.border":           "#454545",
+          "editorSuggestWidget.foreground":       "#d4d4d4",
+          "editorSuggestWidget.selectedBackground":"#094771",
+          "editorSuggestWidget.highlightForeground":"#0097fb",
+          // Inline completion (ghost text)
+          "editorGhostText.foreground":           "#ffffff56",
+          // Scrollbar
+          "scrollbarSlider.background":           "#5a5a5a80",
+          "scrollbarSlider.hoverBackground":      "#7a7a7a99",
+          "scrollbarSlider.activeBackground":     "#9e9e9ecc",
+          // Minimap
+          "minimap.background":                   "#1e1e1e",
+          "minimap.selectionHighlight":           "#264f78",
+          // Status bar (VS Code blue when no folder)
+          "statusBar.background":                 "#007acc",
+          "statusBar.foreground":                 "#ffffff",
+          "statusBar.noFolderBackground":         "#68217a",
+          "statusBar.debuggingBackground":        "#cc6633",
+          // Activity bar
+          "activityBar.background":               "#333333",
+          "activityBar.foreground":               "#ffffff",
+          "activityBar.inactiveForeground":       "#ffffff66",
+          "activityBar.border":                   "#00000000",
+          "activityBarBadge.background":          "#007acc",
+          "activityBarBadge.foreground":          "#ffffff",
+          // Side bar
+          "sideBar.background":                   "#252526",
+          "sideBar.foreground":                   "#cccccc",
+          "sideBar.border":                       "#3f3f46",
+          "sideBarTitle.foreground":              "#bbbbbb",
+          // Tabs
+          "tab.activeBackground":                 "#1e1e1e",
+          "tab.activeForeground":                 "#ffffff",
+          "tab.inactiveBackground":               "#2d2d30",
+          "tab.inactiveForeground":               "#ffffff80",
+          "tab.border":                           "#252526",
+          "tab.activeBorderTop":                  "#007acc",
+          // Panel (output / terminal)
+          "panel.background":                     "#1e1e1e",
+          "panel.border":                         "#3f3f46",
+          "panelTitle.activeForeground":          "#e7e7e7",
+          "panelTitle.activeBorder":              "#007acc",
+          "panelTitle.inactiveForeground":        "#e7e7e799",
+          // Input
+          "input.background":                     "#3c3c3c",
+          "input.foreground":                     "#cccccc",
+          "input.border":                         "#3f3f46",
+          "input.placeholderForeground":          "#a6a6a6",
+          "inputOption.activeBorder":             "#007acc",
+          // Dropdown
+          "dropdown.background":                  "#3c3c3c",
+          "dropdown.foreground":                  "#f0f0f0",
+          "dropdown.border":                      "#3c3c3c",
+          // Button
+          "button.background":                    "#007acc",
+          "button.foreground":                    "#ffffff",
+          "button.hoverBackground":               "#0062a3",
+          // List
+          "list.activeSelectionBackground":       "#094771",
+          "list.activeSelectionForeground":       "#ffffff",
+          "list.inactiveSelectionBackground":     "#37373d",
+          "list.hoverBackground":                 "#2a2d2e",
+          "list.focusBackground":                 "#062f4a",
         },
       });
 
@@ -1636,13 +1811,13 @@
         // spinning forever.  Fall back to the plain-text editor.
         console.error("[Arbiter] Monaco initialization error:", err);
         clearTimeout(fallbackTimer);
-        initFallbackEditor();
+        if (!monacoLoaded) { _markLoaded(); initFallbackEditor(); }
       }
       }, function (loadErr) {
         // AMD module-load error (e.g. CDN unreachable for the main editor bundle)
         console.error("[Arbiter] Monaco module load error:", loadErr);
         clearTimeout(fallbackTimer);
-        initFallbackEditor();
+        if (!monacoLoaded) { _markLoaded(); initFallbackEditor(); }
       }); // end require(["vs/editor/editor.main"])
   } // end _tryLoad
 
@@ -2195,10 +2370,19 @@
 
     const term = new Terminal({
       theme: {
-        background: "#1e1e2e",
-        foreground: "#cdd6f4",
-        cursor: "#f5c2e7",
-        selectionBackground: "#45475a",
+        background:          "#1e1e1e",   // WPF DarkBgBrush
+        foreground:          "#d4d4d4",   // WPF ForegroundBrush
+        cursor:              "#aeafad",   // neutral cursor
+        cursorAccent:        "#000000",
+        selectionBackground: "#264f78",   // WPF SelectionBrush
+        black:   "#1e1e1e", brightBlack:   "#808080",
+        red:     "#cd3131", brightRed:     "#f44747",
+        green:   "#0dbc79", brightGreen:   "#23d18b",
+        yellow:  "#e5e510", brightYellow:  "#f5f543",
+        blue:    "#2472c8", brightBlue:    "#3b8eea",
+        magenta: "#bc3fbc", brightMagenta: "#d670d6",
+        cyan:    "#11a8cd", brightCyan:    "#29b8db",
+        white:   "#e5e5e5", brightWhite:   "#e5e5e5",
       },
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -2297,7 +2481,7 @@
       <span>📋 ${data.project || "Roadmap"} — ${data.version || ""}</span>
       <div style="display:flex;gap:6px">
         <button id="btn-roadmap-next-task" title="Send next pending task to the AI agent">▶ Work on Next Task</button>
-        <button id="btn-roadmap-auto-build" title="Autonomous self-build: LLM generates code, tests, and commits" style="background:var(--accent2,#7c3aed);color:#fff">🤖 Auto-Build Next</button>
+        <button id="btn-roadmap-auto-build" title="Autonomous self-build: LLM generates code, tests, and commits" style="background:var(--accent2,#4ec9b0);color:#fff">🤖 Auto-Build Next</button>
       </div>
     </div>`;
 
@@ -2446,7 +2630,7 @@
         </div>`;
       for (const m of models) {
         const badge = m.installed
-          ? `<span style="color:#22c55e;font-size:11px">✓ installed</span>`
+          ? `<span style="color:#73c991;font-size:11px">✓ installed</span>`
           : `<span style="color:var(--text-dim);font-size:11px">${m.size_gb} GB</span>`;
         html += `<div class="model-card" style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:center">
@@ -2505,7 +2689,7 @@
         if (statusEl) statusEl.textContent = log || d.status;
         if (d.status === "done") {
           clearInterval(interval);
-          if (btn) { btn.textContent = "✓ Done"; btn.style.background = "#22c55e"; }
+          if (btn) { btn.textContent = "✓ Done"; btn.style.background = "#73c991"; }
           appendOutput(`✅ Model '${modelName}' downloaded successfully.\n`);
         } else if (d.status === "error") {
           clearInterval(interval);

@@ -1444,14 +1444,46 @@
     </div>
   </div>
 
-  <!-- Monaco Editor loader (CDN — async so the page never blocks on network; app.js handles offline fallback) -->
+  <!-- Monaco Editor loader.
+       Priority order:
+         1. Local copy at /gui/vs/ (served by the backend — offline-first, from Directive §Development Principles)
+            Install locally by running:  python AIEngine/PythonBridge/download_monaco.py
+         2. CDN (jsdelivr) — used when local copy is not present
+       app.js handles the 10-second fallback to a plain-text editor if neither loads. -->
   <script>
-    var require = { paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs" } };
+    (function () {
+      // Try local path first; if the head request returns 200, use local.
+      // Otherwise fall back to CDN.  This check is synchronous-safe because we
+      // set the AMD require config before the loader script executes.
+      var _local = "/gui/vs";
+      var _cdn   = "https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs";
+
+      // Use local if the path resolves (loader.js reachable at /gui/vs/loader.js)
+      // Detection is done via a synchronous XHR HEAD request so the require config
+      // is set before any async script runs.
+      var _useLocal = false;
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open("HEAD", _local + "/loader.js", false); // synchronous
+        xhr.send();
+        _useLocal = (xhr.status >= 200 && xhr.status < 400);
+      } catch (e) { _useLocal = false; }
+
+      var vsBase = _useLocal ? _local : _cdn;
+      window.__monacoVsBase = vsBase;
+      window.require = { paths: { vs: vsBase } };
+    })();
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs/loader.js"
+  <script id="monaco-loader-script"
+          src=""
           async
           onload="window.__monacoLoaderReady=true"
           onerror="window.__monacoLoaderFailed=true"></script>
+  <script>
+    // Set the src on the loader script tag now that we know which base to use.
+    document.getElementById("monaco-loader-script").src =
+      (window.__monacoVsBase || "https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs") + "/loader.js";
+  </script>
   <!-- xterm.js for the PTY terminal tab (async — non-blocking) -->
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"
           async

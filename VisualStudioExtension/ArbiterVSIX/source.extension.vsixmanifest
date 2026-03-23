@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"
+                 xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
+  <Metadata>
+    <Identity
+      Id="ArbiterVSIX.shifty81.ArbiterAI"
+      Version="0.5.0"
+      Language="en-US"
+      Publisher="shifty81" />
+    <DisplayName>Arbiter AI — AI-Powered Development Assistant</DisplayName>
+    <Description xml:space="preserve">
+      Integrates the Arbiter AI engine directly into Visual Studio 2022.
+      Provides a dockable chat panel, inline code suggestions, and 9 context-aware AI commands
+      (Ask, Explain, Fix, Refactor, Tests, Docs, Review, Insert, Open Chat).
+      All AI runs locally via your self-hosted Arbiter backend — no cloud, no telemetry.
+    </Description>
+    <Tags>AI, code assistant, chat, refactor, autocomplete, local LLM</Tags>
+    <ProjectUrl>https://github.com/shifty81/Arbiter</ProjectUrl>
+    <License>MIT</License>
+    <Icon>Resources\arbiter_icon.png</Icon>
+    <GettingStartedGuide>https://github.com/shifty81/Arbiter#readme</GettingStartedGuide>
+    <ReleaseNotes>
+      v0.5.0 — Initial VSIX release: chat panel, 9 AI commands, inline suggestions.
+    </ReleaseNotes>
+  </Metadata>
+  <Installation>
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,18.0)" />
+    <InstallationTarget Id="Microsoft.VisualStudio.Professional" Version="[17.0,18.0)" />
+    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[17.0,18.0)" />
+  </Installation>
+  <Dependencies>
+    <Dependency Id="Microsoft.Framework.NDP"
+                DisplayName=".NET Framework"
+                Version="[4.7.2,)" />
+    <Dependency Id="Microsoft.VisualStudio.Component.CoreEditor"
+                DisplayName="Visual Studio core editor"
+                Version="[17.0,18.0)" />
+  </Dependencies>
+  <Prerequisites>
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor"
+                  Version="[17.0,18.0)"
+                  DisplayName="Visual Studio core editor" />
+  </Prerequisites>
+  <Assets>
+    <Asset Type="Microsoft.VisualStudio.VsPackage"
+           d:Source="Project"
+           d:ProjectName="%CurrentProject%"
+           Path="|ArbiterVSIX;PkgdefProjectOutputGroup|" />
+    <Asset Type="Microsoft.VisualStudio.MefComponent"
+           d:Source="Project"
+           d:ProjectName="%CurrentProject%"
+           Path="|ArbiterVSIX|" />
+  </Assets>
+</PackageManifest>

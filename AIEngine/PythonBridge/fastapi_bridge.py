@@ -91,7 +91,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import sqlite3
-from llm_interface import generate_response, get_model_status, preload_model
+from llm_interface import generate_response, generate_response_stream, get_model_status, preload_model
 from VoiceManager import speak
 from persona_manager import (
     get_active_persona,
@@ -973,6 +973,94 @@ async def ws_terminal(ws: WebSocket):
 async def ws_pty(ws: WebSocket):
     """PTY session — reuses the line-based terminal implementation."""
     await ws_terminal(ws)
+
+
+# ── /ws/chat — streaming AI chat for the Monaco IDE chat panel ───────────────
+#
+#  Client sends ONE JSON message:
+#      { "prompt": "...", "llm_backend": "ollama", "project_path": "default",
+#        "context": "<open file content>", "selection": "<selected text>" }
+#  Server emits (WebSocket text frames):
+#      { "type": "chunk", "data": "<token>" }  — one or more
+#      { "type": "done" }                       — always last
+#      { "type": "error", "data": "<message>" } — on failure (replaces "done")
+# ─────────────────────────────────────────────────────────────────────────────
+@app.websocket("/ws/chat")
+async def ws_chat(ws: WebSocket):
+    """Stream AI chat responses to the Monaco IDE chat panel.
+
+    This is the primary streaming chat endpoint.  app.js connects here (not to
+    ``/ws/run`` which is for build/command output).  Tokens are pushed as they
+    arrive from the LLM so the user sees output in real-time.
+    """
+    await ws.accept()
+    try:
+        data = await ws.receive_json()
+    except Exception:
+        await ws.send_json({"type": "error", "data": "Invalid JSON payload"})
+        await ws.close()
+        return
+
+    prompt: str    = (data.get("prompt") or "").strip()
+    project: str   = (data.get("project_path") or "default").strip() or "default"
+    context: str   = data.get("context", "")
+    selection: str = data.get("selection", "")
+
+    if not prompt:
+        await ws.send_json({"type": "error", "data": "Empty prompt"})
+        await ws.close()
+        return
+
+    # Build system prompt: persona + open-file context + selection
+    try:
+        system = get_system_prompt(get_active_persona(get_db(project)), project)
+    except Exception:
+        system = (
+            "You are Arbiter, a personal autonomous AI development assistant. "
+            f"You are currently helping with the project: {project}."
+        )
+    if context:
+        system += f"\n\nCurrently open file:\n```\n{context[:3000]}\n```"
+    if selection:
+        system += f"\n\nSelected text:\n```\n{selection[:2000]}\n```"
+
+    # Stream tokens from the LLM backend via the thread-safe generator
+    loop = _asyncio.get_event_loop()
+    import queue as _q
+    token_q: _q.Queue[str | None] = _q.Queue()
+
+    def _produce() -> None:
+        try:
+            for tok in generate_response_stream(prompt, project, system_prompt=system):
+                token_q.put(tok)
+        except Exception as exc:
+            token_q.put(f"\n[LLM error: {exc}]")
+        finally:
+            token_q.put(None)
+
+    import threading as _thr2
+    _thr2.Thread(target=_produce, daemon=True).start()
+
+    try:
+        while True:
+            try:
+                tok = await loop.run_in_executor(None, lambda: token_q.get(timeout=0.1))
+            except _q.Empty:
+                continue
+            if tok is None:
+                break
+            await ws.send_json({"type": "chunk", "data": tok})
+    except (WebSocketDisconnect, Exception):
+        pass
+
+    try:
+        await ws.send_json({"type": "done"})
+    except Exception:
+        pass
+    try:
+        await ws.close()
+    except Exception:
+        pass
 
 
 # ── M2-14: Self-build WebSocket — streams autonomous patch-test-commit cycle ─

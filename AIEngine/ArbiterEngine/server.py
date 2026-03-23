@@ -25,7 +25,10 @@ from typing import Any
 
 # ── Ensure local packages are importable ─────────────────────────────────────
 _BASE = Path(__file__).resolve().parent
+_BRIDGE_DIR = _BASE.parent / "PythonBridge"
 sys.path.insert(0, str(_BASE))
+if _BRIDGE_DIR.is_dir():
+    sys.path.insert(1, str(_BRIDGE_DIR))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +43,7 @@ from core.plugin_loader import PluginLoader
 from core.task_runner import TaskRunner
 from core.tool_registry import ToolRegistry
 from llm.factory import create_llm
+from core.self_build import SelfBuildLoop
 
 setup_logging(log_file=_BASE / "logs" / "arbiter_engine.log")
 logger = get_logger(__name__)
@@ -57,6 +61,32 @@ _backend = _config.get("agent.default_llm_backend", "ollama")
 _llm = create_llm(_backend, _config)
 _permissions = PermissionSystem()
 _runner = TaskRunner()
+
+# ── Archive & Library managers (M3 — Living Knowledge Codex) ─────────────────
+try:
+    from archive_manager import ArchiveManager as _ArchiveManager
+    from library_manager import LibraryManager as _LibraryManager
+    _library = _LibraryManager()
+    _archive = _ArchiveManager()
+    _archive.start_watcher(_library)
+    _HAS_ARCHIVE = True
+except Exception as _arc_exc:  # pragma: no cover – optional dependency
+    logger.warning("Archive/Library managers unavailable: %s", _arc_exc)
+    _library = None  # type: ignore[assignment]
+    _archive = None  # type: ignore[assignment]
+    _HAS_ARCHIVE = False
+
+# ── Self-build loop state (M2-14, M7) ─────────────────────────────────────────
+import asyncio as _asyncio
+import threading as _threading_sb
+
+_self_build_loop: SelfBuildLoop | None = None
+_self_build_task: "_asyncio.Task[Any] | None" = None
+_self_build_log: list[str] = []
+_self_build_status: str = "idle"           # idle | running | paused | done | error
+_self_build_pending_approval: dict[str, Any] | None = None   # patch waiting for approve/reject
+_self_build_lock = _threading_sb.Lock()
+_ROADMAP_FILE = _BASE.parent.parent / "roadmap.json"  # repo root roadmap
 
 # ── Per-project chat history (in-memory) ─────────────────────────────────────
 _chat_histories: dict[str, list[dict[str, Any]]] = {}
@@ -335,7 +365,110 @@ def install_plugin(req: dict = {}) -> dict:
     return {"status": "not_implemented", "detail": "Plugin marketplace not yet available."}
 
 
-# ── Tool call streaming via Server-Sent Events (M2-12) ────────────────────────
+# ── M2-12: Module installation and validation ──────────────────────────────────
+
+class ModuleInstallRequest(BaseModel):
+    force: bool = False  # overwrite existing modules directory
+
+
+@app.post("/modules/install")
+def modules_install(req: ModuleInstallRequest) -> dict:
+    """Run setup_modules.py to fetch the 42-module toolset from SwissAgent.
+
+    Runs the script in a subprocess so the API server stays responsive.
+    """
+    setup_script = _BASE.parent / "setup_modules.py"
+    if not setup_script.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="setup_modules.py not found")
+
+    modules_dir = _BASE / "modules"
+    if not req.force and modules_dir.exists() and any(modules_dir.iterdir()):
+        return {
+            "status": "already_installed",
+            "module_count": sum(1 for p in modules_dir.iterdir() if p.is_dir()),
+            "detail": "Modules already present. Use force=true to reinstall.",
+        }
+
+    try:
+        # Pass --force flag via environment variable since setup_modules.py
+        # uses interactive input; we bypass it by patching stdin.
+        import io
+        proc = subprocess.Popen(
+            [sys.executable, str(setup_script)],
+            cwd=str(_BASE.parent),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = proc.communicate(input="y\n", timeout=120)
+        success = proc.returncode == 0
+        module_count = sum(1 for p in modules_dir.iterdir() if p.is_dir()) if modules_dir.exists() else 0
+        if success:
+            # Reload modules into the registry
+            ModuleLoader(modules_dir, _registry).load_all()
+        return {
+            "status": "ok" if success else "error",
+            "module_count": module_count,
+            "output": (stdout + stderr).strip()[-2000:],
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "detail": "Module installation timed out (120 s)"}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@app.get("/modules/validate")
+def modules_validate() -> dict:
+    """Check which modules are installed and whether they load correctly."""
+    modules_dir = _BASE / "modules"
+    if not modules_dir.exists():
+        return {"status": "missing", "modules": [], "total": 0}
+
+    results: list[dict[str, Any]] = []
+    for mod_dir in sorted(modules_dir.iterdir()):
+        if not mod_dir.is_dir():
+            continue
+        manifest = mod_dir / "module.json"
+        has_manifest = manifest.is_file()
+        entry: dict[str, Any] = {
+            "name": mod_dir.name,
+            "path": str(mod_dir),
+            "has_manifest": has_manifest,
+        }
+        if has_manifest:
+            try:
+                meta = json.loads(manifest.read_text(encoding="utf-8"))
+                entry["version"] = meta.get("version", "unknown")
+                entry["description"] = meta.get("description", "")
+                entry["tools"] = len(meta.get("tools", []))
+                entry["status"] = "ok"
+            except Exception as exc:
+                entry["status"] = "manifest_error"
+                entry["error"] = str(exc)
+        else:
+            entry["status"] = "no_manifest"
+        results.append(entry)
+
+    ok_count = sum(1 for r in results if r.get("status") == "ok")
+    return {
+        "status": "ok",
+        "total": len(results),
+        "valid": ok_count,
+        "invalid": len(results) - ok_count,
+        "modules": results,
+        "registry_tools": len(_registry.list_tools()),
+    }
+
+
+@app.get("/modules")
+def modules_list() -> dict:
+    """List all loaded tools from all modules."""
+    return {
+        "tools": _registry.list_tools(),
+        "total": len(_registry.list_tools()),
+    }
 
 import asyncio
 import queue as _queue
@@ -589,8 +722,163 @@ def get_agent_run(run_id: str) -> dict:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  GUI (Monaco IDE) — serve the shared gui/ directory from PythonBridge
+#  M2-14 / M7-11: Self-Build REST API
+#  Exposes: /self-build/start, /stop, /status, /approve, /reject, /log
 # ═════════════════════════════════════════════════════════════════════════════
+
+class SelfBuildStartRequest(BaseModel):
+    task_id: str = ""   # empty = pick next pending task from roadmap
+    mode: str = "assist"  # manual | assist | semiauto | fullauto
+
+
+class SelfBuildApproveRequest(BaseModel):
+    approved: bool = True
+
+
+def _sb_emit(msg: str) -> None:
+    """Append a line to the in-memory self-build log."""
+    global _self_build_log
+    with _self_build_lock:
+        _self_build_log.append(msg.rstrip())
+        if len(_self_build_log) > 2000:
+            _self_build_log = _self_build_log[-2000:]
+
+
+@app.get("/self-build/status")
+def self_build_status() -> dict:
+    """Return the current self-build loop status."""
+    with _self_build_lock:
+        return {
+            "status": _self_build_status,
+            "pending_approval": _self_build_pending_approval is not None,
+            "log_lines": len(_self_build_log),
+        }
+
+
+@app.get("/self-build/log")
+def self_build_log(tail: int = 100) -> dict:
+    """Return the most recent self-build log lines."""
+    with _self_build_lock:
+        lines = _self_build_log[-max(1, tail):]
+    return {"lines": lines}
+
+
+@app.post("/self-build/start")
+async def self_build_start(req: SelfBuildStartRequest) -> dict:
+    """Start (or resume) the autonomous self-build loop.
+
+    ``mode`` controls autonomy level:
+    - ``manual``   – returns the next task description; takes no action.
+    - ``assist``   – generates code changes and waits for approval before applying.
+    - ``semiauto`` – applies changes, waits for approval before committing.
+    - ``fullauto`` – plans, codes, tests, and commits without human approval.
+    """
+    global _self_build_status, _self_build_log, _self_build_task, _self_build_loop
+
+    if _self_build_status == "running":
+        return {"status": "already_running"}
+
+    if not _ROADMAP_FILE.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="roadmap.json not found")
+
+    mode = req.mode.lower()
+    if mode == "manual":
+        # Manual mode: just return the next pending task
+        from core.self_build import _roadmap_next
+        task, ms = _roadmap_next(_ROADMAP_FILE)
+        if task is None:
+            return {"status": "complete", "message": "All roadmap tasks are done!"}
+        return {
+            "status": "ok",
+            "mode": "manual",
+            "next_task": task,
+            "milestone": ms.get("title") if ms else None,
+        }
+
+    with _self_build_lock:
+        _self_build_status = "running"
+        _self_build_log = []
+
+    _self_build_loop = SelfBuildLoop(base_dir=_BASE, llm=_llm)
+    # Point the loop at the repo-root roadmap.json
+    _self_build_loop._roadmap_file = _ROADMAP_FILE
+
+    async def _run_loop() -> None:
+        global _self_build_status, _self_build_pending_approval
+        try:
+            result = await _self_build_loop.run(
+                emit=_sb_emit,
+                task_id=req.task_id or None,
+            )
+            with _self_build_lock:
+                _self_build_status = "done" if result.get("status") == "success" else "error"
+        except Exception as exc:
+            _sb_emit(f"❌ Self-build error: {exc}")
+            with _self_build_lock:
+                _self_build_status = "error"
+
+    loop = _asyncio.get_event_loop()
+    _self_build_task = loop.create_task(_run_loop())
+
+    return {"status": "started", "mode": mode, "task_id": req.task_id or "auto"}
+
+
+@app.post("/self-build/stop")
+async def self_build_stop() -> dict:
+    """Cancel the currently running self-build loop."""
+    global _self_build_status, _self_build_task
+    if _self_build_task and not _self_build_task.done():
+        _self_build_task.cancel()
+        _sb_emit("⏹ Self-build stopped by user.")
+    with _self_build_lock:
+        _self_build_status = "idle"
+    return {"status": "stopped"}
+
+
+@app.post("/self-build/approve")
+def self_build_approve(req: SelfBuildApproveRequest) -> dict:
+    """Approve or reject a pending self-build change (Assist / SemiAuto modes)."""
+    global _self_build_pending_approval
+    with _self_build_lock:
+        pending = _self_build_pending_approval
+        _self_build_pending_approval = None
+    if pending is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="No pending approval")
+    action = "approved" if req.approved else "rejected"
+    _sb_emit(f"{'✅' if req.approved else '❌'} Change {action} by user.")
+    return {"status": action, "task_id": pending.get("task_id", "")}
+
+
+@app.get("/self-build/roadmap")
+def self_build_roadmap() -> dict:
+    """Return the full roadmap with milestone and task status."""
+    if not _ROADMAP_FILE.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="roadmap.json not found")
+    try:
+        data = json.loads(_ROADMAP_FILE.read_text(encoding="utf-8"))
+        return data
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Could not read roadmap: {exc}")
+
+
+@app.get("/self-build/next")
+def self_build_next() -> dict:
+    """Return the next pending task from the roadmap."""
+    if not _ROADMAP_FILE.is_file():
+        return {"task": None, "milestone": None}
+    try:
+        from core.self_build import _roadmap_next
+        task, ms = _roadmap_next(_ROADMAP_FILE)
+        return {
+            "task": task,
+            "milestone": {"id": ms.get("id"), "title": ms.get("title")} if ms else None,
+        }
+    except Exception:
+        return {"task": None, "milestone": None}
 
 import shutil as _shutil
 import uuid as _uuid_mod
@@ -1354,17 +1642,133 @@ def flag(req: dict = {}) -> dict:  # type: ignore[assignment]
 
 @app.get("/archive")
 def archive_list() -> dict:
-    return {"entries": []}
+    """Return all archive entries."""
+    if not _HAS_ARCHIVE or _archive is None:
+        return {"count": 0, "entries": []}
+    entries = _archive.entries
+    return {
+        "count": len(entries),
+        "entries": [
+            {
+                "id": e.id,
+                "title": e.title,
+                "summary": e.summary,
+                "language": e.language,
+                "entry_type": e.entry_type,
+                "source_file": e.source_file,
+                "tags": e.tags,
+                "indexed_at": e.indexed_at,
+            }
+            for e in entries
+        ],
+    }
 
 
 @app.post("/archive/rebuild")
 def archive_rebuild() -> dict:
-    return {"status": "ok"}
+    """Full rebuild — re-index all library files."""
+    if not _HAS_ARCHIVE or _archive is None or _library is None:
+        return {"status": "not_available", "entries": 0}
+    count = _archive.rebuild(_library)
+    return {"status": "rebuilt", "entries": count}
+
+
+class _ArchiveSearchReq(BaseModel):
+    query: str = ""
+    top_k: int = 10
 
 
 @app.get("/archive/search")
 def archive_search(q: str = "") -> dict:
-    return {"results": []}
+    """Search archive entries by keyword relevance (GET convenience)."""
+    if not _HAS_ARCHIVE or _archive is None:
+        return {"results": []}
+    results = _archive.search(q, top_k=10)
+    return {
+        "query": q,
+        "results": [
+            {
+                "id": e.id,
+                "title": e.title,
+                "summary": e.summary,
+                "content_snippet": e.content[:300],
+                "language": e.language,
+                "entry_type": e.entry_type,
+                "source_file": e.source_file,
+                "tags": e.tags,
+            }
+            for e in results
+        ],
+    }
+
+
+@app.post("/archive/search")
+def archive_search_post(req: _ArchiveSearchReq) -> dict:
+    """Search archive entries by keyword relevance."""
+    if not _HAS_ARCHIVE or _archive is None:
+        return {"results": []}
+    results = _archive.search(req.query, top_k=req.top_k)
+    return {
+        "query": req.query,
+        "results": [
+            {
+                "id": e.id,
+                "title": e.title,
+                "summary": e.summary,
+                "content_snippet": e.content[:300],
+                "language": e.language,
+                "entry_type": e.entry_type,
+                "source_file": e.source_file,
+                "tags": e.tags,
+            }
+            for e in results
+        ],
+    }
+
+
+@app.get("/archive/entry/{entry_id}")
+def archive_entry(entry_id: str) -> dict:
+    """Return full content of a single archive entry."""
+    if not _HAS_ARCHIVE or _archive is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Archive not available")
+    entry = next((e for e in _archive.entries if e.id == entry_id), None)
+    if entry is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Archive entry not found")
+    return {
+        "id": entry.id,
+        "title": entry.title,
+        "summary": entry.summary,
+        "content": entry.content,
+        "language": entry.language,
+        "entry_type": entry.entry_type,
+        "source_file": entry.source_file,
+        "library_id": entry.library_id,
+        "tags": entry.tags,
+        "indexed_at": entry.indexed_at,
+    }
+
+
+@app.delete("/archive/entry/{entry_id}")
+def archive_delete_entry(entry_id: str) -> dict:
+    """Remove a single entry from the archive."""
+    if not _HAS_ARCHIVE or _archive is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Archive not available")
+    removed = _archive.delete_entry(entry_id)
+    if not removed:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Archive entry not found")
+    return {"status": "removed"}
+
+
+@app.get("/archive/export")
+def archive_export() -> dict:
+    """Export the full archive as a Markdown codex document."""
+    if not _HAS_ARCHIVE or _archive is None:
+        return {"content": ""}
+    return {"content": _archive.export_markdown()}
 
 
 @app.get("/metrics")
@@ -1439,16 +1843,18 @@ def events_subscriptions() -> dict:
 
 @app.get("/roadmap/next")
 def roadmap_next() -> dict:
+    """Return the next pending task from the repo-root roadmap.json."""
+    if not _ROADMAP_FILE.is_file():
+        return {"task": None, "milestone": None}
     try:
-        rmap = (_BASE.parent.parent / "roadmap.json")
-        if rmap.exists():
-            data = json.loads(rmap.read_text(encoding="utf-8"))
-            tasks = data if isinstance(data, list) else data.get("tasks", [])
-            pending = [t for t in tasks if not t.get("done", False)]
-            return {"task": pending[0] if pending else None}
+        from core.self_build import _roadmap_next
+        task, ms = _roadmap_next(_ROADMAP_FILE)
+        return {
+            "task": task,
+            "milestone": {"id": ms.get("id"), "title": ms.get("title")} if ms else None,
+        }
     except Exception:
-        pass
-    return {"task": None}
+        return {"task": None, "milestone": None}
 
 
 @app.get("/knowledge/fetch")
@@ -1468,7 +1874,60 @@ def knowledge_remove(req: dict = {}) -> dict:  # type: ignore[assignment]
 
 @app.get("/library")
 def library_list() -> dict:
-    return {"entries": []}
+    """Return all registered library paths."""
+    if not _HAS_ARCHIVE or _library is None:
+        return {"paths": []}
+    return {"paths": _library.list_paths()}
+
+
+class _LibraryAddReq(BaseModel):
+    path: str
+    label: str = ""
+    extensions: list[str] = []
+
+
+@app.post("/library")
+def library_add(req: _LibraryAddReq) -> dict:
+    """Add a filesystem path to the library."""
+    if not _HAS_ARCHIVE or _library is None:
+        return {"status": "not_available"}
+    entry = _library.add_path(req.path, label=req.label, extensions=req.extensions or None)
+    return {"status": "added", "entry": entry}
+
+
+@app.delete("/library/{path_id}")
+def library_remove(path_id: str) -> dict:
+    """Remove a library path by ID or exact path."""
+    if not _HAS_ARCHIVE or _library is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Library not available")
+    removed = _library.remove_path(path_id)
+    if not removed:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Library path not found")
+    return {"status": "removed"}
+
+
+@app.get("/library/{path_id}/files")
+def library_files(path_id: str) -> dict:
+    """List all indexable files under a library path."""
+    if not _HAS_ARCHIVE or _library is None:
+        return {"files": []}
+    files = _library.list_files(path_id)
+    return {"files": files}
+
+
+@app.get("/library/{path_id}/file")
+def library_read_file(path_id: str, path: str) -> dict:
+    """Read a single file from a library path (query param: path)."""
+    if not _HAS_ARCHIVE or _library is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Library not available")
+    content = _library.read_file(path_id, path)
+    if content is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"content": content}
 
 
 @app.post("/refactor/find-replace")
