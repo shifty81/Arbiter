@@ -1,0 +1,79 @@
+[
+  {
+    "name": "index_project",
+    "description": "Index a project for search",
+    "module": "index",
+    "function": "modules.index.src.indexer.index_project",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "exclude": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "index_search",
+    "description": "Search the project index",
+    "module": "index",
+    "function": "modules.index.src.indexer.index_search",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "index_rebuild",
+    "description": "Rebuild the search index",
+    "module": "index",
+    "function": "modules.index.src.indexer.index_rebuild",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "index_stats",
+    "description": "Get index statistics",
+    "module": "index",
+    "function": "modules.index.src.indexer.index_stats",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  }
+]

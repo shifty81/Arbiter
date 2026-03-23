@@ -1,0 +1,6 @@
+{
+  "name": "scaffold",
+  "version": "0.1.0",
+  "description": "Self-scaffolding engine — generate new modules, plugins, and tests from descriptions; extend the roadmap autonomously",
+  "dependencies": []
+}

@@ -1,0 +1,110 @@
+[
+  {
+    "name": "binary_info",
+    "description": "Get binary file info",
+    "module": "binary",
+    "function": "modules.binary.src.binary.binary_info",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "binary_disasm",
+    "description": "Disassemble binary code",
+    "module": "binary",
+    "function": "modules.binary.src.binary.binary_disasm",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "binary_strings",
+    "description": "Extract strings from binary",
+    "module": "binary",
+    "function": "modules.binary.src.binary.binary_strings",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "min_length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "binary_patch",
+    "description": "Patch bytes in a binary",
+    "module": "binary",
+    "function": "modules.binary.src.binary.binary_patch",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "offset",
+        "data"
+      ]
+    }
+  },
+  {
+    "name": "binary_hex",
+    "description": "Hex dump of binary file",
+    "module": "binary",
+    "function": "modules.binary.src.binary.binary_hex",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  }
+]

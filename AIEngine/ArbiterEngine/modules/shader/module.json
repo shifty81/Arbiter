@@ -1,0 +1,6 @@
+{
+  "name": "shader",
+  "version": "0.1.0",
+  "description": "Shader compilation and management",
+  "dependencies": []
+}

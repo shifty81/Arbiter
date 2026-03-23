@@ -1,0 +1,6 @@
+{
+  "name": "memory",
+  "version": "0.1.0",
+  "description": "Agent memory and context management",
+  "dependencies": []
+}

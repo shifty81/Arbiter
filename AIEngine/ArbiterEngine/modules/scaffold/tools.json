@@ -1,0 +1,54 @@
+[
+  {
+    "name": "scaffold_module",
+    "description": "Generate a new SwissAgent capability module skeleton from a name and description. Creates module.json, tools.json, and Python source stubs so the agent can implement the logic immediately.",
+    "module": "scaffold",
+    "function": "modules.scaffold.src.scaffold_tools.scaffold_module",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "description": "Module name (e.g. 'pdf_tools' or 'email')"},
+        "description": {"type": "string", "description": "What this module does"},
+        "tools": {
+          "type": "array",
+          "description": "Optional list of tool descriptors ({name, description, arguments}) to generate. Defaults to a single stub tool.",
+          "items": {"type": "object"}
+        }
+      },
+      "required": ["name", "description"]
+    }
+  },
+  {
+    "name": "scaffold_plugin",
+    "description": "Generate a new SwissAgent plugin skeleton from a name and description. Creates plugin.json, tools.json, and a Python source stub inside plugins/.",
+    "module": "scaffold",
+    "function": "modules.scaffold.src.scaffold_tools.scaffold_plugin",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "description": "Plugin name (e.g. 'slack_notifier')"},
+        "description": {"type": "string", "description": "What this plugin does"},
+        "tools": {
+          "type": "array",
+          "description": "Optional list of tool descriptors to scaffold.",
+          "items": {"type": "object"}
+        }
+      },
+      "required": ["name", "description"]
+    }
+  },
+  {
+    "name": "scaffold_tests",
+    "description": "Generate a pytest test skeleton for an existing module or plugin. Reads tools.json to discover all tools and writes one stub test per tool.",
+    "module": "scaffold",
+    "function": "modules.scaffold.src.scaffold_tools.scaffold_tests",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "module_name": {"type": "string", "description": "Name of the module or plugin to generate tests for"},
+        "output_path": {"type": "string", "description": "Where to write the test file (defaults to tests/test_{module}.py)"}
+      },
+      "required": ["module_name"]
+    }
+  }
+]

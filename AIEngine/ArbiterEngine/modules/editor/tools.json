@@ -1,0 +1,94 @@
+[
+  {
+    "name": "editor_format",
+    "description": "Format source code",
+    "module": "editor",
+    "function": "modules.editor.src.editor.editor_format",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "editor_lint",
+    "description": "Lint source code",
+    "module": "editor",
+    "function": "modules.editor.src.editor.editor_lint",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "editor_search",
+    "description": "Search in files",
+    "module": "editor",
+    "function": "modules.editor.src.editor.editor_search",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "directory": {
+          "type": "string"
+        },
+        "file_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern",
+        "directory"
+      ]
+    }
+  },
+  {
+    "name": "editor_replace",
+    "description": "Search and replace in files",
+    "module": "editor",
+    "function": "modules.editor.src.editor.editor_replace",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "replacement": {
+          "type": "string"
+        },
+        "directory": {
+          "type": "string"
+        },
+        "file_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern",
+        "replacement",
+        "directory"
+      ]
+    }
+  }
+]

@@ -1,0 +1,88 @@
+[
+  {
+    "name": "test_run",
+    "description": "Run tests",
+    "module": "test",
+    "function": "modules.test.src.test_runner.test_run",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "verbose": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "test_coverage",
+    "description": "Run tests with coverage",
+    "module": "test",
+    "function": "modules.test.src.test_runner.test_coverage",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "test_generate",
+    "description": "Generate test stubs",
+    "module": "test",
+    "function": "modules.test.src.test_runner.test_generate",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src"
+      ]
+    }
+  },
+  {
+    "name": "test_report",
+    "description": "Generate test report",
+    "module": "test",
+    "function": "modules.test.src.test_runner.test_report",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "results"
+      ]
+    }
+  }
+]

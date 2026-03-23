@@ -1,0 +1,133 @@
+[
+  {
+    "name": "scan_secrets",
+    "description": "Scan for secrets in files",
+    "module": "security",
+    "function": "modules.security.src.security.scan_secrets",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "recursive": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "scan_deps",
+    "description": "Scan dependencies for CVEs",
+    "module": "security",
+    "function": "modules.security.src.security.scan_deps",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "hash_file",
+    "description": "Hash a file (SHA-256)",
+    "module": "security",
+    "function": "modules.security.src.security.hash_file",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "algorithm": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "verify_hash",
+    "description": "Verify file hash",
+    "module": "security",
+    "function": "modules.security.src.security.verify_hash",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "string"
+        },
+        "algorithm": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "expected"
+      ]
+    }
+  },
+  {
+    "name": "encrypt_file",
+    "description": "Encrypt a file",
+    "module": "security",
+    "function": "modules.security.src.security.encrypt_file",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "key",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "decrypt_file",
+    "description": "Decrypt a file",
+    "module": "security",
+    "function": "modules.security.src.security.decrypt_file",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "key",
+        "dst"
+      ]
+    }
+  }
+]

@@ -1,0 +1,68 @@
+[
+  {
+    "name": "profile_cpu",
+    "description": "Profile CPU usage",
+    "module": "profile",
+    "function": "modules.profile.src.profile.profile_cpu",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "integer"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ]
+    }
+  },
+  {
+    "name": "profile_memory",
+    "description": "Profile memory usage",
+    "module": "profile",
+    "function": "modules.profile.src.profile.profile_memory",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ]
+    }
+  },
+  {
+    "name": "profile_report",
+    "description": "Generate profile report",
+    "module": "profile",
+    "function": "modules.profile.src.profile.profile_report",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "profile_data": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile_data"
+      ]
+    }
+  }
+]

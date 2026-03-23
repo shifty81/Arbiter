@@ -1,0 +1,90 @@
+[
+  {
+    "name": "server_start",
+    "description": "Start a local dev server",
+    "module": "server",
+    "function": "modules.server.src.server.server_start",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "host": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "server_stop",
+    "description": "Stop a running server",
+    "module": "server",
+    "function": "modules.server.src.server.server_stop",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "server_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_id"
+      ]
+    }
+  },
+  {
+    "name": "server_status",
+    "description": "Get server status",
+    "module": "server",
+    "function": "modules.server.src.server.server_status",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "server_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_id"
+      ]
+    }
+  },
+  {
+    "name": "server_list",
+    "description": "List running servers",
+    "module": "server",
+    "function": "modules.server.src.server.server_list",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "server_logs",
+    "description": "Get server logs",
+    "module": "server",
+    "function": "modules.server.src.server.server_logs",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "server_id": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "server_id"
+      ]
+    }
+  }
+]

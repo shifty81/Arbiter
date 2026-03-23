@@ -1,0 +1,6 @@
+{
+  "name": "knowledge",
+  "version": "0.1.0",
+  "description": "Aggregate documentation, wikis, and guidelines as a per-project knowledge base for RAG-enhanced agent responses",
+  "dependencies": []
+}

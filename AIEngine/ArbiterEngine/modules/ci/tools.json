@@ -1,0 +1,80 @@
+[
+  {
+    "name": "ci_trigger",
+    "description": "Trigger a CI pipeline",
+    "module": "ci",
+    "function": "modules.ci.src.ci.ci_trigger",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pipeline": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "pipeline"
+      ]
+    }
+  },
+  {
+    "name": "ci_status",
+    "description": "Get CI pipeline status",
+    "module": "ci",
+    "function": "modules.ci.src.ci.ci_status",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pipeline_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pipeline_id"
+      ]
+    }
+  },
+  {
+    "name": "ci_artifacts",
+    "description": "Download CI artifacts",
+    "module": "ci",
+    "function": "modules.ci.src.ci.ci_artifacts",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pipeline_id": {
+          "type": "string"
+        },
+        "output_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pipeline_id",
+        "output_dir"
+      ]
+    }
+  },
+  {
+    "name": "ci_logs",
+    "description": "Get CI pipeline logs",
+    "module": "ci",
+    "function": "modules.ci.src.ci.ci_logs",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pipeline_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pipeline_id"
+      ]
+    }
+  }
+]

@@ -1,0 +1,66 @@
+[
+  {
+    "name": "doc_generate",
+    "description": "Generate documentation",
+    "module": "doc",
+    "function": "modules.doc.src.doc.doc_generate",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "output"
+      ]
+    }
+  },
+  {
+    "name": "doc_serve",
+    "description": "Serve documentation locally",
+    "module": "doc",
+    "function": "modules.doc.src.doc.doc_serve",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "docs_dir": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "docs_dir"
+      ]
+    }
+  },
+  {
+    "name": "doc_lint",
+    "description": "Lint documentation",
+    "module": "doc",
+    "function": "modules.doc.src.doc.doc_lint",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "docs_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "docs_dir"
+      ]
+    }
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "name": "project_profile",
+  "version": "0.1.0",
+  "description": "Per-project AI profiles and rule sets — tailors the AI persona, tech stack awareness, and behavioral constraints to each project",
+  "dependencies": []
+}

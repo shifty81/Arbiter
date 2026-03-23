@@ -1,0 +1,76 @@
+[
+  {
+    "name": "render_scene",
+    "description": "Render a 3D scene",
+    "module": "render",
+    "function": "modules.render.src.render.render_scene",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "scene_file": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "resolution": {
+          "type": "array"
+        },
+        "samples": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scene_file"
+      ]
+    }
+  },
+  {
+    "name": "render_preview",
+    "description": "Render a quick preview",
+    "module": "render",
+    "function": "modules.render.src.render.render_preview",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "scene_file": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scene_file"
+      ]
+    }
+  },
+  {
+    "name": "render_batch",
+    "description": "Batch render multiple frames",
+    "module": "render",
+    "function": "modules.render.src.render.render_batch",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "scene_file": {
+          "type": "string"
+        },
+        "start_frame": {
+          "type": "integer"
+        },
+        "end_frame": {
+          "type": "integer"
+        },
+        "output_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scene_file",
+        "start_frame",
+        "end_frame"
+      ]
+    }
+  }
+]

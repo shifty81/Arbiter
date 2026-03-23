@@ -1,0 +1,6 @@
+{
+  "name": "database",
+  "version": "0.1.0",
+  "description": "Database query and management",
+  "dependencies": []
+}

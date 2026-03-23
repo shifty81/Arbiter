@@ -1,0 +1,6 @@
+{
+  "name": "pipeline",
+  "version": "0.1.0",
+  "description": "Asset and data processing pipelines",
+  "dependencies": []
+}

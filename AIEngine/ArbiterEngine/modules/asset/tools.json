@@ -1,0 +1,96 @@
+[
+  {
+    "name": "asset_import",
+    "description": "Import an asset",
+    "module": "asset",
+    "function": "modules.asset.src.asset.asset_import",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "type"
+      ]
+    }
+  },
+  {
+    "name": "asset_export",
+    "description": "Export an asset",
+    "module": "asset",
+    "function": "modules.asset.src.asset.asset_export",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "asset_list",
+    "description": "List all assets",
+    "module": "asset",
+    "function": "modules.asset.src.asset.asset_list",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "asset_delete",
+    "description": "Delete an asset",
+    "module": "asset",
+    "function": "modules.asset.src.asset.asset_delete",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id"
+      ]
+    }
+  },
+  {
+    "name": "asset_metadata",
+    "description": "Get asset metadata",
+    "module": "asset",
+    "function": "modules.asset.src.asset.asset_metadata",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id"
+      ]
+    }
+  }
+]

@@ -1,0 +1,60 @@
+[
+  {
+    "name": "persona_list",
+    "description": "List all available AI personas (built-in and custom).",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "persona_get",
+    "description": "Get details of a specific AI persona by name.",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "description": "Persona name"}
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "persona_create",
+    "description": "Create or update a custom AI persona.",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name":             {"type": "string",  "description": "Unique persona name (slug)"},
+        "display_name":     {"type": "string",  "description": "Human-readable display name"},
+        "role":             {"type": "string",  "description": "Role description, e.g. 'Senior Developer'"},
+        "system_prompt":    {"type": "string",  "description": "Full system prompt text"},
+        "offline_model":    {"type": "string",  "description": "Recommended offline Ollama/GGUF model name"},
+        "llm_backend":      {"type": "string",  "description": "LLM backend override (ollama, localai, llamacpp, …)"}
+      },
+      "required": ["name", "system_prompt"]
+    }
+  },
+  {
+    "name": "persona_activate",
+    "description": "Set a persona as the globally active persona for SwissAgent.",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "description": "Persona name to activate"}
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "persona_delete",
+    "description": "Delete a custom AI persona (built-in personas cannot be deleted).",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "description": "Persona name to delete"}
+      },
+      "required": ["name"]
+    }
+  }
+]

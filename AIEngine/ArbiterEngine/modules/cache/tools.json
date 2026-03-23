@@ -1,0 +1,82 @@
+[
+  {
+    "name": "cache_get",
+    "description": "Retrieve item from cache",
+    "module": "cache",
+    "function": "modules.cache.src.cache_manager.cache_get",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    }
+  },
+  {
+    "name": "cache_set",
+    "description": "Store item in cache",
+    "module": "cache",
+    "function": "modules.cache.src.cache_manager.cache_set",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "ttl": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ]
+    }
+  },
+  {
+    "name": "cache_delete",
+    "description": "Delete item from cache",
+    "module": "cache",
+    "function": "modules.cache.src.cache_manager.cache_delete",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    }
+  },
+  {
+    "name": "cache_clear",
+    "description": "Clear all cache entries",
+    "module": "cache",
+    "function": "modules.cache.src.cache_manager.cache_clear",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "cache_stats",
+    "description": "Get cache statistics",
+    "module": "cache",
+    "function": "modules.cache.src.cache_manager.cache_stats",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  }
+]

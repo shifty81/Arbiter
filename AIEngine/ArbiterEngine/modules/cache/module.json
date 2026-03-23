@@ -1,0 +1,6 @@
+{
+  "name": "cache",
+  "version": "0.1.0",
+  "description": "Caching layer for build artifacts and data",
+  "dependencies": []
+}

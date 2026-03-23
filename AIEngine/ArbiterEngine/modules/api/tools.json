@@ -1,0 +1,110 @@
+[
+  {
+    "name": "api_call",
+    "description": "Make a generic API call",
+    "module": "api",
+    "function": "modules.api.src.api_client.api_call",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {
+          "type": "object"
+        },
+        "auth": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url"
+      ]
+    }
+  },
+  {
+    "name": "api_paginate",
+    "description": "Paginated API fetch",
+    "module": "api",
+    "function": "modules.api.src.api_client.api_paginate",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "page_param": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  },
+  {
+    "name": "graphql_query",
+    "description": "Execute a GraphQL query",
+    "module": "api",
+    "function": "modules.api.src.api_client.graphql_query",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "object"
+        },
+        "headers": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "url",
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "oauth_token",
+    "description": "Get OAuth2 access token",
+    "module": "api",
+    "function": "modules.api.src.api_client.oauth_token",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "token_url": {
+          "type": "string"
+        },
+        "client_id": {
+          "type": "string"
+        },
+        "client_secret": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token_url",
+        "client_id",
+        "client_secret"
+      ]
+    }
+  }
+]

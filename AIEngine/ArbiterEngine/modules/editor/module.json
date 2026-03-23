@@ -1,0 +1,6 @@
+{
+  "name": "editor",
+  "version": "0.1.0",
+  "description": "Text editor integration and code editing utilities",
+  "dependencies": []
+}

@@ -1,0 +1,6 @@
+{
+  "name": "job",
+  "version": "0.1.0",
+  "description": "Background job scheduling and management",
+  "dependencies": []
+}

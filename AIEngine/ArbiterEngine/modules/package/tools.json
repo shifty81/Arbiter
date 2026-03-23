@@ -1,0 +1,103 @@
+[
+  {
+    "name": "pkg_install",
+    "description": "Install a package",
+    "module": "package",
+    "function": "modules.package.src.package.pkg_install",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "manager": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "pkg_uninstall",
+    "description": "Uninstall a package",
+    "module": "package",
+    "function": "modules.package.src.package.pkg_uninstall",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "manager": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "pkg_list",
+    "description": "List installed packages",
+    "module": "package",
+    "function": "modules.package.src.package.pkg_list",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "manager": {
+          "type": "string"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "pkg_update",
+    "description": "Update a package",
+    "module": "package",
+    "function": "modules.package.src.package.pkg_update",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "manager": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "pkg_search",
+    "description": "Search for a package",
+    "module": "package",
+    "function": "modules.package.src.package.pkg_search",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "manager": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  }
+]

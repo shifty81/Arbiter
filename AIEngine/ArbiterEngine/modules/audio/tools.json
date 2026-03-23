@@ -1,0 +1,118 @@
+[
+  {
+    "name": "audio_convert",
+    "description": "Convert audio format",
+    "module": "audio",
+    "function": "modules.audio.src.audio.audio_convert",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        },
+        "bitrate": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "format"
+      ]
+    }
+  },
+  {
+    "name": "audio_info",
+    "description": "Get audio file metadata",
+    "module": "audio",
+    "function": "modules.audio.src.audio.audio_info",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "audio_trim",
+    "description": "Trim audio file",
+    "module": "audio",
+    "function": "modules.audio.src.audio.audio_trim",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "start": {
+          "type": "number"
+        },
+        "end": {
+          "type": "number"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "start",
+        "end"
+      ]
+    }
+  },
+  {
+    "name": "audio_normalize",
+    "description": "Normalize audio levels",
+    "module": "audio",
+    "function": "modules.audio.src.audio.audio_normalize",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "audio_merge",
+    "description": "Merge audio files",
+    "module": "audio",
+    "function": "modules.audio.src.audio.audio_merge",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "paths",
+        "dst"
+      ]
+    }
+  }
+]

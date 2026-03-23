@@ -1,0 +1,79 @@
+[
+  {
+    "name": "template_list",
+    "description": "List available templates",
+    "module": "template",
+    "function": "modules.template.src.template.template_list",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "template_apply",
+    "description": "Apply a template to directory",
+    "module": "template",
+    "function": "modules.template.src.template.template_apply",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "template_name": {
+          "type": "string"
+        },
+        "output_dir": {
+          "type": "string"
+        },
+        "context": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "template_name",
+        "output_dir"
+      ]
+    }
+  },
+  {
+    "name": "template_create",
+    "description": "Create a new template",
+    "module": "template",
+    "function": "modules.template.src.template.template_create",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "src_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "src_dir"
+      ]
+    }
+  },
+  {
+    "name": "template_render",
+    "description": "Render a template string",
+    "module": "template",
+    "function": "modules.template.src.template.template_render",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "template_str": {
+          "type": "string"
+        },
+        "context": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "template_str",
+        "context"
+      ]
+    }
+  }
+]

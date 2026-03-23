@@ -1,0 +1,141 @@
+[
+  {
+    "name": "http_get",
+    "description": "Perform HTTP GET request",
+    "module": "network",
+    "function": "modules.network.src.network.http_get",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "timeout": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  },
+  {
+    "name": "http_post",
+    "description": "Perform HTTP POST request",
+    "module": "network",
+    "function": "modules.network.src.network.http_post",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "body": {
+          "type": "object"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "timeout": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "url",
+        "body"
+      ]
+    }
+  },
+  {
+    "name": "http_put",
+    "description": "Perform HTTP PUT request",
+    "module": "network",
+    "function": "modules.network.src.network.http_put",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "body": {
+          "type": "object"
+        },
+        "headers": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "url",
+        "body"
+      ]
+    }
+  },
+  {
+    "name": "http_delete",
+    "description": "Perform HTTP DELETE request",
+    "module": "network",
+    "function": "modules.network.src.network.http_delete",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  },
+  {
+    "name": "download_file",
+    "description": "Download a file from URL",
+    "module": "network",
+    "function": "modules.network.src.network.download_file",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "upload_file",
+    "description": "Upload a file to URL",
+    "module": "network",
+    "function": "modules.network.src.network.upload_file",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "url",
+        "path"
+      ]
+    }
+  }
+]

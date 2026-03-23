@@ -1,0 +1,6 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "description": "REST/GraphQL API client utilities",
+  "dependencies": []
+}

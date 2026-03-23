@@ -1,0 +1,108 @@
+[
+  {
+    "name": "blender_open",
+    "description": "Open a .blend file",
+    "module": "blender",
+    "function": "modules.blender.src.blender.blender_open",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "blender_render",
+    "description": "Render from Blender",
+    "module": "blender",
+    "function": "modules.blender.src.blender.blender_render",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "blend_file": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "frame": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "blend_file"
+      ]
+    }
+  },
+  {
+    "name": "blender_export",
+    "description": "Export scene from Blender",
+    "module": "blender",
+    "function": "modules.blender.src.blender.blender_export",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "blend_file": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blend_file",
+        "format",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "blender_script",
+    "description": "Run a Python script in Blender",
+    "module": "blender",
+    "function": "modules.blender.src.blender.blender_script",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "blend_file": {
+          "type": "string"
+        },
+        "script": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blend_file",
+        "script"
+      ]
+    }
+  },
+  {
+    "name": "blender_bake",
+    "description": "Bake textures in Blender",
+    "module": "blender",
+    "function": "modules.blender.src.blender.blender_bake",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "blend_file": {
+          "type": "string"
+        },
+        "output_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blend_file"
+      ]
+    }
+  }
+]

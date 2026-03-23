@@ -1,0 +1,173 @@
+[
+  {
+    "name": "zip_pack",
+    "description": "Create a zip archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.zip_pack",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "zip_extract",
+    "description": "Extract a zip archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.zip_extract",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "zip_add_file",
+    "description": "Add a file to a zip archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.zip_add_file",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "archive": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive",
+        "file"
+      ]
+    }
+  },
+  {
+    "name": "zip_remove_file",
+    "description": "Remove file from zip archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.zip_remove_file",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "archive": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive",
+        "file"
+      ]
+    }
+  },
+  {
+    "name": "tar_pack",
+    "description": "Create a tar archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.tar_pack",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        },
+        "compression": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "tar_extract",
+    "description": "Extract a tar archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.tar_extract",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "sevenz_pack",
+    "description": "Create a 7z archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.sevenz_pack",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "dst"
+      ]
+    }
+  },
+  {
+    "name": "sevenz_extract",
+    "description": "Extract a 7z archive",
+    "module": "zip",
+    "function": "modules.zip.src.zip_tools.sevenz_extract",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "dst"
+      ]
+    }
+  }
+]

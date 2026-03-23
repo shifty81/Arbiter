@@ -1,0 +1,147 @@
+[
+  {
+    "name": "db_query",
+    "description": "Execute a database query",
+    "module": "database",
+    "function": "modules.database.src.database.db_query",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "params": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "connection",
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "db_insert",
+    "description": "Insert records into database",
+    "module": "database",
+    "function": "modules.database.src.database.db_insert",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "table": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "connection",
+        "table",
+        "data"
+      ]
+    }
+  },
+  {
+    "name": "db_update",
+    "description": "Update database records",
+    "module": "database",
+    "function": "modules.database.src.database.db_update",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "table": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object"
+        },
+        "where": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connection",
+        "table",
+        "data",
+        "where"
+      ]
+    }
+  },
+  {
+    "name": "db_delete",
+    "description": "Delete database records",
+    "module": "database",
+    "function": "modules.database.src.database.db_delete",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "table": {
+          "type": "string"
+        },
+        "where": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connection",
+        "table",
+        "where"
+      ]
+    }
+  },
+  {
+    "name": "db_migrate",
+    "description": "Run database migration",
+    "module": "database",
+    "function": "modules.database.src.database.db_migrate",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "migration_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connection",
+        "migration_dir"
+      ]
+    }
+  },
+  {
+    "name": "db_backup",
+    "description": "Backup a database",
+    "module": "database",
+    "function": "modules.database.src.database.db_backup",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connection",
+        "output"
+      ]
+    }
+  }
+]

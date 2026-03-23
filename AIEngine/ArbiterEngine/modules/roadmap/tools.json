@@ -1,0 +1,93 @@
+[
+  {
+    "name": "roadmap_list",
+    "description": "List all milestones and tasks in the SwissAgent development roadmap with their current status.",
+    "module": "roadmap",
+    "function": "modules.roadmap.src.roadmap_tools.roadmap_list",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "status_filter": {
+          "type": "string",
+          "description": "Filter tasks by status: 'pending', 'in_progress', 'done', or 'all' (default)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "roadmap_next_task",
+    "description": "Get the next pending or in-progress task from the roadmap that the agent should work on.",
+    "module": "roadmap",
+    "function": "modules.roadmap.src.roadmap_tools.roadmap_next_task",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "roadmap_start_task",
+    "description": "Mark a roadmap task as 'in_progress' to signal the agent is now working on it.",
+    "module": "roadmap",
+    "function": "modules.roadmap.src.roadmap_tools.roadmap_start_task",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The ID of the task to start (e.g. 't5-1')"
+        }
+      },
+      "required": ["task_id"]
+    }
+  },
+  {
+    "name": "roadmap_complete_task",
+    "description": "Mark a roadmap task as 'done' after successfully implementing it. Optionally add notes about what was done.",
+    "module": "roadmap",
+    "function": "modules.roadmap.src.roadmap_tools.roadmap_complete_task",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The ID of the completed task (e.g. 't5-1')"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes about what was implemented or changed"
+        }
+      },
+      "required": ["task_id"]
+    }
+  },
+  {
+    "name": "roadmap_add_task",
+    "description": "Add a new task to a milestone in the roadmap. Use this when planning new work or breaking down a task.",
+    "module": "roadmap",
+    "function": "modules.roadmap.src.roadmap_tools.roadmap_add_task",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "milestone_id": {
+          "type": "string",
+          "description": "The milestone to add the task to (e.g. 'm5')"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short title for the task"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of what needs to be done"
+        },
+        "priority": {
+          "type": "string",
+          "description": "Task priority: 'high', 'medium' (default), or 'low'"
+        }
+      },
+      "required": ["milestone_id", "title"]
+    }
+  }
+]

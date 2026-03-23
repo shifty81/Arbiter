@@ -1,0 +1,88 @@
+[
+  {
+    "name": "compile_glsl",
+    "description": "Validate/compile a GLSL shader using glslangValidator",
+    "module": "shader",
+    "function": "modules.shader.src.shader.compile_glsl",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": { "type": "string" },
+        "shader_type": { "type": "string" }
+      },
+      "required": ["src"]
+    }
+  },
+  {
+    "name": "compile_hlsl",
+    "description": "Compile an HLSL shader using fxc.exe",
+    "module": "shader",
+    "function": "modules.shader.src.shader.compile_hlsl",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": { "type": "string" },
+        "entry": { "type": "string" },
+        "profile": { "type": "string" },
+        "dst": { "type": "string" }
+      },
+      "required": ["src"]
+    }
+  },
+  {
+    "name": "validate_shader",
+    "description": "Validate a shader file (auto-detects GLSL/HLSL from extension)",
+    "module": "shader",
+    "function": "modules.shader.src.shader.validate_shader",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": { "type": "string" }
+      },
+      "required": ["src"]
+    }
+  },
+  {
+    "name": "generate_spirv",
+    "description": "Generate SPIR-V bytecode from a GLSL shader",
+    "module": "shader",
+    "function": "modules.shader.src.shader.generate_spirv",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": { "type": "string" },
+        "dst": { "type": "string" }
+      },
+      "required": ["src"]
+    }
+  },
+  {
+    "name": "generate_glsl_template",
+    "description": "Write a minimal GLSL vertex + fragment shader pair",
+    "module": "shader",
+    "function": "modules.shader.src.shader.generate_glsl_template",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "dst_vert": { "type": "string" },
+        "dst_frag": { "type": "string" },
+        "color": { "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["dst_vert", "dst_frag"]
+    }
+  },
+  {
+    "name": "generate_hlsl_template",
+    "description": "Write a minimal HLSL shader file",
+    "module": "shader",
+    "function": "modules.shader.src.shader.generate_hlsl_template",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "dst": { "type": "string" },
+        "color": { "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["dst"]
+    }
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "test_api_scaffold_mod_run",
+    "description": "Run the main test_api_scaffold_mod operation.",
+    "module": "test_api_scaffold_mod",
+    "function": "modules.test_api_scaffold_mod.src.test_api_scaffold_mod_tools.test_api_scaffold_mod_run",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "Input for the operation"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  }
+]

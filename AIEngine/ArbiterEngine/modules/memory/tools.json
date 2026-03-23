@@ -1,0 +1,104 @@
+[
+  {
+    "name": "memory_store",
+    "description": "Store a memory entry",
+    "module": "memory",
+    "function": "modules.memory.src.memory.memory_store",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ]
+    }
+  },
+  {
+    "name": "memory_recall",
+    "description": "Recall a memory entry",
+    "module": "memory",
+    "function": "modules.memory.src.memory.memory_recall",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    }
+  },
+  {
+    "name": "memory_search",
+    "description": "Search memory entries",
+    "module": "memory",
+    "function": "modules.memory.src.memory.memory_search",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "memory_delete",
+    "description": "Delete a memory entry",
+    "module": "memory",
+    "function": "modules.memory.src.memory.memory_delete",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    }
+  },
+  {
+    "name": "memory_list",
+    "description": "List memory entries",
+    "module": "memory",
+    "function": "modules.memory.src.memory.memory_list",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        }
+      },
+      "required": []
+    }
+  }
+]

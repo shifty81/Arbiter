@@ -1,0 +1,6 @@
+{
+  "name": "binary",
+  "version": "0.1.0",
+  "description": "Binary file analysis and manipulation",
+  "dependencies": []
+}

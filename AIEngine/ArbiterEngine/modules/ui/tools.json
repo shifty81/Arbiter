@@ -1,0 +1,54 @@
+[
+  {
+    "name": "ui_generate_component",
+    "description": "Generate UI component code (ImGui, HTML, Win32)",
+    "module": "ui",
+    "function": "modules.ui.src.ui.ui_generate_component",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "component_type": { "type": "string" },
+        "name": { "type": "string" },
+        "framework": { "type": "string" },
+        "options": { "type": "object" }
+      },
+      "required": ["component_type", "name"]
+    }
+  },
+  {
+    "name": "ui_screenshot",
+    "description": "Placeholder for UI element screenshots",
+    "module": "ui",
+    "function": "modules.ui.src.ui.ui_screenshot",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "element_id": { "type": "string" },
+        "output_path": { "type": "string" }
+      },
+      "required": ["element_id"]
+    }
+  },
+  {
+    "name": "ui_list_components",
+    "description": "List available UI component types per framework",
+    "module": "ui",
+    "function": "modules.ui.src.ui.ui_list_components",
+    "arguments": { "type": "object", "properties": {}, "required": [] }
+  },
+  {
+    "name": "ui_generate_layout",
+    "description": "Generate a source file containing multiple UI components",
+    "module": "ui",
+    "function": "modules.ui.src.ui.ui_generate_layout",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "components": { "type": "array", "items": { "type": "object" } },
+        "output_path": { "type": "string" },
+        "framework": { "type": "string" }
+      },
+      "required": ["components", "output_path"]
+    }
+  }
+]

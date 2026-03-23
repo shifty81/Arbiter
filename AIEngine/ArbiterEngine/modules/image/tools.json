@@ -1,0 +1,204 @@
+[
+  {
+    "name": "image_resize",
+    "description": "Resize an image",
+    "module": "image",
+    "function": "modules.image.src.image_tools.image_resize",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "width",
+        "height"
+      ]
+    }
+  },
+  {
+    "name": "image_convert",
+    "description": "Convert image format",
+    "module": "image",
+    "function": "modules.image.src.image_tools.image_convert",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "format"
+      ]
+    }
+  },
+  {
+    "name": "image_thumbnail",
+    "description": "Create image thumbnail",
+    "module": "image",
+    "function": "modules.image.src.image_tools.image_thumbnail",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "size"
+      ]
+    }
+  },
+  {
+    "name": "image_crop",
+    "description": "Crop an image",
+    "module": "image",
+    "function": "modules.image.src.image_tools.image_crop",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "w": {
+          "type": "integer"
+        },
+        "h": {
+          "type": "integer"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "x",
+        "y",
+        "w",
+        "h"
+      ]
+    }
+  },
+  {
+    "name": "image_flip",
+    "description": "Flip an image",
+    "module": "image",
+    "function": "modules.image.src.image_tools.image_flip",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "direction"
+      ]
+    }
+  },
+  {
+    "name": "image_rotate",
+    "description": "Rotate an image",
+    "module": "image",
+    "function": "modules.image.src.image_tools.image_rotate",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "degrees": {
+          "type": "number"
+        },
+        "dst": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "degrees"
+      ]
+    }
+  },
+  {
+    "name": "image_info",
+    "description": "Get image metadata",
+    "module": "image",
+    "function": "modules.image.src.image_tools.image_info",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "batch_convert",
+    "description": "Batch convert images",
+    "module": "image",
+    "function": "modules.image.src.image_tools.batch_convert",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src_dir": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "dst_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src_dir",
+        "format",
+        "dst_dir"
+      ]
+    }
+  }
+]

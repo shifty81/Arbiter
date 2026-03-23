@@ -1,0 +1,65 @@
+[
+  {
+    "name": "tile_slice",
+    "description": "Slice a tileset image into individual tile images",
+    "module": "tile",
+    "function": "modules.tile.src.tile.tile_slice",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src": { "type": "string" },
+        "tile_w": { "type": "integer" },
+        "tile_h": { "type": "integer" },
+        "dst_dir": { "type": "string" }
+      },
+      "required": ["src", "tile_w", "tile_h", "dst_dir"]
+    }
+  },
+  {
+    "name": "tile_pack",
+    "description": "Pack individual tile images into a single atlas/tileset",
+    "module": "tile",
+    "function": "modules.tile.src.tile.tile_pack",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src_dir": { "type": "string" },
+        "tile_w": { "type": "integer" },
+        "tile_h": { "type": "integer" },
+        "dst": { "type": "string" },
+        "columns": { "type": "integer" }
+      },
+      "required": ["src_dir", "tile_w", "tile_h", "dst"]
+    }
+  },
+  {
+    "name": "tile_export",
+    "description": "Export a tilemap dictionary to a JSON file",
+    "module": "tile",
+    "function": "modules.tile.src.tile.tile_export",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "tilemap": { "type": "object" },
+        "dst": { "type": "string" }
+      },
+      "required": ["tilemap", "dst"]
+    }
+  },
+  {
+    "name": "tile_create_map",
+    "description": "Create a blank tilemap of given width/height",
+    "module": "tile",
+    "function": "modules.tile.src.tile.tile_create_map",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "default_tile": { "type": "integer" },
+        "dst": { "type": "string" }
+      },
+      "required": ["width", "height"]
+    }
+  }
+]

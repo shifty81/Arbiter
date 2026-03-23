@@ -1,0 +1,90 @@
+[
+  {
+    "name": "profile_get",
+    "description": "Read the AI profile for the current (or specified) project — includes persona, tech stack, LLM preference, and knowledge sources.",
+    "module": "project_profile",
+    "function": "modules.project_profile.src.profile_tools.profile_get",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "project_path": {"type": "string", "description": "Workspace-relative project path (e.g. workspace/myproject)"}
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "profile_set",
+    "description": "Create or update the AI profile for a project. Sets the AI persona, tech stack, coding standards, and LLM backend.",
+    "module": "project_profile",
+    "function": "modules.project_profile.src.profile_tools.profile_set",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "project_path": {"type": "string", "description": "Workspace-relative project path"},
+        "project_name": {"type": "string", "description": "Human-readable project name"},
+        "description": {"type": "string", "description": "What this project is and what it does"},
+        "tech_stack": {"type": "array", "items": {"type": "string"}, "description": "Technologies used (e.g. ['Python', 'FastAPI', 'SQLite'])"},
+        "ai_persona": {"type": "string", "description": "Custom system prompt addition for the AI when working on this project"},
+        "coding_standards": {"type": "string", "description": "Coding style guidelines (e.g. 'PEP 8, type hints required, 120-char line limit')"},
+        "llm_backend": {"type": "string", "description": "Preferred LLM backend: 'ollama', 'api', or 'local'"},
+        "knowledge_sources": {"type": "array", "items": {"type": "string"}, "description": "Documentation URLs to fetch and index for this project"}
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "profile_detect",
+    "description": "Auto-detect the tech stack and suggest an AI profile by scanning project files (package.json, pyproject.toml, Cargo.toml, etc.).",
+    "module": "project_profile",
+    "function": "modules.project_profile.src.profile_tools.profile_detect",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "project_path": {"type": "string", "description": "Workspace-relative project path to scan"}
+      },
+      "required": ["project_path"]
+    }
+  },
+  {
+    "name": "rules_get",
+    "description": "Get all AI rules for a project — constraints the agent must follow (must/must_not/prefer).",
+    "module": "project_profile",
+    "function": "modules.project_profile.src.profile_tools.rules_get",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "project_path": {"type": "string", "description": "Workspace-relative project path"}
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "rules_add",
+    "description": "Add a new rule to the project's AI rule set. Rules constrain how the agent implements things.",
+    "module": "project_profile",
+    "function": "modules.project_profile.src.profile_tools.rules_add",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "rule": {"type": "string", "description": "The rule text (e.g. 'Always write docstrings for public functions')"},
+        "rule_type": {"type": "string", "description": "'must' (required), 'must_not' (forbidden), or 'prefer' (recommended)"},
+        "project_path": {"type": "string", "description": "Workspace-relative project path"}
+      },
+      "required": ["rule", "rule_type"]
+    }
+  },
+  {
+    "name": "rules_remove",
+    "description": "Remove a rule from the project's AI rule set by its ID.",
+    "module": "project_profile",
+    "function": "modules.project_profile.src.profile_tools.rules_remove",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "rule_id": {"type": "string", "description": "ID of the rule to remove"},
+        "project_path": {"type": "string", "description": "Workspace-relative project path"}
+      },
+      "required": ["rule_id"]
+    }
+  }
+]

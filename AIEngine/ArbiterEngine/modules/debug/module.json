@@ -1,0 +1,6 @@
+{
+  "name": "debug",
+  "version": "0.1.0",
+  "description": "Debugging utilities and diagnostics",
+  "dependencies": []
+}

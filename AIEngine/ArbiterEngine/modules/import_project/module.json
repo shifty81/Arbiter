@@ -1,0 +1,6 @@
+{
+  "name": "import_project",
+  "version": "0.1.0",
+  "description": "Import local folders or git repositories into the workspace for development",
+  "dependencies": []
+}

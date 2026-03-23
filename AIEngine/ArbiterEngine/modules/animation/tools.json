@@ -1,0 +1,74 @@
+[
+  {
+    "name": "anim_import",
+    "description": "Import animation data from a JSON or BVH file",
+    "module": "animation",
+    "function": "modules.animation.src.animation.anim_import",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "anim_export",
+    "description": "Export animation data to a JSON file",
+    "module": "animation",
+    "function": "modules.animation.src.animation.anim_export",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "object" },
+        "path": { "type": "string" },
+        "fmt": { "type": "string" }
+      },
+      "required": ["data", "path"]
+    }
+  },
+  {
+    "name": "anim_bake",
+    "description": "Bake animation curves at a given FPS",
+    "module": "animation",
+    "function": "modules.animation.src.animation.anim_bake",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "fps": { "type": "integer" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "anim_retarget",
+    "description": "Retarget animation to a different skeleton",
+    "module": "animation",
+    "function": "modules.animation.src.animation.anim_retarget",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "src_path": { "type": "string" },
+        "target_skeleton": { "type": "object" },
+        "dst_path": { "type": "string" }
+      },
+      "required": ["src_path", "target_skeleton", "dst_path"]
+    }
+  },
+  {
+    "name": "anim_create_template",
+    "description": "Create a blank animation template with given bones and frame count",
+    "module": "animation",
+    "function": "modules.animation.src.animation.anim_create_template",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "bone_names": { "type": "array", "items": { "type": "string" } },
+        "frame_count": { "type": "integer" }
+      },
+      "required": ["path", "bone_names"]
+    }
+  }
+]

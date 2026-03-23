@@ -1,0 +1,46 @@
+[
+  {
+    "name": "import_project",
+    "description": "Copy a local folder into workspace/ for development. Use this when the user asks to 'import', 'pull in', 'open', or 'bring in' a project from a local path.",
+    "module": "import_project",
+    "function": "modules.import_project.src.import_tools.import_project",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "source_path": {
+          "type": "string",
+          "description": "Absolute or relative path to the local folder to import (e.g. /home/user/myproject or ~/projects/game)"
+        },
+        "destination_name": {
+          "type": "string",
+          "description": "Name for the project folder inside workspace/ (defaults to the source folder name)"
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "If true, replace the destination folder if it already exists. Default is false."
+        }
+      },
+      "required": ["source_path"]
+    }
+  },
+  {
+    "name": "scan_folder",
+    "description": "List the contents of any local folder to inspect a project before importing it.",
+    "module": "import_project",
+    "function": "modules.import_project.src.import_tools.scan_folder",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute or relative path to the folder to scan"
+        },
+        "max_depth": {
+          "type": "integer",
+          "description": "How many directory levels to recurse (default 2)"
+        }
+      },
+      "required": ["path"]
+    }
+  }
+]

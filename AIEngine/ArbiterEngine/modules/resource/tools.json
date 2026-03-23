@@ -1,0 +1,109 @@
+[
+  {
+    "name": "resource_pack",
+    "description": "Pack resources into bundle",
+    "module": "resource",
+    "function": "modules.resource.src.resource.resource_pack",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "input_dir": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_dir",
+        "output"
+      ]
+    }
+  },
+  {
+    "name": "resource_unpack",
+    "description": "Unpack resource bundle",
+    "module": "resource",
+    "function": "modules.resource.src.resource.resource_unpack",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "bundle": {
+          "type": "string"
+        },
+        "output_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundle",
+        "output_dir"
+      ]
+    }
+  },
+  {
+    "name": "resource_list",
+    "description": "List resources in bundle",
+    "module": "resource",
+    "function": "modules.resource.src.resource.resource_list",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "bundle": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundle"
+      ]
+    }
+  },
+  {
+    "name": "resource_add",
+    "description": "Add resource to bundle",
+    "module": "resource",
+    "function": "modules.resource.src.resource.resource_add",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "bundle": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "alias": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundle",
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "resource_remove",
+    "description": "Remove resource from bundle",
+    "module": "resource",
+    "function": "modules.resource.src.resource.resource_remove",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "bundle": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundle",
+        "name"
+      ]
+    }
+  }
+]

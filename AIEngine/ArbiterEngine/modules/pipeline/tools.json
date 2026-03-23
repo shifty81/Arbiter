@@ -1,0 +1,67 @@
+[
+  {
+    "name": "pipeline_run",
+    "description": "Run a named pipeline",
+    "module": "pipeline",
+    "function": "modules.pipeline.src.pipeline.pipeline_run",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "pipeline_list",
+    "description": "List available pipelines",
+    "module": "pipeline",
+    "function": "modules.pipeline.src.pipeline.pipeline_list",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "pipeline_status",
+    "description": "Get pipeline status",
+    "module": "pipeline",
+    "function": "modules.pipeline.src.pipeline.pipeline_status",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pipeline_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pipeline_id"
+      ]
+    }
+  },
+  {
+    "name": "pipeline_cancel",
+    "description": "Cancel a running pipeline",
+    "module": "pipeline",
+    "function": "modules.pipeline.src.pipeline.pipeline_cancel",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pipeline_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pipeline_id"
+      ]
+    }
+  }
+]

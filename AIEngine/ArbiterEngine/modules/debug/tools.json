@@ -1,0 +1,77 @@
+[
+  {
+    "name": "debug_attach",
+    "description": "Attach debugger to process",
+    "module": "debug",
+    "function": "modules.debug.src.debug.debug_attach",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid"
+      ]
+    }
+  },
+  {
+    "name": "debug_breakpoint",
+    "description": "Set a breakpoint",
+    "module": "debug",
+    "function": "modules.debug.src.debug.debug_breakpoint",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file",
+        "line"
+      ]
+    }
+  },
+  {
+    "name": "debug_trace",
+    "description": "Trace function calls",
+    "module": "debug",
+    "function": "modules.debug.src.debug.debug_trace",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid"
+      ]
+    }
+  },
+  {
+    "name": "debug_memory",
+    "description": "Dump memory info for process",
+    "module": "debug",
+    "function": "modules.debug.src.debug.debug_memory",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid"
+      ]
+    }
+  }
+]

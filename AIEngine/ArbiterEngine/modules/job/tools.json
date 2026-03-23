@@ -1,0 +1,91 @@
+[
+  {
+    "name": "job_submit",
+    "description": "Submit a background job",
+    "module": "job",
+    "function": "modules.job.src.job.job_submit",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "args": {
+          "type": "object"
+        },
+        "priority": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task"
+      ]
+    }
+  },
+  {
+    "name": "job_status",
+    "description": "Get job status",
+    "module": "job",
+    "function": "modules.job.src.job.job_status",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    }
+  },
+  {
+    "name": "job_cancel",
+    "description": "Cancel a job",
+    "module": "job",
+    "function": "modules.job.src.job.job_cancel",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    }
+  },
+  {
+    "name": "job_list",
+    "description": "List all jobs",
+    "module": "job",
+    "function": "modules.job.src.job.job_list",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "job_result",
+    "description": "Get job result",
+    "module": "job",
+    "function": "modules.job.src.job.job_result",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    }
+  }
+]

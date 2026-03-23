@@ -1,0 +1,7 @@
+{
+  "name": "ai_persona",
+  "version": "1.0.0",
+  "description": "Custom offline-capable AI personas — application-aware developer and architect assistants.",
+  "author": "SwissAgent",
+  "entry": "src/ai_persona_tools.py"
+}

@@ -1,0 +1,180 @@
+[
+  {
+    "name": "run_python",
+    "description": "Execute a Python script",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_python",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_shell",
+    "description": "Execute a shell (bash/cmd) script",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_shell",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_powershell",
+    "description": "Execute a PowerShell script",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_powershell",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_lua",
+    "description": "Execute a Lua script",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_lua",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_node",
+    "description": "Execute a Node.js / JavaScript script",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_node",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_typescript",
+    "description": "Execute a TypeScript file via ts-node",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_typescript",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_rust",
+    "description": "Compile and run a Rust source file with rustc",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_rust",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_go",
+    "description": "Run a Go source file with go run",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_go",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_kotlin",
+    "description": "Compile and run a Kotlin file with kotlinc",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_kotlin",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_java",
+    "description": "Compile and run a Java source file",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_java",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_csharp_script",
+    "description": "Run a C# script file via dotnet-script or csi",
+    "module": "script",
+    "function": "modules.script.src.script_runner.run_csharp_script",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "eval_python",
+    "description": "Evaluate a Python code string",
+    "module": "script",
+    "function": "modules.script.src.script_runner.eval_python",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" }
+      },
+      "required": ["code"]
+    }
+  }
+]
