@@ -545,6 +545,8 @@
     updateStatusBar();
     postToWpf("file_opened", { path });
   }
+
+  function closeTab(path) {
     const file = state.openFiles[path];
     if (file && file.modified) {
       if (!confirm(`${path} has unsaved changes. Close anyway?`)) return;
