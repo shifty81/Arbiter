@@ -1470,9 +1470,33 @@
   function initMonaco() {
     let monacoLoaded = false;
 
+    // ── Loading overlay helpers ──────────────────────────────────────────────
+    const _loadingMsg = $("editor-loading-msg");
+    const _loadingSub = $("editor-loading-sub");
+    function _setLoadMsg(main, sub) {
+      if (_loadingMsg) _loadingMsg.textContent = main;
+      if (_loadingSub) _loadingSub.textContent = sub || "";
+    }
+
+    // Show where Monaco is being fetched from
+    const _vsBase = window.__monacoVsBase || "";
+    const _isLocal = _vsBase && !_vsBase.startsWith("http");
+    _setLoadMsg(
+      "Loading Monaco editor…",
+      _isLocal ? "Using local offline copy…" : "Fetching from CDN (cdn.jsdelivr.net)…"
+    );
+
+    // Escalate the message after 4 s so the user knows the CDN is just slow
+    const _slowMsgTimer = setTimeout(() => {
+      if (!monacoLoaded) _setLoadMsg("Still loading editor…", "CDN is slow — please wait or check your connection.");
+    }, 4000);
+
     // Mark the editor as having been initialised (either Monaco or fallback).
     // Shared between the success path and the fallback so only one runs.
-    function _markLoaded() { monacoLoaded = true; }
+    function _markLoaded() {
+      monacoLoaded = true;
+      clearTimeout(_slowMsgTimer);
+    }
 
     // Hard deadline: 10 s gives slow CDN / local disk a fair chance.
     // If Monaco still isn't ready we show the plain-text fallback immediately.
@@ -1499,6 +1523,9 @@
         setTimeout(_tryLoad, 100);
         return;
       }
+
+      // AMD loader is ready — update the message then load the editor module.
+      _setLoadMsg("Loading Monaco editor…", _isLocal ? "Parsing local bundles…" : "Downloading editor bundles from CDN…");
 
       // AMD require is available — ask for the full editor module.
       require(["vs/editor/editor.main"], function () {
@@ -3727,6 +3754,26 @@
   initMonaco();
   _refreshProjectSwitcher();
   loadChatHistory("");  // load recent chat history on startup (t10-5)
+
+  // Welcome message shown in the chat panel on first load.
+  // Explains the interface and available slash commands.
+  appendChat(
+    "👋 Welcome to Arbiter — your AI-powered development platform.\n\n" +
+    "I can help you write, fix, explain, test, and refactor code.\n\n" +
+    "Quick commands (buttons above or type directly):\n" +
+    "  /fix       — Fix bugs in the active file\n" +
+    "  /explain   — Explain what the code does\n" +
+    "  /test      — Generate unit tests\n" +
+    "  /docs      — Add docstrings & comments\n" +
+    "  /refactor  — Improve code structure\n\n" +
+    "Or describe what you want to build in plain English and I'll write it.\n\n" +
+    "💡 Select code in the editor → floating AI toolbar appears.\n" +
+    "🖱 Right-click in the editor → AI context menu actions.\n" +
+    "📌 Shortcuts: Ctrl+P = quick open  |  Ctrl+Shift+P = command palette\n" +
+    "🌐 Use the Activity Bar (left) to access all tools and panels.",
+    "agent"
+  );
+
   appendOutput("Arbiter IDE ready. Open a file or type a prompt to get started.\n");
   appendOutput("Tip: Ctrl+P = file picker  |  Ctrl+Shift+P = command palette  |  Terminal tab = interactive shell\n");
   updateStatusBar();

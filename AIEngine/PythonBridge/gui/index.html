@@ -339,9 +339,12 @@
       <!-- ── Panel: Scaffold ───────────────────────────────────── -->
       <div class="sb-panel" id="panel-scaffold">
         <div class="sidebar-header">
-          <span>Scaffold</span>
+          <span>⚡ Code Tools &amp; Scaffold</span>
         </div>
         <div class="sb-panel-body">
+          <div style="padding:6px 8px 4px;font-size:11px;color:var(--text-dim);line-height:1.5">
+            Generate modules, plugins, and tests using AI. Results are written directly into your workspace.
+          </div>
           <!-- Generate module -->
           <div class="kp-section-title">📦 New Module</div>
           <input id="scaffold-mod-name" type="text" placeholder="Module name…" style="width:100%;margin-bottom:4px;" />
@@ -1186,15 +1189,24 @@
           <!-- Loading overlay shown while Monaco initialises -->
           <div id="editor-loading">
             <div class="editor-spinner"></div>
-            <span>Loading editor…</span>
+            <span id="editor-loading-msg">Initializing editor…</span>
+            <small id="editor-loading-sub">Checking for local Monaco copy…</small>
           </div>
           <!-- Welcome screen shown when no file is open -->
           <div id="editor-welcome" class="hidden">
             <div class="welcome-content">
               <div class="welcome-icon">🛠</div>
               <h2>Arbiter IDE</h2>
-              <p>Open a file from the sidebar, or create a new one with <kbd>+</kbd></p>
-              <p class="welcome-hint">Use the AI Agent panel on the right to generate or improve code.</p>
+              <p>Open a file from the Explorer, or use <kbd>Ctrl+P</kbd> to quick-open.</p>
+              <div class="welcome-shortcuts">
+                <div class="welcome-shortcut"><kbd>Ctrl+P</kbd><span>Quick open file</span></div>
+                <div class="welcome-shortcut"><kbd>Ctrl+Shift+P</kbd><span>Command palette</span></div>
+                <div class="welcome-shortcut"><kbd>Ctrl+S</kbd><span>Save file</span></div>
+                <div class="welcome-shortcut"><kbd>Ctrl+\</kbd><span>Split editor</span></div>
+              </div>
+              <p class="welcome-hint">💬 Use the Chat panel → AI writes or edits code for you.</p>
+              <p class="welcome-hint">🔧 Select code → floating AI toolbar for instant actions.</p>
+              <p class="welcome-hint">🌐 Activity bar (left) → access all tools &amp; panels.</p>
             </div>
           </div>
           <!-- Fallback plain-text editor when Monaco CDN is unreachable -->
