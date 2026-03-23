@@ -4898,8 +4898,11 @@ def sync_list() -> dict:
 _chat_branches: dict[str, dict[str, list[dict]]] = {}
 _response_feedback: dict[str, list[dict]] = {}
 _chat_bookmarks: dict[str, list[dict]] = {}
-_active_file_contexts: dict[str, str] = {}
+# Maps project → {"path": str, "content": str}
+_active_file_contexts: dict[str, dict[str, str]] = {}
 _message_threads: dict[str, dict[str, list[dict]]] = {}
+
+_STREAM_CHUNK_WORDS = 8   # words per simulated streaming chunk (M10-7)
 
 _FEEDBACK_FILE  = _BASE / "logs" / "response_feedback.json"
 _BOOKMARKS_FILE = _BASE / "logs" / "chat_bookmarks.json"
@@ -4995,15 +4998,15 @@ def chat_branch_create(req: _BranchCreateReq) -> dict:
     M10-1
     """
     history = _chat_histories.get(req.project, [])
-    fork    = history[:req.from_message_index]
+    forked_history = history[:req.from_message_index]
     bid     = str(_uuid.uuid4())[:8]
     name    = req.branch_name or f"branch-{bid}"
     _chat_branches.setdefault(req.project, {})[bid] = {
         "name":    name,
-        "history": list(fork),
+        "history": list(forked_history),
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
-    return {"branch_id": bid, "name": name, "message_count": len(fork)}
+    return {"branch_id": bid, "name": name, "message_count": len(forked_history)}
 
 
 @app.get("/chat/branches/{project}")
@@ -5314,9 +5317,7 @@ def chat_context_file_set(req: _FileContextReq) -> dict:
     except Exception as exc:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=str(exc))
-    _active_file_contexts[req.project] = req.file_path
-    # Store content alongside path using a small side-dict
-    _active_file_contexts[f"__content__{req.project}"] = content
+    _active_file_contexts[req.project] = {"path": req.file_path, "content": content}
     return {
         "status":          "ok",
         "file_path":       req.file_path,
@@ -5330,8 +5331,9 @@ def chat_context_file_get(project: str) -> dict:
 
     M10-6
     """
-    fp      = _active_file_contexts.get(project, "")
-    content = _active_file_contexts.get(f"__content__{project}", "")
+    ctx     = _active_file_contexts.get(project, {})
+    fp      = ctx.get("path", "")
+    content = ctx.get("content", "")
     return {"project": project, "file_path": fp, "content_preview": content[:200]}
 
 
@@ -5342,7 +5344,6 @@ def chat_context_file_clear(project: str) -> dict:
     M10-6
     """
     _active_file_contexts.pop(project, None)
-    _active_file_contexts.pop(f"__content__{project}", None)
     return {"status": "cleared", "project": project}
 
 
@@ -5388,8 +5389,10 @@ async def chat_stream(req: _StreamChatReq):
                 # Simulate streaming: split into ~8-word chunks
                 words   = full.split()
                 chunks2: list[str] = []
-                for i in range(0, len(words), 8):
-                    chunk = " ".join(words[i:i + 8]) + (" " if i + 8 < len(words) else "")
+                for i in range(0, len(words), _STREAM_CHUNK_WORDS):
+                    chunk = " ".join(words[i:i + _STREAM_CHUNK_WORDS]) + (
+                        " " if i + _STREAM_CHUNK_WORDS < len(words) else ""
+                    )
                     chunks2.append(chunk)
                     yield f"data: {_json_mod.dumps({'token': chunk, 'done': False})}\n\n"
                     await asyncio.sleep(0.03)
