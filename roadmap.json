@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform \u2014 three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "last_updated": "2026-03-23",
   "pillars": [
     "Pillar 1 \u2014 Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -901,6 +901,112 @@
           "title": "Deployment manager: named deploy configurations with command execution and run history",
           "status": "done",
           "notes": "Implemented /deploy/config CRUD, /deploy/run (background execution with env injection), /deploy/configs, /deploy/history with persistence in logs/deployments.json."
+        }
+      ]
+    },
+    {
+      "id": "M10",
+      "title": "Enhanced Chat & Conversational AI",
+      "description": "Next generation chat features: session branching, conversation templates, response feedback, multi-modal input, smart context switching, bookmarks, and real-time streaming with progressive markdown rendering.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "M10-1",
+          "title": "Chat session branching: fork a conversation from any message to explore alternative AI responses",
+          "status": "pending"
+        },
+        {
+          "id": "M10-2",
+          "title": "Conversation templates: pre-defined prompt templates for common development tasks (code review, explain, test, document)",
+          "status": "pending"
+        },
+        {
+          "id": "M10-3",
+          "title": "AI response rating & feedback: thumbs-up/down on any response; feedback stored and used to refine persona system prompts",
+          "status": "pending"
+        },
+        {
+          "id": "M10-4",
+          "title": "Chat message bookmarks & pinning: bookmark important AI responses for quick retrieval; pinned messages persist across sessions",
+          "status": "pending"
+        },
+        {
+          "id": "M10-5",
+          "title": "Multi-modal input: paste or drag-drop screenshots and images into chat as AI context (base64 encoding to LLM vision endpoint)",
+          "status": "pending"
+        },
+        {
+          "id": "M10-6",
+          "title": "Smart context switching: automatic context update as user navigates between open files without manual re-attachment",
+          "status": "pending"
+        },
+        {
+          "id": "M10-7",
+          "title": "Real-time streaming with progressive markdown render: token-by-token rendering with live syntax highlighting as AI types",
+          "status": "pending"
+        },
+        {
+          "id": "M10-8",
+          "title": "Message threading: reply to a specific AI or user message to start a sub-thread; threads collapsible in chat UI",
+          "status": "pending"
+        },
+        {
+          "id": "M10-9",
+          "title": "Chat analytics dashboard: track token usage, most-used personas, most active projects, average response quality over time",
+          "status": "pending"
+        },
+        {
+          "id": "M10-10",
+          "title": "Conversation summarization: auto-summarize long conversations; inject compressed summary as context token budget management",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "M11",
+      "title": "Advanced AI Intelligence",
+      "description": "Multi-model routing, agents marketplace, requirement-driven code generation, cross-project knowledge graph, and AI-powered testing intelligence.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "M11-1",
+          "title": "Multi-model routing: automatically route requests to the best available LLM backend based on query type, token budget, and latency",
+          "status": "pending"
+        },
+        {
+          "id": "M11-2",
+          "title": "AI agents marketplace: curated library of pre-built specialist agents (Security Auditor, DevOps Engineer, Documentation Writer) installable as plugins",
+          "status": "pending"
+        },
+        {
+          "id": "M11-3",
+          "title": "Code generation from requirements: AI generates full feature implementation from a high-level natural language specification",
+          "status": "pending"
+        },
+        {
+          "id": "M11-4",
+          "title": "Cross-project knowledge graph: map relationships between files, functions, classes, and APIs across all projects in the workspace",
+          "status": "pending"
+        },
+        {
+          "id": "M11-5",
+          "title": "AI-powered test intelligence: AI generates comprehensive test suites, identifies untested edge cases, and suggests coverage improvements",
+          "status": "pending"
+        },
+        {
+          "id": "M11-6",
+          "title": "Semantic code search: natural language query over the entire codebase using embeddings (ChromaDB / FAISS) — find functions by what they do",
+          "status": "pending"
+        },
+        {
+          "id": "M11-7",
+          "title": "Adaptive persona learning: personas evolve based on feedback history; system prompts auto-tuned per developer's coding style",
+          "status": "pending"
+        },
+        {
+          "id": "M11-8",
+          "title": "AI pair programming mode: continuous background AI analysis of the active file with real-time inline suggestions, refactor hints, and warnings",
+          "status": "pending"
         }
       ]
     }
