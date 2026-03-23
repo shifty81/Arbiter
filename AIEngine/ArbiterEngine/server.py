@@ -30,9 +30,17 @@ sys.path.insert(0, str(_BASE))
 if _BRIDGE_DIR.is_dir():
     sys.path.insert(1, str(_BRIDGE_DIR))
 
-from fastapi import FastAPI
+import collections
+import functools
+import threading
+import time
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as _StarletteRequest
+from starlette.responses import JSONResponse as _StarletteJSONResponse
 import uvicorn
 
 from core.logger import get_logger, setup_logging
@@ -59,6 +67,8 @@ _plugin_loader.load_all()
 
 _backend = _config.get("agent.default_llm_backend", "ollama")
 _llm = create_llm(_backend, _config)
+# M13-8: wrap with failover if fallback backends are configured
+_llm = _build_failover_llm(_llm, _config)
 _permissions = PermissionSystem()
 _runner = TaskRunner()
 
@@ -103,6 +113,150 @@ _PERSONAS = [
 ]
 _active_personas: dict[str, str] = {}
 _MAX_CHAT_HISTORY_TURNS = 40
+
+# ─── M13: Metrics, Budget tracking, and LRU response cache ───────────────────
+
+# Metrics (M13-7): per-endpoint counters and latency
+_metrics_lock = threading.Lock()
+_metrics: dict[str, dict[str, Any]] = collections.defaultdict(
+    lambda: {"requests": 0, "errors": 0, "total_ms": 0.0, "latencies_ms": collections.deque(maxlen=200)}
+)
+
+# Budget tracking (M13-6): per-project token/call counts
+_budget_lock = threading.Lock()
+_budget: dict[str, dict[str, int]] = collections.defaultdict(
+    lambda: {"calls": 0, "estimated_tokens": 0}
+)
+
+# LRU response cache (M13-4): key = (project, prompt), value = (response, expiry)
+_LLM_CACHE_TTL = 300          # seconds
+_LLM_CACHE_MAX = 128
+_llm_cache: "collections.OrderedDict[tuple[str, str], tuple[str, float]]" = collections.OrderedDict()
+_llm_cache_lock = threading.Lock()
+
+
+def _cache_get(project: str, prompt: str) -> str | None:
+    """Return cached LLM response or None if miss/expired."""
+    key = (project, prompt)
+    with _llm_cache_lock:
+        if key not in _llm_cache:
+            return None
+        response, expiry = _llm_cache[key]
+        if time.time() > expiry:
+            del _llm_cache[key]
+            return None
+        _llm_cache.move_to_end(key)        # LRU refresh
+        return response
+
+
+def _cache_set(project: str, prompt: str, response: str) -> None:
+    """Store an LLM response in the cache."""
+    key = (project, prompt)
+    with _llm_cache_lock:
+        if key in _llm_cache:
+            _llm_cache.move_to_end(key)
+        _llm_cache[key] = (response, time.time() + _LLM_CACHE_TTL)
+        while len(_llm_cache) > _LLM_CACHE_MAX:
+            _llm_cache.popitem(last=False)
+
+
+def _budget_record(project: str, prompt: str, response: str) -> None:
+    """Accumulate token estimates and call count for a project."""
+    # Rough token estimate: 1 token ≈ 4 chars
+    tokens = (len(prompt) + len(response)) // 4
+    with _budget_lock:
+        _budget[project]["calls"] += 1
+        _budget[project]["estimated_tokens"] += tokens
+
+
+def _metrics_record(route: str, elapsed_ms: float, error: bool = False) -> None:
+    """Record a single request in the in-memory metrics store."""
+    with _metrics_lock:
+        m = _metrics[route]
+        m["requests"] += 1
+        if error:
+            m["errors"] += 1
+        m["total_ms"] += elapsed_ms
+        m["latencies_ms"].append(elapsed_ms)
+
+
+# ─── M13-8: LLM backend failover wrapper ─────────────────────────────────────
+
+class _FailoverLLM:
+    """Wraps the primary LLM and falls back to secondary backends on error."""
+
+    def __init__(self, primary: Any, fallbacks: list[Any]) -> None:
+        self._primary = primary
+        self._fallbacks = fallbacks
+
+    def _backends(self) -> list[Any]:
+        return [self._primary] + self._fallbacks
+
+    def chat(self, messages: list[dict[str, str]]) -> str:
+        for backend in self._backends():
+            try:
+                result = backend.chat(messages)
+                if result and not result.startswith("[ERROR]") and "not reachable" not in result:
+                    return result
+                # Treat graceful-error strings as failures so we try the next backend
+            except Exception as exc:
+                logger.warning("LLM backend %s failed: %s", type(backend).__name__, exc)
+        return self._primary.chat(messages)   # return primary's error message as last resort
+
+    def generate(self, messages: list[dict[str, str]]) -> str:
+        for backend in self._backends():
+            try:
+                result = backend.generate(messages)
+                if result and not result.startswith("[ERROR]") and "not reachable" not in result:
+                    return result
+            except Exception as exc:
+                logger.warning("LLM backend %s failed: %s", type(backend).__name__, exc)
+        return self._primary.generate(messages)
+
+    def tool_call(self, messages: list[dict[str, str]], tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for backend in self._backends():
+            try:
+                result = backend.tool_call(messages, tools)
+                if result is not None:
+                    return result
+            except Exception as exc:
+                logger.warning("LLM backend %s tool_call failed: %s", type(backend).__name__, exc)
+        return []
+
+    def stream_chat(self, messages: list[dict[str, str]]) -> Any:
+        return self._primary.stream_chat(messages)
+
+    def list_models(self) -> list[str]:
+        try:
+            return self._primary.list_models()  # type: ignore[return-value]
+        except Exception:
+            return []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._primary, name)
+
+
+def _build_failover_llm(primary: Any, cfg: "ConfigLoader") -> Any:
+    """Build a _FailoverLLM using the fallback_backends config list."""
+    fallback_names: list[str] = []
+    raw = cfg.get("agent.fallback_llm_backends", "")
+    if isinstance(raw, str) and raw:
+        fallback_names = [b.strip() for b in raw.split(",") if b.strip()]
+    elif isinstance(raw, list):
+        fallback_names = [b for b in raw if b]
+    if not fallback_names:
+        return primary
+    from llm.factory import create_llm as _create_llm
+    fallbacks = []
+    for name in fallback_names:
+        try:
+            fb = _create_llm(name, cfg)
+            fallbacks.append(fb)
+        except Exception as exc:
+            logger.warning("Could not build fallback LLM %r: %s", name, exc)
+    if not fallbacks:
+        return primary
+    return _FailoverLLM(primary, fallbacks)
 
 # ── Session snapshot (persists chat histories + personas across restarts) ─────
 _SNAPSHOT_FILE = _BASE / "logs" / "session_snapshot.json"
@@ -152,8 +306,38 @@ async def lifespan(app: FastAPI):
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
-app = FastAPI(title="Arbiter Engine", version="0.2.0", lifespan=lifespan)
+_VERSION = "1.0.0"
+app = FastAPI(title="Arbiter Engine", version=_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ─── M13-2: Global request timeout middleware (30 s) ─────────────────────────
+
+_REQUEST_TIMEOUT_SECS = 30
+
+
+class _TimeoutMiddleware(BaseHTTPMiddleware):
+    """Return a 504 JSON error if a handler has not responded within the timeout."""
+
+    async def dispatch(self, request: _StarletteRequest, call_next: Any) -> Any:
+        import asyncio as _aio
+        _t0 = time.monotonic()
+        try:
+            response = await _aio.wait_for(call_next(request), timeout=_REQUEST_TIMEOUT_SECS)
+        except _aio.TimeoutError:
+            path = request.url.path
+            logger.warning("Request timeout after %ss: %s", _REQUEST_TIMEOUT_SECS, path)
+            _metrics_record(path, _REQUEST_TIMEOUT_SECS * 1000, error=True)
+            return _StarletteJSONResponse(
+                {"detail": f"Request timed out after {_REQUEST_TIMEOUT_SECS} s. "
+                           "Check that your LLM backend is running."},
+                status_code=504,
+            )
+        elapsed = (time.monotonic() - _t0) * 1000
+        _metrics_record(request.url.path, elapsed)
+        return response
+
+
+app.add_middleware(_TimeoutMiddleware)
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -176,9 +360,75 @@ class BuildRequest(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "engine": "arbiter-engine", "version": "0.2.0"}
+    """M13-3: Enhanced health check — probes configured LLM backend reachability.
+
+    Returns a ``backends`` map showing each backend's status, latency (ms),
+    and which model is loaded, so operators can diagnose connectivity problems
+    without inspecting logs.
+
+    The probe calls are short (3 s timeout) and run in FastAPI's sync-route
+    thread pool, so they never block the asyncio event loop.
+    """
+    import requests as _req_lib
+
+    def _probe(url: str, path: str = "/api/tags", timeout: float = 3.0) -> dict[str, Any]:
+        """Probe a single backend URL; return status dict with optional body."""
+        try:
+            t0 = time.monotonic()
+            r = _req_lib.get(f"{url.rstrip('/')}{path}", timeout=timeout)
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
+            ok = r.status_code < 400
+            result: dict[str, Any] = {
+                "reachable": ok,
+                "latency_ms": latency_ms,
+                "http_status": r.status_code,
+            }
+            # Parse model list from the same response, avoiding a duplicate request
+            if ok:
+                try:
+                    body = r.json()
+                    if path == "/api/tags":
+                        result["models"] = [m.get("name", "") for m in body.get("models", [])]
+                    elif path == "/v1/models":
+                        result["models"] = [m.get("id", "") for m in body.get("data", [])]
+                except Exception:
+                    pass
+            return result
+        except Exception as exc:
+            return {"reachable": False, "error": str(exc)}
+
+    backends: dict[str, Any] = {}
+
+    if _backend == "ollama":
+        backends["ollama"] = {
+            "primary": True,
+            **_probe(_config.get("llm.ollama.base_url", "http://localhost:11434"), "/api/tags"),
+        }
+    elif _backend == "lmstudio":
+        backends["lmstudio"] = {
+            "primary": True,
+            **_probe(_config.get("llm.lmstudio.base_url", "http://localhost:1234"), "/v1/models"),
+        }
+    elif _backend == "api":
+        backends["api"] = {
+            "primary": True,
+            **_probe(_config.get("llm.api.base_url", "https://api.openai.com"), "/v1/models"),
+        }
+    else:
+        backends[_backend] = {"primary": True, "reachable": "unknown"}
+
+    primary_ok = any(v.get("reachable") for v in backends.values() if v.get("primary"))
+    return {
+        "status": "ok" if primary_ok else "degraded",
+        "engine": "arbiter-engine",
+        "version": _VERSION,
+        "primary_backend": _backend,
+        "backends": backends,
+    }
 
 
 @app.get("/status")
@@ -211,6 +461,56 @@ def status() -> dict:
     }
 
 
+@app.get("/metrics")
+def get_metrics() -> dict:
+    """M13-7: Per-endpoint request counts, error counts, and P50/P95 latency (ms).
+
+    Counters reset on server restart.  The cache hit/miss ratio for the
+    M13-4 LRU response cache is also included here.
+    """
+    snapshot: dict[str, Any] = {}
+    with _metrics_lock:
+        for route, m in _metrics.items():
+            lats = sorted(m["latencies_ms"])
+            n = len(lats)
+            p50 = lats[n // 2] if n else 0.0
+            p95 = lats[int(n * 0.95)] if n else 0.0
+            avg = (m["total_ms"] / m["requests"]) if m["requests"] else 0.0
+            snapshot[route] = {
+                "requests": m["requests"],
+                "errors": m["errors"],
+                "avg_ms": round(avg, 1),
+                "p50_ms": round(p50, 1),
+                "p95_ms": round(p95, 1),
+            }
+    with _llm_cache_lock:
+        cache_size = len(_llm_cache)
+    return {
+        "routes": snapshot,
+        "llm_cache": {
+            "entries": cache_size,
+            "max_entries": _LLM_CACHE_MAX,
+            "ttl_secs": _LLM_CACHE_TTL,
+        },
+    }
+
+
+@app.get("/budget/{project_name}")
+def budget_get(project_name: str) -> dict:
+    """M13-6: Return accumulated AI call count and estimated token usage for a project."""
+    with _budget_lock:
+        data = dict(_budget.get(project_name, {"calls": 0, "estimated_tokens": 0}))
+    return {"project": project_name, **data}
+
+
+@app.post("/budget/{project_name}/reset")
+def budget_reset(project_name: str) -> dict:
+    """M13-6: Reset the AI budget counters for a project."""
+    with _budget_lock:
+        _budget[project_name] = {"calls": 0, "estimated_tokens": 0}
+    return {"project": project_name, "status": "reset"}
+
+
 @app.get("/personas")
 def get_personas() -> dict:
     return {"personas": _PERSONAS}
@@ -239,6 +539,15 @@ def chat(msg: UserMessage) -> dict:
     history = _chat_histories.setdefault(msg.project, [])
     persona = _active_personas.get(msg.project, "Arbiter")
 
+    # M13-4: check LRU cache for identical prompt+project
+    cached = _cache_get(msg.project, msg.message)
+    if cached:
+        history.append({"role": "user",      "content": msg.message})
+        history.append({"role": "assistant", "content": cached})
+        if len(history) > _MAX_CHAT_HISTORY_TURNS:
+            history[:] = history[-_MAX_CHAT_HISTORY_TURNS:]
+        return {"response": cached, "persona": persona, "cached": True}
+
     # Rebuild agent with current project context each call (lightweight)
     agent = Agent(
         llm=_llm,
@@ -264,6 +573,9 @@ def chat(msg: UserMessage) -> dict:
     history.append({"role": "assistant", "content": response})
     if len(history) > _MAX_CHAT_HISTORY_TURNS:
         history[:] = history[-_MAX_CHAT_HISTORY_TURNS:]
+
+    _cache_set(msg.project, msg.message, response)   # M13-4: populate cache
+    _budget_record(msg.project, msg.message, response)  # M13-6: track budget
 
     return {"response": response, "persona": persona}
 
@@ -1635,6 +1947,14 @@ def assistant_chat(msg: _AssistantMsg) -> dict:
     """Primary chat endpoint used by the Monaco IDE chat panel."""
     from core.agent import Agent
     history = _chat_histories.setdefault(msg.project, [])
+
+    # M13-4: serve from cache on exact prompt+project match
+    cached = _cache_get(msg.project, msg.prompt)
+    if cached:
+        history.append({"role": "user",      "content": msg.prompt})
+        history.append({"role": "assistant", "content": cached})
+        return {"response": cached, "cached": True}
+
     agent = Agent(
         llm=_llm,
         tool_registry=_registry,
@@ -1654,6 +1974,8 @@ def assistant_chat(msg: _AssistantMsg) -> dict:
         response = f"[Arbiter Engine error] {exc}"
     history.append({"role": "user", "content": msg.prompt})
     history.append({"role": "assistant", "content": response})
+    _cache_set(msg.project, msg.prompt, response)   # M13-4
+    _budget_record(msg.project, msg.prompt, response)  # M13-6
     return {"response": response}
 
 
@@ -1924,11 +2246,6 @@ def archive_export() -> dict:
     if not _HAS_ARCHIVE or _archive is None:
         return {"content": ""}
     return {"content": _archive.export_markdown()}
-
-
-@app.get("/metrics")
-def metrics() -> dict:
-    return {"metrics": {}}
 
 
 @app.get("/metrics/alerts")
@@ -5360,40 +5677,30 @@ class _StreamChatReq(BaseModel):
 async def chat_stream(req: _StreamChatReq):
     """Stream the AI response token-by-token as Server-Sent Events.
 
-    M10-7
+    M10-7 / M13-1: Synchronous LLM calls are now executed in a thread-pool
+    via asyncio.to_thread() so the event loop is never blocked.
     """
     import json as _json_mod
 
     persona = _active_personas.get(req.project, "Arbiter")
     history = _chat_histories.setdefault(req.project, [])
+    messages = [
+        {"role": "system", "content": f"You are {persona}."},
+        *history[-10:],
+        {"role": "user", "content": req.message},
+    ]
 
     async def _generate():
-        # Get full response first (most local LLMs don't support true streaming)
+        full: str = ""
         try:
-            if hasattr(_llm, "stream"):
-                chunks: list[str] = []
-                for token in _llm.stream([
-                    {"role": "system", "content": f"You are {persona}."},
-                    *history[-10:],
-                    {"role": "user", "content": req.message},
-                ]):
-                    chunks.append(token)
-                    yield f"data: {_json_mod.dumps({'token': token, 'done': False})}\n\n"
-                full = "".join(chunks)
-            else:
-                full = _llm.chat([
-                    {"role": "system", "content": f"You are {persona}."},
-                    *history[-10:],
-                    {"role": "user", "content": req.message},
-                ])
-                # Simulate streaming: split into ~8-word chunks
-                words   = full.split()
-                chunks2: list[str] = []
-                for i in range(0, len(words), _STREAM_CHUNK_WORDS):
-                    chunk = " ".join(words[i:i + _STREAM_CHUNK_WORDS])
-                    chunks2.append(chunk)
-                    yield f"data: {_json_mod.dumps({'token': chunk, 'done': False})}\n\n"
-                    await asyncio.sleep(0.03)
+            # M13-1: run blocking LLM call in a thread to avoid event-loop stall
+            full = await asyncio.to_thread(_llm.chat, messages)
+            # Simulate streaming: split into ~8-word chunks
+            words = full.split()
+            for i in range(0, len(words), _STREAM_CHUNK_WORDS):
+                chunk = " ".join(words[i:i + _STREAM_CHUNK_WORDS])
+                yield f"data: {_json_mod.dumps({'token': chunk, 'done': False})}\n\n"
+                await asyncio.sleep(0.03)
         except Exception as exc:
             full = f"[Arbiter Engine error] {exc}"
             yield f"data: {_json_mod.dumps({'token': full, 'done': False})}\n\n"
@@ -5402,6 +5709,7 @@ async def chat_stream(req: _StreamChatReq):
         history.append({"role": "assistant", "content": full})
         if len(history) > _MAX_CHAT_HISTORY_TURNS:
             history[:] = history[-_MAX_CHAT_HISTORY_TURNS:]
+        _budget_record(req.project, req.message, full)
 
         yield f"data: {_json_mod.dumps({'token': '', 'done': True, 'full_response': full})}\n\n"
 
@@ -6630,6 +6938,81 @@ def issues_comment_endpoint(req: _IssueCommentReq) -> dict:
     M12-2
     """
     return _issues_comment(req.workspace, req.issue_id, req.comment, author=req.author)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M13-5: WebSocket /ws/chat — full-duplex real-time streaming chat
+# ───────────────────────────────────────────────────────────────────────────────
+
+@app.websocket("/ws/chat")
+async def ws_chat(websocket: WebSocket):
+    """Full-duplex streaming chat over WebSocket.
+
+    Protocol (JSON frames):
+    - Client → Server: ``{"message": "...", "project": "default"}``
+    - Server → Client (tokens): ``{"token": "...", "done": false}``
+    - Server → Client (final):  ``{"token": "", "done": true, "full_response": "..."}``
+
+    M13-5
+    """
+    await websocket.accept()
+    # Track the active project for use in the disconnect log message
+    _active_project: str = "?"
+    try:
+        while True:
+            data = await websocket.receive_json()
+            message: str = data.get("message", "")
+            project: str = data.get("project", "default")
+            _active_project = project
+            if not message:
+                await websocket.send_json({"error": "Empty message"})
+                continue
+
+            # Check LRU cache first (M13-4)
+            cached = _cache_get(project, message)
+            if cached:
+                await websocket.send_json({"token": cached, "done": False, "cached": True})
+                await websocket.send_json({"token": "", "done": True, "full_response": cached})
+                _budget_record(project, message, cached)
+                continue
+
+            persona = _active_personas.get(project, "Arbiter")
+            history = _chat_histories.setdefault(project, [])
+            messages = [
+                {"role": "system", "content": f"You are {persona}."},
+                *history[-10:],
+                {"role": "user", "content": message},
+            ]
+
+            try:
+                # M13-1: run blocking LLM call off the event loop
+                full = await asyncio.to_thread(_llm.chat, messages)
+            except Exception as exc:
+                full = f"[Arbiter Engine error] {exc}"
+
+            # Stream word chunks to the client
+            words = full.split()
+            for i in range(0, len(words), _STREAM_CHUNK_WORDS):
+                chunk = " ".join(words[i:i + _STREAM_CHUNK_WORDS])
+                await websocket.send_json({"token": chunk, "done": False})
+            await websocket.send_json({"token": "", "done": True, "full_response": full})
+
+            history.append({"role": "user",      "content": message})
+            history.append({"role": "assistant", "content": full})
+            if len(history) > _MAX_CHAT_HISTORY_TURNS:
+                history[:] = history[-_MAX_CHAT_HISTORY_TURNS:]
+
+            _cache_set(project, message, full)
+            _budget_record(project, message, full)
+
+    except WebSocketDisconnect:
+        logger.debug("WebSocket /ws/chat disconnected (project=%s)", _active_project)
+    except Exception as exc:
+        logger.error("WebSocket /ws/chat error: %s", exc)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

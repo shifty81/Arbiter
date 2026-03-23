@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform \u2014 three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration.",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "last_updated": "2026-03-23",
   "pillars": [
     "Pillar 1 \u2014 Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1026,6 +1026,54 @@
           "id": "M12-2",
           "title": "Local git-backed issues tracker + crash reports",
           "description": "Implement issues module storing JSON issue files under .arbiter/issues/ with git commits on every mutation. Add /log/crash, /issues/create, /issues/list, /issues/{id}, /issues/close, /issues/comment endpoints.",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "id": "M13",
+      "title": "Reliability, Performance & Real-time Enhancement",
+      "description": "Harden the server against crashes caused by blocking LLM calls in async contexts, add request-timeout middleware, an LRU response cache, a /metrics endpoint, WebSocket streaming chat, per-project AI budget tracking, enhanced health reporting, and automatic LLM backend failover.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "M13-1",
+          "title": "Fix async event-loop blocking: wrap all synchronous LLM calls inside async route handlers and generators with asyncio.to_thread() so the uvicorn event loop is never blocked and the server remains responsive under concurrent load",
+          "status": "done"
+        },
+        {
+          "id": "M13-2",
+          "title": "Add global request timeout middleware: any route that has not responded within 30 seconds returns a 504 JSON error so clients never hang indefinitely waiting for an unresponsive LLM backend",
+          "status": "done"
+        },
+        {
+          "id": "M13-3",
+          "title": "Enhance /health endpoint: probe each configured LLM backend (Ollama, LM Studio, etc.) and report reachability, latency, and loaded-model name alongside existing system metrics so operators can diagnose connectivity problems at a glance",
+          "status": "done"
+        },
+        {
+          "id": "M13-4",
+          "title": "Add in-memory LRU response cache (128 entries, TTL 5 min): identical prompt+project combinations served from cache, cutting latency to zero and reducing LLM backend load; cache stats exposed on /metrics",
+          "status": "done"
+        },
+        {
+          "id": "M13-5",
+          "title": "Add WebSocket /ws/chat endpoint: full-duplex real-time streaming chat channel where tokens are pushed to the client as they arrive from the LLM, replacing the SSE /chat/stream fallback with a lower-overhead persistent connection",
+          "status": "done"
+        },
+        {
+          "id": "M13-6",
+          "title": "Add per-project AI budget tracking: count estimated tokens and LLM call count per project; expose GET /budget/{project} and POST /budget/{project}/reset so developers can monitor and cap their local inference spend",
+          "status": "done"
+        },
+        {
+          "id": "M13-7",
+          "title": "Add /metrics endpoint: per-endpoint request counts, error counts, and P50/P95 response-time histograms; resets on server restart; feeds the Chat Analytics dashboard (M10-9)",
+          "status": "done"
+        },
+        {
+          "id": "M13-8",
+          "title": "Add automatic LLM backend failover: if the primary backend returns a connection error or timeout, transparently retry the request against the next backend in a configured fallback chain (e.g. ollama \u2192 lmstudio \u2192 api) and log which backend served the request",
           "status": "done"
         }
       ]
