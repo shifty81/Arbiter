@@ -1,0 +1,73 @@
+[agent]
+max_iterations = 20
+default_llm_backend = "ollama"
+
+[auth]
+# Set enabled = true and provide username/password to protect all API endpoints
+enabled = false
+username = ""
+password = ""
+
+[llm.ollama]
+base_url = "http://localhost:11434"
+model = "llama3"
+
+[llm.api]
+base_url = "https://api.openai.com"
+key = ""
+model = "gpt-4o"
+
+[llm.openwebui]
+base_url = "http://localhost:3000"
+key = ""
+model = ""
+
+[llm.localai]
+base_url = "http://localhost:8080"
+key = ""
+model = "codestral"
+
+[llm.local]
+model_path = "models/model.gguf"
+
+[llm.lmstudio]
+base_url = "http://localhost:1234"
+model = ""
+
+[llm.llamacpp]
+base_url = "http://localhost:8080"
+model = ""
+
+[llm.tabby]
+base_url = "http://localhost:8080"
+key = ""
+model = ""
+
+[llm.anthropic]
+key = ""
+model = "claude-3-5-sonnet-20241022"
+
+[llm.gemini]
+key = ""
+model = "gemini-2.0-flash"
+
+[permissions]
+allowed_dirs = ["workspace", "projects", "cache", "logs"]
+blocked_dirs = ["configs", "core", "llm"]
+
+[server]
+host = "127.0.0.1"
+port = 8001
+
+[build]
+default_system = "cmake"
+
+[cache]
+max_size_mb = 512
+
+[ai_persona]
+# Built-in persona names:
+#   senior_developer, software_architect, frontend_developer, backend_developer,
+#   database_engineer, mobile_developer, devops_engineer, security_auditor,
+#   test_engineer, code_reviewer, performance_engineer, documentation_writer, ai_ml_engineer
+active = ""

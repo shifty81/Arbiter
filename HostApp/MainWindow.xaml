@@ -1,0 +1,262 @@
+<Window x:Class="ArbiterHost.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Arbiter" Height="900" Width="1400"
+        MinHeight="600" MinWidth="900"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource PanelBgBrush}"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
+    <Grid Background="{StaticResource PanelBgBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>               <!-- Top toolbar -->
+            <RowDefinition Height="*" MinHeight="200"/>  <!-- Main content -->
+            <RowDefinition Height="5"/>                  <!-- Horizontal splitter -->
+            <RowDefinition Height="220" MinHeight="80"/> <!-- Bottom panel -->
+        </Grid.RowDefinitions>
+
+        <!-- ==================== TOP TOOLBAR ==================== -->
+        <Border Grid.Row="0"
+                Background="{StaticResource PanelBgBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,4">
+                <TextBlock Text="Phase:" VerticalAlignment="Center" Margin="5"/>
+                <ComboBox Name="PhaseSelector" Width="120" Margin="5"/>
+                <Separator Width="10"/>
+                <Button Name="CommitBtn" Content="Commit" Margin="2" Click="Commit_Click"/>
+                <Button Name="BranchBtn" Content="Branch" Margin="2" Click="Branch_Click"/>
+                <Button Name="PushBtn"   Content="Push"   Margin="2" Click="Push_Click"/>
+                <Button Name="PullBtn"   Content="Pull"   Margin="2" Click="Pull_Click"/>
+                <Button Name="LogBtn"    Content="Log"    Margin="2" Click="Log_Click"/>
+                <Separator Width="10"/>
+                <Button Name="BuildBtn"  Content="Build"  Margin="2" Click="Build_Click"/>
+                <Button Name="RunBtn"    Content="Run"    Margin="2" Click="Run_Click"/>
+                <Button Name="TestBtn"   Content="Test"   Margin="2" Click="Test_Click"/>
+                <Separator Width="10"/>
+                <TextBlock Text="Voice:" VerticalAlignment="Center" Margin="5"/>
+                <ComboBox Name="VoiceSelector" Width="160" Margin="5">
+                    <ComboBoxItem Content="British_Female" IsSelected="True"/>
+                    <ComboBoxItem Content="British_Male"/>
+                    <ComboBoxItem Content="American_Female"/>
+                    <ComboBoxItem Content="American_Male"/>
+                </ComboBox>
+                <Separator Width="10"/>
+                <Ellipse Name="ServerStatusDot" Width="12" Height="12" Fill="Gray"
+                         VerticalAlignment="Center" Margin="4,0,2,0"/>
+                <TextBlock Name="ServerStatusText" Text="Server: …"
+                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Button Name="StartServerButton" Content="Start Server" Margin="2"
+                        Click="StartServer_Click"/>
+            </WrapPanel>
+        </Border>
+
+        <!-- ==================== MAIN CONTENT AREA ==================== -->
+        <Grid Grid.Row="1" Margin="4,6,4,2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="140"/>  <!-- Project sidebar -->
+                <ColumnDefinition Width="5"/>                    <!-- Splitter -->
+                <ColumnDefinition Width="2*" MinWidth="200"/>   <!-- Chat panel -->
+                <ColumnDefinition Width="5"/>                    <!-- Splitter -->
+                <ColumnDefinition Width="*"  MinWidth="140"/>   <!-- Suggestions panel -->
+            </Grid.ColumnDefinitions>
+
+            <!-- ── Project Sidebar card ── -->
+            <Border Grid.Column="0"
+                    Background="{StaticResource PanelBgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    ClipToBounds="True">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" Direction="270"
+                                      ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
+                </Border.Effect>
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Projects" FontWeight="Bold"
+                               FontSize="13" Margin="0,0,0,6"/>
+                    <ListBox Grid.Row="1" Name="ProjectListBox" AllowDrop="True"
+                             Drop="ProjectListBox_Drop"
+                             SelectionChanged="ProjectListBox_SelectionChanged"/>
+                    <Button Grid.Row="2" Content="Create Project" Margin="0,6,0,2"
+                            Click="CreateProject_Click"/>
+                    <Button Grid.Row="3" Content="Self-Iterate (Arbiter)" Margin="0,2,0,0"
+                            Click="OpenArbiterSelf_Click"
+                            ToolTip="Load Arbiter's own source code so the AI can suggest improvements to itself"/>
+                </Grid>
+            </Border>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="1" Width="5"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext"/>
+
+            <!-- ── Chat Panel card ── -->
+            <Border Grid.Column="2"
+                    Background="{StaticResource PanelBgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    ClipToBounds="True">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" Direction="270"
+                                      ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
+                </Border.Effect>
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Name="ChatHeader" Text="Chat"
+                               FontWeight="Bold" FontSize="13" Margin="0,0,0,4"/>
+                    <ListBox Grid.Row="1" Name="ChatDisplay"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                    <Grid Grid.Row="2" Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- Enter key sends message; Shift+Enter inserts newline -->
+                        <TextBox  Grid.Column="0" Name="ChatInput" Margin="0,0,5,0"
+                                  KeyDown="ChatInput_KeyDown"/>
+                        <Button   Grid.Column="1" Content="Send" Width="60" Margin="0,0,5,0"
+                                  Click="SendButton_Click"/>
+                        <Button   Grid.Column="2" Content="Mic"  Width="60"
+                                  Click="MicButton_Click"/>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="3" Width="5"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext"/>
+
+            <!-- ── Suggestions / Roadmap Panel card ── -->
+            <Border Grid.Column="4"
+                    Background="{StaticResource PanelBgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    ClipToBounds="True">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" Direction="270"
+                                      ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
+                </Border.Effect>
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Suggestions / Roadmap"
+                               FontWeight="Bold" FontSize="13" Margin="0,0,0,4"/>
+                    <ListBox Grid.Row="1" Name="SuggestionsListBox"/>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button Content="Approve" Width="80" Margin="0,0,5,0"
+                                Click="ApproveSuggestion_Click"/>
+                        <Button Content="Move"    Width="80"
+                                Click="MoveSuggestion_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Horizontal splitter -->
+        <GridSplitter Grid.Row="2" Height="5"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                      ResizeBehavior="PreviousAndNext"/>
+
+        <!-- ==================== BOTTOM PANEL card ==================== -->
+        <Border Grid.Row="3" Margin="4,2,4,6"
+                Background="{StaticResource PanelBgBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                ClipToBounds="True">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" Direction="270"
+                                  ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
+            </Border.Effect>
+            <TabControl Name="BottomTabControl" BorderThickness="0" Margin="0">
+                <TabItem Header="Project Files">
+                    <TreeView Name="ProjectFilesTree" AllowDrop="True"
+                              Drop="ProjectFilesTree_Drop"/>
+                </TabItem>
+                <TabItem>
+                    <TabItem.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Build Output" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <Button Content="⧉" Padding="3,1" FontSize="10"
+                                    Click="PopOutBuildOutput_Click"
+                                    ToolTip="Pop out Build Output into its own window"/>
+                        </StackPanel>
+                    </TabItem.Header>
+                    <TextBox Name="BuildOutputBox"
+                             IsReadOnly="True"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             FontFamily="Courier New"
+                             FontSize="11"
+                             AcceptsReturn="True"/>
+                </TabItem>
+                <TabItem Header="Console">
+                    <!-- Inner TabControl with one sub-tab per log stream -->
+                    <TabControl Name="ConsoleTabControl">
+                        <TabItem>
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="LLM" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <Button Content="Copy" Padding="4,1" FontSize="10"
+                                            Click="CopyLlmConsole_Click"
+                                            ToolTip="Copy LLM log to clipboard"/>
+                                </StackPanel>
+                            </TabItem.Header>
+                            <TextBox Name="LlmConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Courier New" FontSize="11" AcceptsReturn="True"/>
+                        </TabItem>
+                        <TabItem>
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="App" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <Button Content="Copy" Padding="4,1" FontSize="10"
+                                            Click="CopyAppConsole_Click"
+                                            ToolTip="Copy App log to clipboard"/>
+                                </StackPanel>
+                            </TabItem.Header>
+                            <TextBox Name="AppConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Courier New" FontSize="11" AcceptsReturn="True"/>
+                        </TabItem>
+                        <TabItem>
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Server" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <Button Content="Copy" Padding="4,1" FontSize="10"
+                                            Click="CopyServerConsole_Click"
+                                            ToolTip="Copy Server log to clipboard"/>
+                                </StackPanel>
+                            </TabItem.Header>
+                            <TextBox Name="ServerConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Courier New" FontSize="11" AcceptsReturn="True"/>
+                        </TabItem>
+                    </TabControl>
+                </TabItem>
+            </TabControl>
+        </Border>
+    </Grid>
+</Window>

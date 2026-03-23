@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arbiter IDE</title>
+  <link rel="stylesheet" href="/gui/style.css" />
+  <!-- xterm.js — loaded from CDN for the PTY terminal tab -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+</head>
+<body>
+  <!-- ── Top bar ─────────────────────────────────────────────── -->
+  <header id="topbar">
+    <span class="logo">🛠 Arbiter</span>
+    <div class="topbar-actions">
+      <button id="btn-save" title="Save current file (Ctrl+S)">💾 Save</button>
+      <button id="btn-run-file" title="Run agent on current file">▶ Agent</button>
+      <button id="btn-build" title="Build project (auto-detected)">🔨 Build</button>
+      <button id="btn-test"  title="Run tests (auto-detected)">🧪 Test</button>
+      <label id="label-auto-rebuild" title="Auto-rebuild when a file is saved">
+        <input type="checkbox" id="chk-auto-rebuild" /> Auto-rebuild
+      </label>
+      <span id="status-indicator" class="status-idle">● Idle</span>
+      <button id="btn-focus-mode" title="Toggle Focus Mode (Ctrl+Shift+F)">⛶</button>
+      <button id="btn-theme-toggle" title="Toggle dark/light theme">🌙</button>
+    </div>
+  </header>
+
+  <!-- ── Main layout ──────────────────────────────────────────── -->
+  <div id="layout">
+
+    <!-- ── Activity bar (VS Code-style, icon-only) ─────────────────── -->
+    <div id="activity-bar">
+      <div class="ab-top">
+        <button class="ab-icon active" data-panel="explorer" title="Explorer">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="search" title="Search in Files">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="git" title="Source Control">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="aibackends" title="AI / LLM Backends">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8 8 8 0 0 1-8-8v-4a8 8 0 0 1 8-8z"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/><path d="M9 14s1 1 3 1 3-1 3-1"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="scaffold" title="Code Tools">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="ci" title="DevOps / CI / Deploy">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="monitor" title="Ops / Monitoring">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="aitimeline" title="Insights &amp; Analytics">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        </button>
+        <button class="ab-icon" data-panel="notes" title="Project / Notes">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </button>
+        <!-- Overflow: all other panels reachable via a compact "more" menu -->
+        <button class="ab-icon" id="btn-ab-more" title="More panels…">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        </button>
+      </div>
+      <div class="ab-bottom">
+        <button class="ab-icon" data-panel="cfgprofile" title="Settings &amp; Config">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+      <!-- Overflow panel picker (hidden by default) -->
+      <div id="ab-overflow-menu" class="ab-overflow-menu hidden">
+        <div class="ab-ov-hdr">All Panels</div>
+        <button class="ab-ov-item" data-panel="knowledge">📚 Knowledge</button>
+        <button class="ab-ov-item" data-panel="models">📥 Model Downloads</button>
+        <button class="ab-ov-item" data-panel="agents">🕹 Multi-Agent</button>
+        <button class="ab-ov-item" data-panel="refactor">🔧 Refactor</button>
+        <button class="ab-ov-item" data-panel="brainstorm">💡 Brainstorm</button>
+        <button class="ab-ov-item" data-panel="websearch">🌐 Web Search</button>
+        <button class="ab-ov-item" data-panel="quality">🔬 Code Quality</button>
+        <button class="ab-ov-item" data-panel="templates">🧩 Templates</button>
+        <button class="ab-ov-item" data-panel="utilities">⚙️ Utilities</button>
+        <button class="ab-ov-item" data-panel="snippets">📎 Snippets</button>
+        <button class="ab-ov-item" data-panel="diffpatch">🔀 Diff &amp; Patch</button>
+        <button class="ab-ov-item" data-panel="envvars">🔑 Env Vars</button>
+        <button class="ab-ov-item" data-panel="apiclient">🌐 API Client</button>
+        <button class="ab-ov-item" data-panel="docker">🐳 Docker</button>
+        <button class="ab-ov-item" data-panel="deploy">🚀 Deploy</button>
+        <button class="ab-ov-item" data-panel="database">🗄️ Database</button>
+        <button class="ab-ov-item" data-panel="vault">🔐 Vault</button>
+        <button class="ab-ov-item" data-panel="webhooks">🪝 Webhooks</button>
+        <button class="ab-ov-item" data-panel="ratelimit">⏱ Rate Limits</button>
+        <button class="ab-ov-item" data-panel="events">📡 Event Bus</button>
+        <button class="ab-ov-item" data-panel="cron">🕐 Cron</button>
+        <button class="ab-ov-item" data-panel="audit">📋 Audit Log</button>
+        <button class="ab-ov-item" data-panel="flags">🚩 Feature Flags</button>
+        <button class="ab-ov-item" data-panel="notify">🔔 Notifications</button>
+        <button class="ab-ov-item" data-panel="taskqueue">📬 Task Queue</button>
+        <button class="ab-ov-item" data-panel="roadmap">🗺 Roadmap</button>
+        <button class="ab-ov-item" data-panel="plugins">🔌 Plugins</button>
+        <button class="ab-ov-item" data-panel="healthdash">💚 Health Dashboard</button>
+        <button class="ab-ov-item" data-panel="docgen">📝 Doc Generator</button>
+        <button class="ab-ov-item" data-panel="depsanalyzer">📦 Dep Analyzer</button>
+        <button class="ab-ov-item" data-panel="testrunner">🧪 Test Runner</button>
+        <button class="ab-ov-item" data-panel="terminal">🖥 Terminal</button>
+      </div>
+    </div>
+
+    <!-- ── Sidebar (panel area) ──────────────────────────────────── -->
+    <aside id="sidebar">
+
+      <!-- ── Panel: Explorer ──────────────────────────────────── -->
+      <div class="sb-panel active" id="panel-explorer">
+        <div class="sidebar-header">
+          <span>Files</span>
+          <div class="sidebar-buttons">
+            <button id="btn-new-file" title="New file">+</button>
+            <button id="btn-clone-repo" title="Clone a git repository">⬇ Clone</button>
+            <button id="btn-import-project" title="Import a local folder into workspace">📥</button>
+            <button id="btn-refresh-tree" title="Refresh">↺</button>
+          </div>
+        </div>
+        <!-- Project/CWD selector for build -->
+        <div class="sidebar-cwd">
+          <label class="cwd-label">Build root</label>
+          <select id="build-cwd-select">
+            <option value="workspace">workspace/</option>
+            <option value="projects">projects/</option>
+          </select>
+          <select id="build-subdir-select">
+            <option value="">(root)</option>
+          </select>
+        </div>
+        <!-- Project switcher -->
+        <div class="sidebar-projects">
+          <select id="project-switcher" title="Switch active project">
+            <option value="">— open project —</option>
+          </select>
+        </div>
+        <div id="file-tree"></div>
+      </div>
+
+      <!-- ── Panel: Search ────────────────────────────────────── -->
+      <div class="sb-panel" id="panel-search">
+        <div class="sidebar-header"><span>Search</span></div>
+        <div class="sb-panel-body">
+          <div class="search-row">
+            <input id="sb-search-input" type="text" placeholder="Search in files…" />
+            <button id="btn-sb-search" title="Search">🔍</button>
+          </div>
+          <div id="sb-search-results"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Git ────────────────────────────────────────── -->
+      <div class="sb-panel" id="panel-git">
+        <div class="sidebar-header">
+          <span>Git</span>
+          <div class="sidebar-buttons">
+            <button id="btn-git-refresh" title="Refresh git status">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body">
+          <div id="git-branch-info" class="git-branch-info">No repo</div>
+          <div class="git-section-title">Staged Changes</div>
+          <div id="git-staged-list" class="git-file-list"></div>
+          <div class="git-section-title">Unstaged Changes</div>
+          <div id="git-unstaged-list" class="git-file-list"></div>
+          <div class="git-section-title">Untracked Files</div>
+          <div id="git-untracked-list" class="git-file-list"></div>
+          <div class="git-commit-area">
+            <input id="git-commit-msg" type="text" placeholder="Commit message…" />
+            <div class="git-commit-buttons">
+              <button id="btn-git-stage-all" title="Stage all changes">＋ Stage All</button>
+              <button id="btn-git-commit"    title="Commit staged changes">✓ Commit</button>
+            </div>
+          </div>
+          <div class="git-section-title">Recent Commits</div>
+          <div id="git-log-list" class="git-log-list"></div>
+          <div class="git-diff-area hidden" id="git-diff-area">
+            <div class="git-diff-header">
+              <span id="git-diff-title">Diff</span>
+              <button id="btn-git-diff-close">✕</button>
+            </div>
+            <pre id="git-diff-content"></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Knowledge & Profile ───────────────────────── -->
+      <div class="sb-panel" id="panel-knowledge">
+        <div class="sidebar-header"><span>Knowledge & Profile</span></div>
+        <div class="sb-panel-body">
+          <!-- Knowledge sub-section -->
+          <div class="kp-section-title">
+            📚 Knowledge Base
+            <button id="btn-kp-refresh-kb" title="Refresh">↺</button>
+          </div>
+          <div class="search-row">
+            <input id="kb-add-url" type="text" placeholder="Doc URL to add…" />
+            <button id="btn-kb-add" title="Fetch and index this URL">＋</button>
+          </div>
+          <div id="kb-source-list" class="kb-source-list"></div>
+          <div class="search-row" style="margin-top:6px;">
+            <input id="kb-search-query" type="text" placeholder="Search knowledge…" />
+            <button id="btn-kb-search" title="Search knowledge base">🔍</button>
+          </div>
+          <div id="kb-search-results" class="kb-search-results"></div>
+
+          <!-- Profile sub-section -->
+          <div class="kp-section-title" style="margin-top:10px;">
+            🧠 Project Profile
+            <button id="btn-profile-detect" title="Auto-detect tech stack">⚙ Detect</button>
+          </div>
+          <div id="profile-display" class="profile-display">
+            <div class="profile-empty">No profile set. Click Detect or fill in fields.</div>
+          </div>
+          <div class="profile-edit-fields">
+            <input id="profile-name" type="text" placeholder="Project name" />
+            <textarea id="profile-desc" rows="2" placeholder="Description…"></textarea>
+            <input id="profile-stack" type="text" placeholder="Tech stack (comma-separated)" />
+            <textarea id="profile-persona" rows="2" placeholder="AI persona / system prompt addition…"></textarea>
+            <input id="profile-standards" type="text" placeholder="Coding standards…" />
+            <button id="btn-profile-save" style="width:100%;margin-top:4px;">💾 Save Profile</button>
+          </div>
+
+          <!-- Rules sub-section -->
+          <div class="kp-section-title" style="margin-top:10px;">⚖ Project Rules</div>
+          <div class="rules-add-row">
+            <select id="rules-type-select">
+              <option value="must">must</option>
+              <option value="must_not">must_not</option>
+              <option value="prefer">prefer</option>
+            </select>
+            <input id="rules-add-text" type="text" placeholder="Add a rule…" />
+            <button id="btn-rules-add" title="Add rule">＋</button>
+          </div>
+          <div id="rules-list" class="rules-list"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Roadmap ────────────────────────────────────── -->
+      <div class="sb-panel" id="panel-roadmap-sidebar">
+        <div class="sidebar-header">
+          <span>Roadmap</span>
+          <div class="sidebar-buttons">
+            <button id="btn-roadmap-refresh-sb" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body">
+          <div id="roadmap-sidebar-content" class="roadmap-sb-list"></div>
+          <div class="roadmap-sb-actions">
+            <button id="btn-roadmap-work-next-sb" title="Work on next task">▶ Work on Next</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Plugins ────────────────────────────────────── -->
+      <div class="sb-panel" id="panel-plugins">
+        <div class="sidebar-header">
+          <span>Plugins</span>
+          <div class="sidebar-buttons">
+            <button id="btn-plugins-reload" title="Reload plugins">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body">
+          <!-- Installed plugins list -->
+          <div class="kp-section-title">🔌 Installed Plugins</div>
+          <div id="plugins-list" class="plugins-list"></div>
+
+          <!-- Install from URL -->
+          <div class="kp-section-title" style="margin-top:10px;">🔗 Install from URL</div>
+          <div class="search-row">
+            <input id="plugin-install-url" type="text" placeholder="GitHub URL…" />
+            <button id="btn-plugin-install" title="Install plugin">⬇</button>
+          </div>
+          <div id="plugin-install-status" style="font-size:11px;margin-top:4px;color:var(--text-dim);"></div>
+
+          <!-- AI Generate plugin -->
+          <div class="kp-section-title" style="margin-top:10px;">🤖 Generate Plugin (AI)</div>
+          <input id="plugin-gen-name" type="text" placeholder="Plugin name…" style="width:100%;margin-bottom:4px;" />
+          <input id="plugin-gen-desc" type="text" placeholder="Description…" style="width:100%;margin-bottom:4px;" />
+          <button id="btn-plugin-gen" style="width:100%;margin-top:2px;">✨ Generate</button>
+          <div id="plugin-gen-status" style="font-size:11px;margin-top:4px;color:var(--text-dim);"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Scaffold ───────────────────────────────────── -->
+      <div class="sb-panel" id="panel-scaffold">
+        <div class="sidebar-header">
+          <span>Scaffold</span>
+        </div>
+        <div class="sb-panel-body">
+          <!-- Generate module -->
+          <div class="kp-section-title">📦 New Module</div>
+          <input id="scaffold-mod-name" type="text" placeholder="Module name…" style="width:100%;margin-bottom:4px;" />
+          <input id="scaffold-mod-desc" type="text" placeholder="Description…" style="width:100%;margin-bottom:4px;" />
+          <button id="btn-scaffold-mod" style="width:100%;margin-top:2px;">⚡ Generate Module</button>
+          <div id="scaffold-mod-result" class="scaffold-result"></div>
+
+          <!-- Generate plugin -->
+          <div class="kp-section-title" style="margin-top:10px;">🔌 New Plugin</div>
+          <input id="scaffold-plugin-name" type="text" placeholder="Plugin name…" style="width:100%;margin-bottom:4px;" />
+          <input id="scaffold-plugin-desc" type="text" placeholder="Description…" style="width:100%;margin-bottom:4px;" />
+          <button id="btn-scaffold-plugin" style="width:100%;margin-top:2px;">⚡ Generate Plugin</button>
+          <div id="scaffold-plugin-result" class="scaffold-result"></div>
+
+          <!-- Generate tests -->
+          <div class="kp-section-title" style="margin-top:10px;">🧪 Generate Tests</div>
+          <input id="scaffold-test-name" type="text" placeholder="Module/plugin name…" style="width:100%;margin-bottom:4px;" />
+          <button id="btn-scaffold-tests" style="width:100%;margin-top:2px;">🧪 Generate Tests</button>
+          <div id="scaffold-test-result" class="scaffold-result"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Models ─────────────────────────────────────── -->
+      <div class="sb-panel" id="panel-models">
+        <div class="sidebar-header">
+          <span>📥 Model Downloads</span>
+          <button id="btn-models-refresh" title="Refresh">↺</button>
+        </div>
+        <div class="sb-panel-body" id="models-panel-content">
+          <div style="color:var(--text-dim);font-size:12px;padding:8px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Code Quality panel -->
+      <div class="sb-panel" id="panel-quality">
+        <div class="sidebar-header">
+          <span>🔬 Code Quality</span>
+        </div>
+        <div class="sb-panel-body" id="quality-panel-content">
+          <div style="padding:8px;font-size:12px;color:var(--text-muted,#888)">
+            Format and lint the current file.
+          </div>
+          <div style="padding:4px 8px;display:flex;gap:6px;flex-wrap:wrap">
+            <button id="btn-format-file" style="flex:1;min-width:80px">⚡ Format</button>
+            <button id="btn-lint-file" style="flex:1;min-width:80px">🔍 Lint</button>
+            <button id="btn-workspace-stats" style="flex:1;min-width:80px">📊 Stats</button>
+          </div>
+          <div id="quality-output" style="padding:8px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:400px;overflow-y:auto;background:var(--bg2,#1e1e1e);border-radius:4px;margin:4px 8px;min-height:40px"></div>
+        </div>
+      </div>
+
+      <!-- Templates & Toolchain panel (Phase 15) -->
+      <div class="sb-panel" id="panel-templates">
+        <div class="sidebar-header">
+          <span>🧩 Templates &amp; Toolchain</span>
+        </div>
+        <div class="sb-panel-body">
+          <!-- Toolchain section -->
+          <div style="padding:8px 8px 4px;font-size:12px;font-weight:600;color:var(--text-muted,#888)">TOOLCHAIN</div>
+          <div style="padding:0 8px 4px">
+            <button id="btn-detect-toolchain" style="width:100%">🔍 Detect Installed Tools</button>
+          </div>
+          <div id="toolchain-output" style="padding:8px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:160px;overflow-y:auto;background:var(--bg2,#1e1e1e);border-radius:4px;margin:0 8px 8px;min-height:30px"></div>
+
+          <!-- Templates section -->
+          <div style="padding:4px 8px;font-size:12px;font-weight:600;color:var(--text-muted,#888)">TEMPLATES</div>
+          <div style="padding:0 8px 4px">
+            <button id="btn-list-templates" style="width:100%">📋 Refresh Templates</button>
+          </div>
+          <div id="templates-list" style="padding:4px 8px;font-size:11px;max-height:160px;overflow-y:auto"></div>
+          <div style="padding:4px 8px;display:flex;gap:4px">
+            <input id="tmpl-apply-dest" placeholder="dest (e.g. my-project)" style="flex:1;font-size:11px" />
+            <button id="btn-apply-template" style="white-space:nowrap">✅ Apply</button>
+          </div>
+
+          <!-- Snippet runner section -->
+          <div style="padding:8px 8px 4px;font-size:12px;font-weight:600;color:var(--text-muted,#888)">SNIPPET RUNNER</div>
+          <div style="padding:0 8px 4px;display:flex;gap:4px">
+            <select id="snippet-lang" style="font-size:11px">
+              <option value="python">Python</option>
+              <option value="javascript">JavaScript</option>
+              <option value="bash">Bash</option>
+              <option value="lua">Lua</option>
+              <option value="ruby">Ruby</option>
+            </select>
+            <button id="btn-run-snippet" style="white-space:nowrap">▶ Run</button>
+          </div>
+          <textarea id="snippet-code" rows="5" placeholder="# type code here…" style="width:calc(100% - 16px);margin:0 8px;font-size:11px;font-family:monospace;resize:vertical;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:4px;padding:4px"></textarea>
+          <div id="snippet-output" style="padding:8px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:160px;overflow-y:auto;background:var(--bg2,#1e1e1e);border-radius:4px;margin:4px 8px;min-height:30px"></div>
+        </div>
+      </div>
+
+      <!-- ── Utilities Panel (Phase 16) ─────────────────────────────── -->
+      <div class="sb-panel" id="panel-utilities">
+        <div class="sidebar-header">
+          <span>⚙️ Utilities</span>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto">
+
+          <!-- Archive Section -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px">📦 ARCHIVE</div>
+            <input id="util-archive-src" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Source path" />
+            <input id="util-archive-dst" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Destination (.zip/.tar/.7z)" />
+            <select id="util-archive-fmt" style="width:100%;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px">
+              <option value="zip">ZIP</option>
+              <option value="tar">TAR</option>
+              <option value="7z">7z</option>
+            </select>
+            <button id="btn-util-archive-pack" style="width:100%;margin-bottom:8px">Pack</button>
+            <input id="util-extract-src" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Archive path" />
+            <input id="util-extract-dst" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Extract to" />
+            <button id="btn-util-archive-extract" style="width:100%">Extract</button>
+          </div>
+
+          <!-- Documentation Section -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px">📄 DOCUMENTATION</div>
+            <input id="util-doc-src" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Source dir (Python files)" />
+            <input id="util-doc-out" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Output path" />
+            <select id="util-doc-fmt" style="width:100%;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px">
+              <option value="markdown">Markdown</option>
+              <option value="html">HTML</option>
+              <option value="json">JSON</option>
+            </select>
+            <button id="btn-util-doc-gen" style="width:100%">Generate Docs</button>
+          </div>
+
+          <!-- Package Manager Section -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px">📥 PACKAGE MANAGER</div>
+            <input id="util-pkg-name" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Package name" />
+            <input id="util-pkg-version" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Version (optional)" />
+            <select id="util-pkg-mgr" style="width:100%;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px">
+              <option value="pip">pip</option>
+              <option value="npm">npm</option>
+              <option value="cargo">cargo</option>
+              <option value="gem">gem</option>
+              <option value="go">go</option>
+            </select>
+            <button id="btn-util-pkg-install" style="width:100%;margin-bottom:4px">Install</button>
+            <button id="btn-util-pkg-uninstall" style="width:100%;margin-bottom:4px">Uninstall</button>
+            <button id="btn-util-pkg-list" style="width:100%">List Packages</button>
+          </div>
+
+          <!-- Image Section -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px">🖼️ IMAGE</div>
+            <div style="display:flex;gap:4px;margin-bottom:4px">
+              <input id="util-img-path" style="flex:1;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Image path" />
+              <button id="btn-util-img-info">Info</button>
+            </div>
+            <div style="display:flex;gap:4px;margin-bottom:4px">
+              <input id="util-img-w" style="width:60px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="W" />
+              <input id="util-img-h" style="width:60px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="H" />
+              <input id="util-img-dst" style="flex:1;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Output (optional)" />
+            </div>
+            <button id="btn-util-img-resize" style="width:100%;margin-bottom:4px">Resize</button>
+            <input id="util-img-fmt" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Format (PNG, JPEG, WEBP…)" />
+            <button id="btn-util-img-convert" style="width:100%">Convert</button>
+          </div>
+
+          <!-- Audio Section -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px">🔊 AUDIO</div>
+            <div style="display:flex;gap:4px;margin-bottom:4px">
+              <input id="util-audio-src" style="flex:1;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Source audio path" />
+              <button id="btn-util-audio-info">Info</button>
+            </div>
+            <input id="util-audio-dst" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Output path" />
+            <input id="util-audio-codec" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Codec (optional)" />
+            <button id="btn-util-audio-convert" style="width:100%;margin-bottom:8px">Convert</button>
+            <div style="display:flex;gap:4px;margin-bottom:4px">
+              <input id="util-audio-start" style="width:80px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Start ms" />
+              <input id="util-audio-end" style="width:80px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="End ms" />
+            </div>
+            <button id="btn-util-audio-trim" style="width:100%">Trim</button>
+          </div>
+
+          <!-- Debug Section -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px">🐛 DEBUG / PROCESS</div>
+            <input id="util-debug-pid" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Process ID" />
+            <div style="display:flex;gap:4px">
+              <button id="btn-util-debug-process" style="flex:1">Inspect</button>
+              <button id="btn-util-debug-memory" style="flex:1">Memory</button>
+              <button id="btn-util-debug-trace" style="flex:1">Trace</button>
+            </div>
+          </div>
+
+          <!-- Output -->
+          <div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px">OUTPUT</div>
+            <pre id="util-output" style="background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;padding:8px;font-size:11px;min-height:60px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></pre>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── Panel: Notes & Tasks ───────────────────────────────── -->
+      <div class="sb-panel" id="panel-notes">
+        <div class="sidebar-header">
+          <span>📝 Notes &amp; Tasks</span>
+          <div class="sidebar-buttons">
+            <button id="btn-notes-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:6px">NOTES</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <input id="notes-new-title" style="flex:1;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Note title…" />
+            <button id="btn-notes-add" title="Add note">＋</button>
+          </div>
+          <div id="notes-list" style="margin-bottom:12px"></div>
+
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:6px">TASK BOARD</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <input id="tasks-new-title" style="flex:1;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="New task…" />
+            <button id="btn-tasks-add" title="Add task">＋</button>
+          </div>
+          <div style="display:flex;gap:6px">
+            <div style="flex:1">
+              <div style="font-size:10px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px;text-align:center">TODO</div>
+              <div id="tasks-col-todo" class="kanban-col"></div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:10px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px;text-align:center">IN PROGRESS</div>
+              <div id="tasks-col-in_progress" class="kanban-col"></div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:10px;font-weight:600;color:var(--text-muted,#888);margin-bottom:4px;text-align:center">DONE</div>
+              <div id="tasks-col-done" class="kanban-col"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Refactor ────────────────────────────────────── -->
+      <div class="sb-panel" id="panel-refactor">
+        <div class="sidebar-header">
+          <span>🔧 Refactor</span>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin-bottom:6px">FIND &amp; REPLACE</div>
+          <input id="refactor-find" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Find…" />
+          <input id="refactor-replace" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Replace with…" />
+          <input id="refactor-glob" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Glob pattern (default: **/*)" />
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:11px">
+            <label><input type="checkbox" id="refactor-regex" /> Regex</label>
+            <label><input type="checkbox" id="refactor-dry-run" checked /> Dry run</label>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:10px">
+            <button id="btn-refactor-preview" style="flex:1">Preview</button>
+            <button id="btn-refactor-apply" style="flex:1">Apply</button>
+          </div>
+          <div id="refactor-results" style="font-size:11px;font-family:var(--font-mono,monospace);max-height:180px;overflow-y:auto;background:var(--bg2,#1e1e1e);border:1px solid var(--border,#444);border-radius:3px;padding:4px"></div>
+
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted,#888);margin:10px 0 6px">RENAME SYMBOL</div>
+          <input id="refactor-old-name" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Old name…" />
+          <input id="refactor-new-name" style="width:100%;box-sizing:border-box;margin-bottom:4px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="New name…" />
+          <input id="refactor-rename-glob" style="width:100%;box-sizing:border-box;margin-bottom:6px;padding:4px;background:var(--bg2,#1e1e1e);color:var(--text,#d4d4d4);border:1px solid var(--border,#444);border-radius:3px;font-size:11px" placeholder="Glob pattern (default: **/*)" />
+          <button id="btn-refactor-rename" style="width:100%;margin-bottom:6px">Rename</button>
+          <div id="refactor-rename-results" style="font-size:11px;font-family:var(--font-mono,monospace);max-height:120px;overflow-y:auto;background:var(--bg2,#1e1e1e);border:1px solid var(--border,#444);border-radius:3px;padding:4px"></div>
+        </div>
+      </div>
+
+      <div class="sb-panel" id="panel-aibackends">
+        <div class="sidebar-header">
+          <span>🤖 AI Backends</span>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="aibackends-panel-content">
+          <div style="color:var(--text-muted,#888);font-size:11px;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Multi-Agent Orchestration (Phase 22) ───────────── -->
+      <div class="sb-panel" id="panel-agents">
+        <div class="sidebar-header">
+          <span>🕹 Agents</span>
+          <div class="sidebar-buttons">
+            <button id="btn-agents-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="agents-panel-content">
+          <div style="color:var(--text-muted,#888);font-size:11px;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: CI/CD Pipeline (Phase 23) ─────────────────────── -->
+      <div class="sb-panel" id="panel-ci">
+        <div class="sidebar-header">
+          <span>🔁 CI/CD</span>
+          <div class="sidebar-buttons">
+            <button id="btn-ci-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="ci-panel-content">
+          <div style="color:var(--text-muted,#888);font-size:11px;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Docker Management (Phase 24) ──────────────────── -->
+      <div class="sb-panel" id="panel-docker">
+        <div class="sidebar-header">
+          <span>🐳 Docker</span>
+          <div class="sidebar-buttons">
+            <button id="btn-docker-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="docker-panel-content">
+          <div style="color:var(--text-muted,#888);font-size:11px;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Remote Deployment (Phase 25) ──────────────────── -->
+      <div class="sb-panel" id="panel-deploy">
+        <div class="sidebar-header">
+          <span>🚀 Deploy</span>
+          <div class="sidebar-buttons">
+            <button id="btn-deploy-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="deploy-panel-content">
+          <div style="color:var(--text-muted,#888);font-size:11px;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Monitoring & Observability (Phase 26) ──────────── -->
+      <div class="sb-panel" id="panel-monitor">
+        <div class="sb-panel-header">
+          <span>📊 Monitoring</span>
+          <div>
+            <button id="btn-monitor-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="monitor-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Database Management (Phase 27) ─────────────────── -->
+      <div class="sb-panel" id="panel-database">
+        <div class="sb-panel-header">
+          <span>🗄️ Database</span>
+          <div>
+            <button id="btn-db-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="database-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Secret & Environment Vault (Phase 28) ─────────── -->
+      <div class="sb-panel" id="panel-vault">
+        <div class="sb-panel-header">
+          <span>🔐 Vault</span>
+          <div>
+            <button id="btn-vault-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="vault-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: WebHook Manager (Phase 29) ─────────────────────── -->
+      <div class="sb-panel" id="panel-webhooks">
+        <div class="sb-panel-header">
+          <span>🪝 Webhooks</span>
+          <div>
+            <button id="btn-webhooks-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="webhooks-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: API Rate Limiting & Quota (Phase 30) ───────────── -->
+      <div class="sb-panel" id="panel-ratelimit">
+        <div class="sb-panel-header">
+          <span>⏱ Rate Limits</span>
+          <div>
+            <button id="btn-ratelimit-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="ratelimit-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Event Bus & Pub/Sub (Phase 31) ─────────────────── -->
+      <div class="sb-panel" id="panel-events">
+        <div class="sb-panel-header">
+          <span>📡 Events</span>
+          <div>
+            <button id="btn-events-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="events-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Cron Job Scheduler (Phase 32) ──────────────────── -->
+      <div class="sb-panel" id="panel-cron">
+        <div class="sb-panel-header">
+          <span>🕐 Cron Jobs</span>
+          <div>
+            <button id="btn-cron-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="cron-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Audit Log (Phase 33) ───────────────────────────── -->
+      <div class="sb-panel" id="panel-audit">
+        <div class="sb-panel-header">
+          <span>📋 Audit Log</span>
+          <div>
+            <button id="btn-audit-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="audit-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Feature Flags (Phase 34) ───────────────────────── -->
+      <div class="sb-panel" id="panel-flags">
+        <div class="sb-panel-header">
+          <span>🚩 Feature Flags</span>
+          <div>
+            <button id="btn-flags-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="flags-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Config Profiles (Phase 35) ────────────────────── -->
+      <div class="sb-panel" id="panel-cfgprofile">
+        <div class="sb-panel-header">
+          <span>⚙️ Config Profiles</span>
+          <div>
+            <button id="btn-cfgprofile-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="cfgprofile-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Notification Center (Phase 36) ─────────────────── -->
+      <div class="sb-panel" id="panel-notify">
+        <div class="sb-panel-header">
+          <span>🔔 Notifications</span>
+          <div>
+            <button id="btn-notify-mark-read" title="Mark all read" style="font-size:10px;padding:1px 5px">✓ all</button>
+            <button id="btn-notify-clear"     title="Clear all"     style="font-size:10px;padding:1px 5px">✕ all</button>
+            <button id="btn-notify-refresh"   title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="notify-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Task Queue (Phase 37) ──────────────────────────── -->
+      <div class="sb-panel" id="panel-taskqueue">
+        <div class="sb-panel-header">
+          <span>📋 Task Queue</span>
+          <div>
+            <button id="btn-taskqueue-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="taskqueue-panel-content">
+          <div style="color:var(--text-dim);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Brainstorm Mode (Phase 38) ──────────────────── -->
+      <div class="sb-panel" id="panel-brainstorm">
+        <div class="sb-panel-header">
+          <span>💡 Brainstorm</span>
+          <div style="display:flex;gap:4px">
+            <button id="btn-bs-new" title="New session">+</button>
+            <button id="btn-bs-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:0;overflow:hidden;display:flex;flex-direction:column;" id="brainstorm-panel-body">
+          <!-- Session list view -->
+          <div id="bs-session-list-view" style="flex:1;overflow-y:auto;padding:6px">
+            <div id="bs-sessions-container" style="color:var(--text-dim);font-size:11px;padding:4px">Loading…</div>
+          </div>
+          <!-- Active session view (hidden until a session is opened) -->
+          <div id="bs-session-view" class="hidden" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+            <!-- Session top bar -->
+            <div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
+              <button id="btn-bs-back" title="Back to sessions" style="font-size:12px;padding:2px 6px">◀</button>
+              <span id="bs-session-title" style="font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+            </div>
+            <!-- Chat messages -->
+            <div id="bs-messages" style="flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px"></div>
+            <!-- Input area -->
+            <div style="padding:6px 8px;border-top:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column;gap:4px">
+              <textarea id="bs-input" rows="3" placeholder="Type your idea…"
+                style="width:100%;resize:none;font-size:12px;font-family:var(--font-ui);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;line-height:1.4"></textarea>
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <button id="btn-bs-send" style="flex:1;min-width:60px">Send ↵</button>
+                <button id="btn-bs-export" style="flex:1;min-width:60px" title="Export session as markdown">⬇ Export</button>
+                <button id="btn-bs-to-project" style="flex:1;min-width:80px" title="Create project from session">📁 → Project</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Web Search (Phase 39) ──────────────────────── -->
+      <div class="sb-panel" id="panel-websearch">
+        <div class="sb-panel-header">
+          <span>🌐 Web Search</span>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto">
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <input id="ws-query-input" type="text" placeholder="Search the web…"
+              style="flex:1;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <button id="btn-ws-search" style="white-space:nowrap;padding:5px 10px">🔍</button>
+          </div>
+          <div id="ws-results" style="display:flex;flex-direction:column;gap:6px;font-size:12px"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Code Snippet Library (Phase 40) ────────────────── -->
+      <div class="sb-panel" id="panel-snippets">
+        <div class="sb-panel-header">
+          <span>📎 Snippets</span>
+          <div style="display:flex;gap:4px">
+            <button id="btn-snip-new" title="New snippet">+</button>
+            <button id="btn-snip-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="snippets-panel-body">
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <input id="snip-search" type="text" placeholder="Search snippets…"
+              style="flex:1;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <button id="btn-snip-search" style="padding:5px 8px">🔍</button>
+          </div>
+          <div id="snip-form" class="hidden" style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px;padding:8px;background:var(--surface);border-radius:5px;border:1px solid var(--border)">
+            <input id="snip-name" type="text" placeholder="Name *"
+              style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <input id="snip-lang" type="text" placeholder="Language (e.g. python)"
+              style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <input id="snip-tags" type="text" placeholder="Tags (comma-separated)"
+              style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <input id="snip-desc" type="text" placeholder="Description"
+              style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <textarea id="snip-code" rows="6" placeholder="Code *"
+              style="font-size:11px;font-family:var(--font-mono);resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px"></textarea>
+            <div style="display:flex;gap:4px">
+              <button id="btn-snip-save" style="flex:1">💾 Save</button>
+              <button id="btn-snip-cancel" style="flex:1">✕ Cancel</button>
+            </div>
+          </div>
+          <div id="snip-list" style="display:flex;flex-direction:column;gap:5px"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Diff & Patch Tool (Phase 41) ───────────────────── -->
+      <div class="sb-panel" id="panel-diffpatch">
+        <div class="sb-panel-header">
+          <span>🔀 Diff &amp; Patch</span>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto">
+          <div style="display:flex;gap:4px;margin-bottom:8px">
+            <button id="btn-dp-mode-diff" class="dp-mode-btn active" style="flex:1;font-size:11px;padding:4px">Diff</button>
+            <button id="btn-dp-mode-patch" class="dp-mode-btn" style="flex:1;font-size:11px;padding:4px">Patch</button>
+          </div>
+          <div id="dp-diff-mode">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Original text:</div>
+            <textarea id="dp-orig" rows="5" placeholder="Paste original text…"
+              style="width:100%;resize:vertical;font-size:11px;font-family:var(--font-mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px;margin-bottom:6px"></textarea>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Modified text:</div>
+            <textarea id="dp-modified" rows="5" placeholder="Paste modified text…"
+              style="width:100%;resize:vertical;font-size:11px;font-family:var(--font-mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px;margin-bottom:6px"></textarea>
+            <button id="btn-dp-diff" style="width:100%;margin-bottom:6px">Compute Diff</button>
+          </div>
+          <div id="dp-patch-mode" class="hidden">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Original text:</div>
+            <textarea id="dp-patch-orig" rows="5" placeholder="Paste original text…"
+              style="width:100%;resize:vertical;font-size:11px;font-family:var(--font-mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px;margin-bottom:6px"></textarea>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Patch (unified diff):</div>
+            <textarea id="dp-patch-text" rows="5" placeholder="Paste unified diff patch…"
+              style="width:100%;resize:vertical;font-size:11px;font-family:var(--font-mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px;margin-bottom:6px"></textarea>
+            <button id="btn-dp-patch" style="width:100%;margin-bottom:6px">Apply Patch</button>
+          </div>
+          <div id="dp-output" style="font-size:11px;margin-top:4px"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Environment Variables Manager (Phase 44) ───────── -->
+      <div class="sb-panel" id="panel-envvars">
+        <div class="sb-panel-header">
+          <span>🔑 Env Variables</span>
+          <div style="display:flex;gap:4px">
+            <button id="btn-env-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="envvars-panel-body">
+          <div style="display:flex;gap:4px;margin-bottom:8px">
+            <select id="env-file-select" style="flex:1;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px">
+              <option value=".env">.env</option>
+            </select>
+            <button id="btn-env-add" title="Add variable" style="padding:4px 8px">+</button>
+          </div>
+          <div id="env-add-form" class="hidden" style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px;padding:8px;background:var(--surface);border-radius:5px;border:1px solid var(--border)">
+            <input id="env-new-key" type="text" placeholder="KEY *"
+              style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-family:var(--font-mono)" />
+            <input id="env-new-val" type="text" placeholder="VALUE"
+              style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-family:var(--font-mono)" />
+            <input id="env-new-comment" type="text" placeholder="Comment (optional)"
+              style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <div style="display:flex;gap:4px">
+              <button id="btn-env-save-var" style="flex:1">💾 Save</button>
+              <button id="btn-env-cancel-var" style="flex:1">✕ Cancel</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <button id="btn-env-import" style="flex:1;font-size:11px;padding:4px">📥 Import</button>
+            <button id="btn-env-export" style="flex:1;font-size:11px;padding:4px">📤 Export</button>
+          </div>
+          <div id="env-vars-list" style="display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+      </div>
+
+      <!-- ── Panel: API Client / HTTP Playground (Phase 45) ────────── -->
+      <div class="sb-panel" id="panel-apiclient">
+        <div class="sb-panel-header">
+          <span>🌐 API Client</span>
+          <div style="display:flex;gap:4px">
+            <button id="btn-apc-collections" title="Collections">📂</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="apiclient-panel-body">
+          <!-- Request builder -->
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <select id="apc-method" style="width:76px;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-weight:bold">
+              <option>GET</option><option>POST</option><option>PUT</option>
+              <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+            </select>
+            <input id="apc-url" type="text" placeholder="https://…"
+              style="flex:1;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+          </div>
+          <!-- Tabs: Headers / Body -->
+          <div style="display:flex;gap:2px;margin-bottom:6px">
+            <button class="apc-tab-btn active" data-apc-tab="headers" style="flex:1;font-size:11px;padding:4px">Headers</button>
+            <button class="apc-tab-btn" data-apc-tab="body" style="flex:1;font-size:11px;padding:4px">Body</button>
+          </div>
+          <div id="apc-tab-headers">
+            <textarea id="apc-headers" rows="4" placeholder="Header: Value&#10;Content-Type: application/json"
+              style="width:100%;font-size:11px;font-family:var(--font-mono);resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px;margin-bottom:4px"></textarea>
+          </div>
+          <div id="apc-tab-body" class="hidden">
+            <div style="display:flex;gap:4px;margin-bottom:4px">
+              <select id="apc-body-type" style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 5px">
+                <option value="raw">Raw</option>
+                <option value="json">JSON</option>
+                <option value="form">Form</option>
+              </select>
+            </div>
+            <textarea id="apc-body" rows="5" placeholder="Request body…"
+              style="width:100%;font-size:11px;font-family:var(--font-mono);resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px;margin-bottom:4px"></textarea>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:8px">
+            <button id="btn-apc-send" style="flex:1">▶ Send</button>
+            <button id="btn-apc-save-req" style="font-size:11px;padding:4px 8px" title="Save to collection">💾</button>
+          </div>
+          <!-- Response -->
+          <div id="apc-response" style="font-size:11px"></div>
+          <!-- Collections list (hidden by default) -->
+          <div id="apc-collections-view" class="hidden" style="margin-top:8px">
+            <div style="font-size:11px;font-weight:bold;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between">
+              <span>Collections</span>
+              <button id="btn-apc-new-col" style="font-size:10px;padding:2px 6px">+ New</button>
+            </div>
+            <div id="apc-col-list" style="display:flex;flex-direction:column;gap:4px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: AI Timeline (Phase 46) ───────────────────────────────── -->
+      <div class="sb-panel" id="panel-aitimeline">
+        <div class="sidebar-header">
+          <span>🕒 AI Timeline</span>
+          <div class="sidebar-buttons">
+            <button id="btn-timeline-refresh" title="Refresh">↺</button>
+            <button id="btn-timeline-clear" title="Clear all events" style="color:var(--danger)">🗑</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="timeline-panel-content">
+          <div style="color:var(--text-dim);font-size:11px;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Project Health Dashboard (Phase 47) ───────────────────── -->
+      <div class="sb-panel" id="panel-healthdash">
+        <div class="sidebar-header">
+          <span>💚 Project Health</span>
+          <div class="sidebar-buttons">
+            <button id="btn-health-refresh" title="Refresh">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="healthdash-panel-content">
+          <div style="color:var(--text-dim);font-size:11px;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Code Documentation Generator (Phase 48) ───────────────── -->
+      <div class="sb-panel" id="panel-docgen">
+        <div class="sidebar-header">
+          <span>📝 Doc Generator</span>
+          <div class="sidebar-buttons">
+            <button id="btn-docgen-history" title="History">🕒</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="docgen-panel-body">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <select id="docgen-language" style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px">
+              <option value="">Auto-detect language</option>
+              <option value="python">Python</option>
+              <option value="javascript">JavaScript</option>
+              <option value="typescript">TypeScript</option>
+              <option value="java">Java</option>
+              <option value="cpp">C++</option>
+              <option value="csharp">C#</option>
+              <option value="go">Go</option>
+              <option value="rust">Rust</option>
+              <option value="lua">Lua</option>
+            </select>
+            <select id="docgen-style" style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px">
+              <option value="docstring">Docstring</option>
+              <option value="jsdoc">JSDoc</option>
+              <option value="javadoc">Javadoc</option>
+              <option value="inline">Inline Comments</option>
+              <option value="readme">README section</option>
+            </select>
+            <input id="docgen-context" type="text" placeholder="Optional context / hint…"
+              style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <textarea id="docgen-code" rows="8" placeholder="Paste code here…"
+              style="font-size:11px;font-family:var(--font-mono);resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px"></textarea>
+            <button id="btn-docgen-generate" style="font-size:12px;padding:5px">📝 Generate Documentation</button>
+            <div id="docgen-result" style="font-size:11px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Dependency Analyzer (Phase 49) ─────────────────────────── -->
+      <div class="sb-panel" id="panel-depsanalyzer">
+        <div class="sidebar-header">
+          <span>📦 Dependencies</span>
+          <div class="sidebar-buttons">
+            <button id="btn-deps-reports" title="Past reports">🕒</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="deps-panel-body">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <input id="deps-project-path" type="text" placeholder="Project path (blank = workspace root)"
+              style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <button id="btn-deps-analyze" style="font-size:12px;padding:5px">🔍 Analyze Dependencies</button>
+            <div id="deps-result" style="font-size:11px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Test Runner & Coverage Dashboard (Phase 52) ────────────── -->
+      <div class="sb-panel" id="panel-testrunner">
+        <div class="sidebar-header">
+          <span>🧪 Test Runner</span>
+          <div class="sidebar-buttons">
+            <button id="btn-testrunner-reports" title="Past reports">🕒</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto" id="testrunner-panel-body">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <input id="testrunner-project-path" type="text" placeholder="Project path (blank = workspace root)"
+              style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px" />
+            <select id="testrunner-framework" style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px">
+              <option value="pytest">pytest (Python)</option>
+              <option value="jest">jest (JavaScript)</option>
+              <option value="npm">npm test</option>
+              <option value="cargo">cargo test (Rust)</option>
+              <option value="go">go test (Go)</option>
+            </select>
+            <button id="btn-testrunner-run" style="font-size:12px;padding:5px">▶ Run Tests</button>
+            <div id="testrunner-result" style="font-size:11px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Panel: Terminal Manager (Phase 53) ────────────────────────────── -->
+      <div class="sb-panel" id="panel-terminal">
+        <div class="sidebar-header">
+          <span>🖥 Terminal</span>
+          <div class="sidebar-buttons">
+            <button id="btn-terminal-new" title="New session">＋</button>
+            <button id="btn-terminal-refresh" title="Refresh sessions">↺</button>
+          </div>
+        </div>
+        <div class="sb-panel-body" style="padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:6px" id="terminal-panel-body">
+          <div id="terminal-sessions-list" style="font-size:11px"></div>
+          <div id="terminal-session-view" class="hidden" style="display:flex;flex-direction:column;gap:4px">
+            <div id="terminal-session-title" style="font-size:11px;font-weight:600;color:var(--text-dim)"></div>
+            <div id="terminal-output" style="font-family:var(--font-mono);font-size:11px;background:var(--bg-3,var(--bg));border:1px solid var(--border);border-radius:4px;padding:6px;max-height:300px;overflow-y:auto;white-space:pre-wrap"></div>
+            <div style="display:flex;gap:4px">
+              <input id="terminal-cmd-input" type="text" placeholder="Enter command…"
+                style="flex:1;font-size:11px;font-family:var(--font-mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px" />
+              <button id="btn-terminal-exec" style="font-size:11px;padding:4px 8px">▶</button>
+            </div>
+            <button id="btn-terminal-close-session" style="font-size:10px;color:var(--danger);padding:2px 6px">✕ Close Session</button>
+          </div>
+        </div>
+      </div>
+    <div id="main-col">
+      <!-- Editor tabs -->
+      <div id="tabs-bar">
+        <div id="tabs-list"></div>
+        <div class="tabs-bar-actions">
+          <button id="btn-split-editor" title="Toggle split editor">⫿</button>
+        </div>
+      </div>
+      <!-- Editor area (supports split) -->
+      <div id="editors-row">
+        <!-- Primary Monaco editor -->
+        <div id="editor-container">
+          <!-- Loading overlay shown while Monaco initialises -->
+          <div id="editor-loading">
+            <div class="editor-spinner"></div>
+            <span>Loading editor…</span>
+          </div>
+          <!-- Welcome screen shown when no file is open -->
+          <div id="editor-welcome" class="hidden">
+            <div class="welcome-content">
+              <div class="welcome-icon">🛠</div>
+              <h2>Arbiter IDE</h2>
+              <p>Open a file from the sidebar, or create a new one with <kbd>+</kbd></p>
+              <p class="welcome-hint">Use the AI Agent panel on the right to generate or improve code.</p>
+            </div>
+          </div>
+          <!-- Fallback plain-text editor when Monaco CDN is unreachable -->
+          <textarea id="fallback-editor" class="hidden" spellcheck="false"></textarea>
+        </div>
+        <!-- Split editor (secondary, hidden by default) -->
+        <div id="editor-container-split" class="hidden">
+          <div class="split-tabs-bar">
+            <div id="split-tabs-list" class="split-tabs-list"></div>
+          </div>
+          <div id="editor-split-inner"></div>
+        </div>
+      </div>
+      <!-- Output panel (tabbed) -->
+      <div id="output-panel">
+        <div id="output-header">
+          <!-- Tab buttons -->
+          <div id="output-tabs">
+            <button class="out-tab active" data-tab="output">Output</button>
+            <button class="out-tab" data-tab="build">Build / Test</button>
+            <button class="out-tab" data-tab="problems">Problems</button>
+            <button class="out-tab" data-tab="terminal">Terminal</button>
+            <button class="out-tab" data-tab="roadmap">Roadmap</button>
+          </div>
+          <div class="output-actions">
+            <button id="btn-fix-ai" class="btn-fix hidden" title="Send build errors to agent for fixing">🪄 Fix with AI</button>
+            <button id="btn-clear-output" title="Clear output">✕ Clear</button>
+          </div>
+        </div>
+        <!-- Pane: agent output -->
+        <pre id="output-content" class="out-pane active"></pre>
+        <!-- Pane: build/test output -->
+        <pre id="build-content" class="out-pane"></pre>
+        <!-- Pane: problems list -->
+        <div id="problems-content" class="out-pane"></div>
+        <!-- Pane: PTY terminal -->
+        <div id="terminal-content" class="out-pane terminal-pane"></div>
+        <!-- Pane: roadmap -->
+        <div id="roadmap-content" class="out-pane roadmap-pane"></div>
+      </div>
+    </div>
+
+    <!-- ── Chat panel (Cursor-style, right side) ──────────────────── -->
+    <aside id="agent-panel">
+      <!-- Header -->
+      <div class="cp-header">
+        <span class="cp-title">CHAT</span>
+        <div class="cp-header-actions">
+          <button id="btn-new-session" class="cp-hdr-btn" title="New session">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <button id="btn-clear-chat" class="cp-hdr-btn" title="Clear current chat">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+          <button id="btn-cp-expand" class="cp-hdr-btn" title="Expand chat panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Sessions list -->
+      <div id="cp-sessions-panel">
+        <div class="cp-section-label">SESSIONS</div>
+        <div id="sessions-list"></div>
+      </div>
+
+      <!-- Divider shown when a session is active -->
+      <div class="cp-divider" id="cp-divider"></div>
+
+      <!-- Chat messages area -->
+      <div id="chat-messages"></div>
+
+      <!-- Chat input -->
+      <div id="chat-input-area">
+        <!-- Quick action buttons -->
+        <div id="slash-cmd-bar">
+          <button class="slash-btn" data-cmd="/fix"      title="Ask AI to fix bugs in the active file">Fix</button>
+          <button class="slash-btn" data-cmd="/explain"  title="Ask AI to explain the active file">Explain</button>
+          <button class="slash-btn" data-cmd="/test"     title="Ask AI to write tests for the active file">Test</button>
+          <button class="slash-btn" data-cmd="/docs"     title="Ask AI to add docstrings to the active file">Docs</button>
+          <button class="slash-btn" data-cmd="/refactor" title="Ask AI to refactor the active file">Refactor</button>
+        </div>
+        <!-- File context chip -->
+        <div class="ci-attach-row">
+          <button class="ci-attach-chip" id="btn-attach-file" title="Toggle current file as context">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span id="ci-attached-name">no file</span>
+          </button>
+        </div>
+        <!-- Message textarea -->
+        <textarea
+          id="chat-input"
+          placeholder="Describe what to build…"
+          rows="3"
+        ></textarea>
+        <!-- Toolbar: mode | model | send -->
+        <div class="ci-toolbar">
+          <div class="ci-toolbar-left">
+            <select id="llm-backend-select" class="ci-model-select" title="LLM backend">
+              <option value="ollama">🟢 Ollama (local/free)</option>
+              <option value="openwebui">🟢 Open WebUI (local/free)</option>
+              <option value="lmstudio">🟢 LM Studio (local/free)</option>
+              <option value="llamacpp">🟢 llama.cpp (local/free)</option>
+              <option value="localai">🟢 LocalAI (local/free)</option>
+              <option value="tabby">🟢 Tabby (local/free)</option>
+              <option value="gemini">🔵 Gemini (free tier)</option>
+              <option value="api">🔑 OpenAI API</option>
+              <option value="anthropic">🔑 Anthropic</option>
+              <option value="local">⚙ Local stub</option>
+            </select>
+          </div>
+          <button id="btn-send-prompt" class="ci-send-btn" title="Send (Enter)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          </button>
+          <button id="btn-agentic-toggle" class="ci-agentic-btn" title="Toggle Agentic mode (AI edits files)" aria-pressed="false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+            Agent
+          </button>
+        </div>
+        <!-- Status strip -->
+        <div class="ci-status-strip">
+          <span class="ci-status-dot" id="ci-llm-dot">⊙</span>
+          <span class="ci-status-text" id="ci-llm-label">Local</span>
+          <span class="ci-status-sep">|</span>
+          <span class="ci-persona-label" id="ci-persona-label">arbiter_assistant</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── Status bar ────────────────────────────────────────────── -->
+  <footer id="status-bar">
+    <span id="sb-file">No file open</span>
+    <span id="sb-cursor">Ln 1, Col 1</span>
+    <span id="sb-language">Plain Text</span>
+    <span class="sb-spacer"></span>
+    <span id="sb-ai-status" class="sb-idle">● AI Idle</span>
+    <span id="sb-version">Arbiter v0.2.0 <span id="sb-editor-mode"></span></span>
+  </footer>
+
+  <!-- ── New-file dialog ──────────────────────────────────────── -->
+  <div id="new-file-dialog" class="dialog hidden">
+    <div class="dialog-box">
+      <h3>New File</h3>
+      <input id="new-file-path" type="text" placeholder="e.g. workspace/hello.py" />
+      <div class="dialog-buttons">
+        <button id="btn-new-file-ok">Create</button>
+        <button id="btn-new-file-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Import project dialog ────────────────────────────────── -->
+  <div id="import-dialog" class="dialog hidden">
+    <div class="dialog-box dialog-wide">
+      <h3>📥 Import Project</h3>
+      <label class="dialog-label">Local folder path</label>
+      <input id="import-path" type="text" placeholder="/home/user/my-project" />
+      <label class="dialog-label">Destination name (optional)</label>
+      <input id="import-dest" type="text" placeholder="auto-detected from folder name" />
+      <div id="import-preview" class="import-preview hidden"></div>
+      <div class="dialog-buttons">
+        <button id="btn-import-scan">Scan</button>
+        <button id="btn-import-ok">Import</button>
+        <button id="btn-import-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Context menu ──────────────────────────────────────────── -->
+  <div id="context-menu" class="context-menu hidden">
+    <div class="ctx-item" data-action="new-file">📄 New File</div>
+    <div class="ctx-item" data-action="new-folder">📁 New Folder</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="rename">✏️ Rename</div>
+    <div class="ctx-item" data-action="copy-path">📋 Copy Path</div>
+    <div class="ctx-item" data-action="open-split">⫿ Open in Split</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item ctx-danger" data-action="delete">🗑 Delete</div>
+  </div>
+
+  <!-- ── Git clone dialog ─────────────────────────────────────────────────── -->
+  <div id="clone-dialog" class="dialog hidden">
+    <div class="dialog-box dialog-wide">
+      <h3>⬇ Clone Repository</h3>
+      <label class="dialog-label">Repository URL</label>
+      <input id="clone-url" type="text" placeholder="https://github.com/user/repo.git" />
+      <label class="dialog-label">Destination name (optional)</label>
+      <input id="clone-dest" type="text" placeholder="auto-detected from URL" />
+      <label class="dialog-label">Branch (optional)</label>
+      <input id="clone-branch" type="text" placeholder="main" />
+      <div id="clone-status" class="clone-status hidden"></div>
+      <div class="dialog-buttons">
+        <button id="btn-clone-ok">Clone</button>
+        <button id="btn-clone-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Project Init Wizard ──────────────────────────────────────────────── -->
+  <div id="init-wizard" class="modal-overlay hidden">
+    <div class="modal-box" style="min-width:480px;max-width:600px">
+      <h3>🤖 Analyze Project with AI</h3>
+      <p id="init-wizard-detect-summary" style="margin:8px 0;color:var(--fg-muted)">Scanning project…</p>
+      <div id="init-wizard-steps" style="margin:12px 0;font-size:13px;color:var(--text-dim);line-height:1.6"></div>
+      <div id="init-wizard-progress" class="hidden" style="margin:12px 0;font-family:monospace;font-size:12px;max-height:180px;overflow-y:auto;background:var(--bg-3);padding:8px;border-radius:4px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="btn-init-skip" class="btn-secondary">Skip</button>
+        <button id="btn-init-run" class="btn-primary">🤖 Analyze with AI</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Floating AI selection toolbar (t7-2) ────────────────────────────── -->
+  <div id="sel-toolbar" class="sel-toolbar hidden">
+    <button class="sel-tb-btn" data-action="explain"   title="Explain this code">💡 Explain</button>
+    <button class="sel-tb-btn" data-action="refactor"  title="Refactor this code">🔧 Refactor</button>
+    <button class="sel-tb-btn" data-action="tests"     title="Generate unit tests">🧪 Tests</button>
+    <button class="sel-tb-btn" data-action="fix"       title="Fix bugs in this code">🪲 Fix</button>
+    <button class="sel-tb-btn" data-action="docstring" title="Add docstrings">📝 Docs</button>
+  </div>
+
+  <!-- ── AI Diff Viewer overlay (t7-4) ────────────────────────────────────── -->
+  <div id="ai-diff-overlay" class="dialog hidden">
+    <div class="dialog-box dialog-fullscreen">
+      <div class="diff-header">
+        <span id="diff-title">🤖 Proposed Changes</span>
+        <div class="diff-header-actions">
+          <button id="btn-diff-accept" class="btn-diff-accept" title="Accept proposed changes">✓ Accept</button>
+          <button id="btn-diff-reject" class="btn-diff-reject" title="Reject proposed changes">✕ Reject</button>
+        </div>
+      </div>
+      <div id="diff-editor-container" class="diff-editor-container"></div>
+    </div>
+  </div>
+
+  <!-- ── Command palette ──────────────────────────────────────────────────── -->
+  <div id="cmd-palette" class="cmd-palette hidden">
+    <div class="cmd-palette-box">
+      <input id="cmd-palette-input" type="text" placeholder="Type a file name or command…" autocomplete="off" />
+      <div id="cmd-palette-list"></div>
+    </div>
+  </div>
+
+  <!-- Monaco Editor loader (CDN — async so the page never blocks on network; app.js handles offline fallback) -->
+  <script>
+    var require = { paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs" } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs/loader.js"
+          async
+          onload="window.__monacoLoaderReady=true"
+          onerror="window.__monacoLoaderFailed=true"></script>
+  <!-- xterm.js for the PTY terminal tab (async — non-blocking) -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"
+          async
+          onerror="window.__xtermLoaderFailed=true"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"
+          async
+          onerror="window.__xtermLoaderFailed=true"></script>
+  <script src="/gui/app.js" defer></script>
+</body>
+</html>

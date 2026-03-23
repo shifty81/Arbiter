@@ -1,0 +1,181 @@
+{
+  "project": "ArbiterEngine",
+  "description": "Self-build roadmap consumed by SelfBuildLoop — one task at a time, AI patches and tests each one.",
+  "version": "0.2.0",
+  "milestones": [
+    {
+      "id": "SB-M1",
+      "title": "Module System Validation",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "SB-M1-1",
+          "title": "Validate module loader discovers all installed modules",
+          "description": "After setup_modules.py runs, verify ModuleLoader.load_all() finds every module directory and registers its tools.json entries into the ToolRegistry without errors.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M1-2",
+          "title": "Add missing __init__.py stubs for all module packages",
+          "description": "Each module under modules/ that exposes Python callables needs an __init__.py so importlib.import_module() can resolve function paths in tool definitions.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M1-3",
+          "title": "Write unit tests for ToolRegistry register/get/list_tools",
+          "description": "tests/test_tool_registry.py: register a stub tool definition, assert get() returns it, assert list_tools() contains it, assert overwrite by same name works.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M1-4",
+          "title": "Write unit tests for PermissionSystem path and tool checks",
+          "description": "tests/test_permission.py: blocked_dirs rejects paths inside them, allowed_dirs accepts paths inside them, block_tool() prevents execution.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "SB-M2",
+      "title": "LLM Backend Health Checks",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "SB-M2-1",
+          "title": "Add health_check() method to all LLM backend classes",
+          "description": "Each LLM backend (OllamaLLM, ApiLLM, etc.) should implement health_check() -> bool that pings the backend's /health or equivalent endpoint with a 3-second timeout. Returns True if reachable.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M2-2",
+          "title": "Add list_models() method to OllamaLLM and ApiLLM",
+          "description": "OllamaLLM.list_models() calls GET /api/tags on the Ollama server and returns a list of model name strings. ApiLLM.list_models() calls GET /v1/models on the OpenAI-compatible endpoint.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M2-3",
+          "title": "Factory creates fallback chain: try configured backend, else local stub",
+          "description": "In create_llm(), if the configured backend raises on instantiation or health_check() returns False, log a warning and return LocalLLM() as a safe fallback so the server always starts.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "SB-M3",
+      "title": "Agentic Loop Hardening",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "SB-M3-1",
+          "title": "Agent.run() returns structured AgentResult instead of bare string",
+          "description": "Define AgentResult(reply: str, tool_calls: list, iterations: int, truncated: bool). Agent.run() returns AgentResult. All callers (server.py /chat) adapt to .reply. Allows the IDE to display tool_calls as a collapsible step list.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M3-2",
+          "title": "Tool call argument coercion: JSON-string args auto-parsed to dict",
+          "description": "In Agent._execute_tool(), if arguments is a str, attempt json.loads(). If that also fails, wrap as {\"input\": arguments}. Log a debug warning. Prevents crashes when some LLMs return stringified JSON.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M3-3",
+          "title": "Cap total tool-call chain tokens: truncate history after 6000 chars",
+          "description": "In Agent._build_messages(), if the combined content of history entries exceeds 6000 characters, keep only the most recent entries that fit. Prevents context-window overflow on long agentic runs.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M3-4",
+          "title": "Write integration test: agent completes a read-file + summarise task",
+          "description": "tests/test_agent_integration.py: create a temp workspace file, run agent with prompt 'Summarise workspace/hello.txt', assert response mentions the file content. Uses LocalLLM stub.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "SB-M4",
+      "title": "Server API Completeness",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "SB-M4-1",
+          "title": "Add GET /files endpoint: recursive file tree for workspace/ and projects/",
+          "description": "Returns JSON tree matching the schema expected by the Monaco IDE file explorer: [{type:'dir'|'file', name, path, children?, size?}]. Depth capped at 4. Hidden files (dot-prefixed) excluded.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M4-2",
+          "title": "Add GET /files/read and POST /files/write with path-traversal guards",
+          "description": "Both endpoints resolve paths relative to workspace/ or projects/ only. Reject any path that resolves outside those roots with HTTP 400. write creates parent directories.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M4-3",
+          "title": "Add streaming chat via Server-Sent Events: GET /chat/stream",
+          "description": "Accepts same body as POST /chat. Returns SSE stream of token chunks as {data: token} events, ending with {data: '[DONE]'}. Uses LLM.stream_chat() if implemented, else yields the full response as one event.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M4-4",
+          "title": "Add WebSocket /ws/run for streaming build/run output to IDE",
+          "description": "Accepts {command, cwd} JSON message after WS handshake. Runs the command via asyncio.create_subprocess_shell, streams stdout+stderr line-by-line as text frames, sends {type:'exit',code:N} JSON frame on completion.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "SB-M5",
+      "title": "Archive & Library Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "SB-M5-1",
+          "title": "Implement archive_manager.py in ArbiterEngine",
+          "description": "Port archive_manager.py from PythonBridge to ArbiterEngine/core/. ArchiveEntry dataclass, Archive.add_entry, Archive.search, Archive.get_context. Singleton via get_archive().",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M5-2",
+          "title": "Integrate archive context into Agent._build_messages()",
+          "description": "In Agent._build_messages(), call get_archive().get_context(state.prompt, max_chars=2000) and if non-empty, append it to the system prompt after the project context block.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M5-3",
+          "title": "Start archive watcher in server.py lifespan",
+          "description": "In the lifespan async context manager of ArbiterEngine/server.py, call get_archive().start_watcher(library_paths) in a background thread after loading library paths from library_manager.get_library_paths().",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M5-4",
+          "title": "Add archive REST endpoints to ArbiterEngine server",
+          "description": "GET /archive (paginated list), POST /archive/rebuild (full re-index), GET /archive/search?q=..., GET /archive/export (markdown), DELETE /archive/entry/{id}.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "SB-M6",
+      "title": "Self-Build Loop Activation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "SB-M6-1",
+          "title": "Add POST /self-build/run endpoint to ArbiterEngine server",
+          "description": "Starts SelfBuildLoop.run() in a background asyncio task. Streams log events via a queue. Returns {status:'started', task_id}. If already running returns {status:'already_running'}.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M6-2",
+          "title": "Add GET /self-build/log WebSocket for live self-build output",
+          "description": "WebSocket endpoint that reads from the SelfBuildLoop event queue and forwards each line to the connected client. IDE roadmap panel subscribes to this for live progress.",
+          "status": "pending"
+        },
+        {
+          "id": "SB-M6-3",
+          "title": "Validate SelfBuildLoop with a trivial roadmap task (add docstring)",
+          "description": "Create tests/test_self_build.py with a minimal roadmap containing one task: 'Add module-level docstring to core/task_runner.py'. Run SelfBuildLoop, assert the file is modified and the test suite still passes.",
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}
