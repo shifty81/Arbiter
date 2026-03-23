@@ -2126,8 +2126,12 @@ def refactor_find_replace(req: _FindReplaceRequest) -> dict:
             original = filepath.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if req.find not in original and not _re.search(pattern, original, flags):
-            continue
+        if req.whole_word:
+            if not _re.search(pattern, original, flags):
+                continue
+        else:
+            if req.find not in original:
+                continue
         updated = _re.sub(pattern, req.replace, original, flags=flags)
         if updated == original:
             continue
@@ -2456,18 +2460,30 @@ def apiclient_request_create(name: str, req: _ApiRequestItem) -> dict:
 
 @app.post("/apiclient/send")
 def apiclient_send(req: _ApiSendRequest) -> dict:
-    """Send an HTTP request and return the response (M9-6)."""
+    """Send an HTTP request and return the response (M9-6).
+
+    Only http and https schemes are permitted to prevent unintended
+    protocol handlers from being invoked.
+    """
     import urllib.request
     import urllib.error
+    import urllib.parse
+
+    # Restrict to safe schemes only — block file://, ftp://, etc.
+    parsed = urllib.parse.urlparse(req.url)
+    if parsed.scheme not in ("http", "https"):
+        return {"status": "error", "detail": f"Unsupported scheme '{parsed.scheme}'; only http and https are allowed"}
 
     method = req.method.upper()
     body_bytes = req.body.encode("utf-8") if req.body else None
-    request = urllib.request.Request(req.url, data=body_bytes, method=method)
+    # Build request from validated URL
+    safe_url = urllib.parse.urlunparse(parsed)
+    http_req = urllib.request.Request(safe_url, data=body_bytes, method=method)
     for k, v in req.headers.items():
-        request.add_header(k, v)
+        http_req.add_header(k, v)
 
     try:
-        with urllib.request.urlopen(request, timeout=req.timeout) as resp:
+        with urllib.request.urlopen(http_req, timeout=req.timeout) as resp:
             raw = resp.read()
             try:
                 body = raw.decode("utf-8")
@@ -2485,7 +2501,7 @@ def apiclient_send(req: _ApiSendRequest) -> dict:
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
-    logger.info("[apiclient/send] %s %s -> %d", method, req.url, status_code)
+    logger.info("[apiclient/send] %s %s -> %d", method, safe_url, status_code)
     return {"status": status_code, "body": body, "headers": headers_out}
 
 
