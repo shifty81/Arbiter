@@ -1,12 +1,12 @@
 {
   "project": "ArbiterAI",
-  "description": "Self-hosted, fully offline AI-powered development platform \u2014 three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration.",
+  "description": "Self-hosted, fully offline AI-powered development platform — three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration.",
   "version": "0.7.0",
   "last_updated": "2026-03-23",
   "pillars": [
-    "Pillar 1 \u2014 Chat Engine: context-aware, multi-turn conversational development assistant",
-    "Pillar 2 \u2014 Visual Studio Integration: native VSIX extension for Visual Studio 2022",
-    "Pillar 3 \u2014 Self-Iteration: autonomous roadmap-driven self-build loop"
+    "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
+    "Pillar 2 — Visual Studio Integration: native VSIX extension for Visual Studio 2022",
+    "Pillar 3 — Self-Iteration: autonomous roadmap-driven self-build loop"
   ],
   "milestones": [
     {
@@ -62,7 +62,7 @@
         },
         {
           "id": "M0-10",
-          "title": "Git integration (LibGit2Sharp \u2014 commit, push, pull, branch, log)",
+          "title": "Git integration (LibGit2Sharp — commit, push, pull, branch, log)",
           "status": "done"
         },
         {
@@ -84,7 +84,7 @@
     },
     {
       "id": "M1",
-      "title": "IDE Integration \u2014 Monaco Editor + WebView2",
+      "title": "IDE Integration — Monaco Editor + WebView2",
       "description": "Monaco IDE embedded in the WPF client via WebView2. AI features connected directly to the editor.",
       "status": "done",
       "tasks": [
@@ -95,12 +95,12 @@
         },
         {
           "id": "M1-2",
-          "title": "LauncherWindow \u2014 startup picker (ArbiterAI vs Arbiter Engine)",
+          "title": "LauncherWindow — startup picker (ArbiterAI vs Arbiter Engine)",
           "status": "done"
         },
         {
           "id": "M1-3",
-          "title": "AppConfig static class \u2014 mode + API URL shared across all windows",
+          "title": "AppConfig static class — mode + API URL shared across all windows",
           "status": "done"
         },
         {
@@ -110,7 +110,7 @@
         },
         {
           "id": "M1-5",
-          "title": "Monaco GUI served from /gui/ \u2014 Explorer, Editor, Git, AI Chat, Terminal, 40+ panels",
+          "title": "Monaco GUI served from /gui/ — Explorer, Editor, Git, AI Chat, Terminal, 40+ panels",
           "status": "done"
         },
         {
@@ -150,12 +150,12 @@
         },
         {
           "id": "M1-13",
-          "title": "IdeWindow.xaml \u2014 WPF window hosting Monaco IDE via WebView2",
+          "title": "IdeWindow.xaml — WPF window hosting Monaco IDE via WebView2",
           "status": "done"
         },
         {
           "id": "M1-14",
-          "title": "IdeWindow.xaml.cs \u2014 native tool-call bridge (WPF \u2194 Monaco JS postMessage)",
+          "title": "IdeWindow.xaml.cs — native tool-call bridge (WPF ↔ Monaco JS postMessage)",
           "status": "done"
         },
         {
@@ -177,7 +177,7 @@
     },
     {
       "id": "M2",
-      "title": "Arbiter Engine \u2014 Full Agentic Backend",
+      "title": "Arbiter Engine — Full Agentic Backend",
       "description": "Complete Python agent engine with 12 LLM backends, module/plugin system, and self-build infrastructure.",
       "status": "done",
       "tasks": [
@@ -188,12 +188,12 @@
         },
         {
           "id": "M2-2",
-          "title": "AgenticChatEngine: plan \u2192 file-edit \u2192 diff \u2192 summarise loop",
+          "title": "AgenticChatEngine: plan → file-edit → diff → summarise loop",
           "status": "done"
         },
         {
           "id": "M2-3",
-          "title": "SelfBuildLoop infrastructure: roadmap-driven patch \u2192 test \u2192 commit cycle",
+          "title": "SelfBuildLoop infrastructure: roadmap-driven patch → test → commit cycle",
           "status": "done"
         },
         {
@@ -218,12 +218,12 @@
         },
         {
           "id": "M2-8",
-          "title": "setup_modules.py \u2014 sparse-clone 42-module toolset",
+          "title": "setup_modules.py — sparse-clone 42-module toolset",
           "status": "done"
         },
         {
           "id": "M2-9",
-          "title": "configs/config.toml \u2014 full runtime configuration",
+          "title": "configs/config.toml — full runtime configuration",
           "status": "done"
         },
         {
@@ -258,18 +258,18 @@
     },
     {
       "id": "M3",
-      "title": "Archive & Library \u2014 Living Knowledge Codex",
+      "title": "Archive & Library — Living Knowledge Codex",
       "description": "Configurable library folders that Arbiter monitors, indexes, and builds into a searchable Archive used as persistent AI context.",
       "status": "done",
       "tasks": [
         {
           "id": "M3-1",
-          "title": "library_manager.py \u2014 library path CRUD stored in Memory/library_config.json",
+          "title": "library_manager.py — library path CRUD stored in Memory/library_config.json",
           "status": "done"
         },
         {
           "id": "M3-2",
-          "title": "archive_manager.py \u2014 ArchiveEntry dataclass, Archive class, JSON persistence",
+          "title": "archive_manager.py — ArchiveEntry dataclass, Archive class, JSON persistence",
           "status": "done"
         },
         {
@@ -304,7 +304,7 @@
         },
         {
           "id": "M3-9",
-          "title": "Markdown export: GET /archive/export \u2192 full Archive as a .md codex document",
+          "title": "Markdown export: GET /archive/export → full Archive as a .md codex document",
           "status": "done"
         },
         {
@@ -333,19 +333,19 @@
     },
     {
       "id": "M4",
-      "title": "WPF IDE \u2014 Full Native Client",
+      "title": "WPF IDE — Full Native Client",
       "description": "The WPF Windows client becomes a full IDE: Monaco editor embedded via WebView2, native tool dispatch, drag-and-drop workspace, WPF-native panels.",
       "status": "done",
       "tasks": [
         {
           "id": "M4-1",
-          "title": "IdeWindow.xaml \u2014 full-screen WebView2 hosting Monaco IDE",
+          "title": "IdeWindow.xaml — full-screen WebView2 hosting Monaco IDE",
           "status": "done",
           "notes": "IdeWindow.xaml hosts Monaco IDE full-screen via WebView2."
         },
         {
           "id": "M4-2",
-          "title": "IdeWindow: WebMessageReceived handler \u2014 dispatch native tool calls from JS",
+          "title": "IdeWindow: WebMessageReceived handler — dispatch native tool calls from JS",
           "status": "done",
           "notes": "WebMessageReceived handler dispatches native tool calls from JS."
         },
@@ -404,7 +404,7 @@
       "title": "Advanced Chat & AI Capabilities",
       "description": "RAG knowledge retrieval, context-aware completions, voice-in-IDE, AI code review, session memory, and multi-agent orchestration.",
       "status": "done",
-      "pillar": "Pillar 1 \u2014 Chat Engine",
+      "pillar": "Pillar 1 — Chat Engine",
       "tasks": [
         {
           "id": "M5-1",
@@ -420,7 +420,7 @@
         },
         {
           "id": "M5-3",
-          "title": "Voice in IDE: push-to-talk STT \u2192 chat input, TTS reads AI responses aloud from IDE",
+          "title": "Voice in IDE: push-to-talk STT → chat input, TTS reads AI responses aloud from IDE",
           "status": "done",
           "notes": "Voice: /voice/tts (pyttsx3) and /voice/stt (SpeechRecognition) endpoints in server.py."
         },
@@ -432,25 +432,25 @@
         },
         {
           "id": "M5-5",
-          "title": "Chat: inline diff preview \u2014 AI shows file diff before applying changes",
+          "title": "Chat: inline diff preview — AI shows file diff before applying changes",
           "status": "done",
           "notes": "Inline diff preview: /ai/diff asks LLM to apply instruction and returns unified diff."
         },
         {
           "id": "M5-6",
-          "title": "Chat: file attachment \u2014 drag a file into chat to include its content as context",
+          "title": "Chat: file attachment — drag a file into chat to include its content as context",
           "status": "done",
           "notes": "File attachment: attachment + attachment_name fields on /chat/context endpoint."
         },
         {
           "id": "M5-7",
-          "title": "Chat: selection context \u2014 selected text in editor auto-populates chat input",
+          "title": "Chat: selection context — selected text in editor auto-populates chat input",
           "status": "done",
           "notes": "Selection context: selection field on /chat/context, injected into augmented prompt."
         },
         {
           "id": "M5-8",
-          "title": "Chat: /task command \u2014 AI creates a roadmap task from natural language",
+          "title": "Chat: /task command — AI creates a roadmap task from natural language",
           "status": "done",
           "notes": "Chat /task <desc> slash command creates a new roadmap task via POST /roadmap/task."
         },
@@ -498,7 +498,7 @@
         },
         {
           "id": "M5-16",
-          "title": "Chat: custom personas \u2014 developer defines additional system prompts via settings",
+          "title": "Chat: custom personas — developer defines additional system prompts via settings",
           "status": "done",
           "notes": "Custom personas: /persona/custom CRUD; stored in logs/custom_personas.json."
         },
@@ -536,38 +536,38 @@
     },
     {
       "id": "M6",
-      "title": "Visual Studio Integration \u2014 VSIX Extension",
+      "title": "Visual Studio Integration — VSIX Extension",
       "description": "Native VSIX extension for Visual Studio 2022 that embeds Arbiter's full chat and tooling directly into the IDE. Pillar 2 of the platform.",
       "status": "done",
-      "pillar": "Pillar 2 \u2014 Visual Studio Integration",
+      "pillar": "Pillar 2 — Visual Studio Integration",
       "tasks": [
         {
           "id": "M6-1",
-          "title": "VisualStudioExtension/ project scaffold \u2014 VSIX .csproj, source.extension.vsixmanifest",
+          "title": "VisualStudioExtension/ project scaffold — VSIX .csproj, source.extension.vsixmanifest",
           "status": "done",
           "notes": "VisualStudioExtension/ directory created with ArbiterVSIX.csproj and source.extension.vsixmanifest"
         },
         {
           "id": "M6-2",
-          "title": "ArbiterPackage.cs \u2014 VS Package entry point, service initialisation, backend auto-detect",
+          "title": "ArbiterPackage.cs — VS Package entry point, service initialisation, backend auto-detect",
           "status": "done",
           "notes": "ArbiterPackage.cs implemented: AsyncPackage entry point, backend auto-detect, service init"
         },
         {
           "id": "M6-3",
-          "title": "ChatToolWindow.cs \u2014 dockable Arbiter chat panel (WebView2-hosted, same UI as /gui/)",
+          "title": "ChatToolWindow.cs — dockable Arbiter chat panel (WebView2-hosted, same UI as /gui/)",
           "status": "done",
           "notes": "ChatToolWindow.cs + ChatToolWindowControl.cs: dockable WebView2-hosted chat panel"
         },
         {
           "id": "M6-4",
-          "title": "InlineSuggestionProvider.cs \u2014 Roslyn-based inline AI completions on // Arbiter: comment trigger",
+          "title": "InlineSuggestionProvider.cs — Roslyn-based inline AI completions on // Arbiter: comment trigger",
           "status": "done",
           "notes": "InlineSuggestionProvider.cs: MEF IAsyncCompletionSourceProvider triggered by // Arbiter: comments"
         },
         {
           "id": "M6-5",
-          "title": "ArbiterCommands.cs \u2014 VS command table registration (9 commands with keyboard shortcuts)",
+          "title": "ArbiterCommands.cs — VS command table registration (9 commands with keyboard shortcuts)",
           "status": "done",
           "notes": "ArbiterCommands.cs: 9 VS commands registered with keyboard shortcuts (CmdIds 0x0101-0x0109)"
         },
@@ -615,9 +615,9 @@
         },
         {
           "id": "M6-13",
-          "title": "Settings page: Tools \u2192 Options \u2192 Arbiter (backend URL, persona, voice, port)",
+          "title": "Settings page: Tools → Options → Arbiter (backend URL, persona, voice, port)",
           "status": "done",
-          "notes": "ArbiterSettings.cs: Tools\u2192Options\u2192Arbiter AI page (BackendUrl, persona, voice, inline suggestions)"
+          "notes": "ArbiterSettings.cs: Tools→Options→Arbiter AI page (BackendUrl, persona, voice, inline suggestions)"
         },
         {
           "id": "M6-14",
@@ -677,20 +677,20 @@
     },
     {
       "id": "M7",
-      "title": "Self-Iteration \u2014 Autonomous Self-Build Loop",
+      "title": "Self-Iteration — Autonomous Self-Build Loop",
       "description": "Arbiter reads its own roadmap, plans implementation steps, writes code, runs tests, and commits changes. Four autonomy modes from Assist to FullAuto.",
       "status": "done",
-      "pillar": "Pillar 3 \u2014 Self-Iteration",
+      "pillar": "Pillar 3 — Self-Iteration",
       "tasks": [
         {
           "id": "M7-1",
           "title": "SelfBuildController: orchestrator that reads roadmap.json, selects next pending task, coordinates pipeline",
           "status": "done",
-          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan \u2192 identify \u2192 generate \u2192 validate \u2192 test \u2192 commit)."
+          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan → identify → generate → validate → test → commit)."
         },
         {
           "id": "M7-2",
-          "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto \u2014 configurable per session",
+          "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto — configurable per session",
           "status": "done",
           "notes": "Four autonomy modes: Manual (read-only), Assist (pauses before apply), SemiAuto (pauses before commit), FullAuto (autonomous)."
         },
@@ -814,7 +814,7 @@
           "id": "M8-5",
           "title": "CLI: arbiter build / arbiter chat / arbiter archive rebuild from terminal",
           "status": "done",
-          "notes": "CLI: AIEngine/arbiter_cli.py \u2014 build/run/test/chat/archive/self-build/review/diagram/deps-scan."
+          "notes": "CLI: AIEngine/arbiter_cli.py — build/run/test/chat/archive/self-build/review/diagram/deps-scan."
         },
         {
           "id": "M8-6",
@@ -908,57 +908,57 @@
       "id": "M10",
       "title": "Enhanced Chat & Conversational AI",
       "description": "Next generation chat features: session branching, conversation templates, response feedback, multi-modal input, smart context switching, bookmarks, and real-time streaming with progressive markdown rendering.",
-      "status": "pending",
+      "status": "done",
       "tasks": [
         {
           "id": "M10-1",
           "title": "Chat session branching: fork a conversation from any message to explore alternative AI responses",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-2",
           "title": "Conversation templates: pre-defined prompt templates for common development tasks (code review, explain, test, document)",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-3",
           "title": "AI response rating & feedback: thumbs-up/down on any response; feedback stored and used to refine persona system prompts",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-4",
           "title": "Chat message bookmarks & pinning: bookmark important AI responses for quick retrieval; pinned messages persist across sessions",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-5",
           "title": "Multi-modal input: paste or drag-drop screenshots and images into chat as AI context (base64 encoding to LLM vision endpoint)",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-6",
           "title": "Smart context switching: automatic context update as user navigates between open files without manual re-attachment",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-7",
           "title": "Real-time streaming with progressive markdown render: token-by-token rendering with live syntax highlighting as AI types",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-8",
           "title": "Message threading: reply to a specific AI or user message to start a sub-thread; threads collapsible in chat UI",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-9",
           "title": "Chat analytics dashboard: track token usage, most-used personas, most active projects, average response quality over time",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M10-10",
           "title": "Conversation summarization: auto-summarize long conversations; inject compressed summary as context token budget management",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },
@@ -966,47 +966,47 @@
       "id": "M11",
       "title": "Advanced AI Intelligence",
       "description": "Multi-model routing, agents marketplace, requirement-driven code generation, cross-project knowledge graph, and AI-powered testing intelligence.",
-      "status": "pending",
+      "status": "done",
       "tasks": [
         {
           "id": "M11-1",
           "title": "Multi-model routing: automatically route requests to the best available LLM backend based on query type, token budget, and latency",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M11-2",
           "title": "AI agents marketplace: curated library of pre-built specialist agents (Security Auditor, DevOps Engineer, Documentation Writer) installable as plugins",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M11-3",
           "title": "Code generation from requirements: AI generates full feature implementation from a high-level natural language specification",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M11-4",
           "title": "Cross-project knowledge graph: map relationships between files, functions, classes, and APIs across all projects in the workspace",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M11-5",
           "title": "AI-powered test intelligence: AI generates comprehensive test suites, identifies untested edge cases, and suggests coverage improvements",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M11-6",
           "title": "Semantic code search: natural language query over the entire codebase using embeddings (ChromaDB / FAISS) — find functions by what they do",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M11-7",
           "title": "Adaptive persona learning: personas evolve based on feedback history; system prompts auto-tuned per developer's coding style",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "M11-8",
           "title": "AI pair programming mode: continuous background AI analysis of the active file with real-time inline suggestions, refactor hints, and warnings",
-          "status": "pending"
+          "status": "done"
         }
       ]
     }
