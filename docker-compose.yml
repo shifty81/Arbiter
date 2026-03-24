@@ -1,4 +1,4 @@
-# ─── Arbiter — docker-compose.yml (M8-6) ─────────────────────────────────────
+# ─── Arbiter — docker-compose.yml (Phase 5 / P5-1) ───────────────────────────
 #
 # One-command self-hosted Arbiter backend + optional Ollama.
 #
@@ -7,10 +7,6 @@
 #
 # With Ollama included:
 #   docker compose --profile ollama up -d
-#
-# Pull a model after first start:
-#   docker compose exec arbiter-engine \
-#       python -c "import requests; requests.post('http://ollama:11434/api/pull', json={'name':'llama3'})"
 # ─────────────────────────────────────────────────────────────────────────────
 
 version: "3.9"
@@ -34,7 +30,11 @@ services:
       OLLAMA_HOST: "http://ollama:11434"
       ARBITER_LLM_BACKEND: "${ARBITER_LLM_BACKEND:-ollama}"
       ARBITER_LOG_LEVEL: "${ARBITER_LOG_LEVEL:-info}"
+      ARBITER_REQUIRE_API_KEY: "${ARBITER_REQUIRE_API_KEY:-false}"
     volumes:
+      - arbiter-config:/app/arbiter-config
+      - arbiter-configs:/app/configs
+      - arbiter-plugins:/app/plugins
       - arbiter-workspace:/app/workspace
       - arbiter-memory:/app/Memory
       - arbiter-logs:/app/logs
@@ -73,6 +73,12 @@ services:
 
 # ── Named volumes ──────────────────────────────────────────────────────────────
 volumes:
+  arbiter-config:
+    driver: local
+  arbiter-configs:
+    driver: local
+  arbiter-plugins:
+    driver: local
   arbiter-workspace:
     driver: local
   arbiter-memory:

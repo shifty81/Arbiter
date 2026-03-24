@@ -38,6 +38,8 @@ class PluginLoader:
             tools_file = plugin_dir / "tools.json"
             if tools_file.exists():
                 self.tool_registry.register_from_file(tools_file)
+            # Store the directory name so callers can locate routes.py
+            meta["_dir"] = plugin_dir.name
             self._loaded[name] = meta
             self._mtimes[name] = manifest.stat().st_mtime
             logger.info("Plugin loaded: %s v%s", name, meta.get("version", "?"))

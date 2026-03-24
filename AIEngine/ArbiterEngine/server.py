@@ -10071,6 +10071,523 @@ async def tests_run(req: _TestsRunReq) -> dict:
     }
 
 
+# =============================================================================
+# Phase 5 — Production & Deployment
+# =============================================================================
+# P5-1  Dockerfile                — config volume, plugins volume (.arbiter/)
+# P5-2  POST /self/update         — git pull + hot-reload notification
+# P5-3  POST /api-keys/*          — per-user API keys + rate-limiting middleware
+# P5-4  Plugin route registration — plugins/*/routes.py registers FastAPI routers
+# =============================================================================
+
+import secrets as _secrets
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5-3 — Multi-user API keys + rate-limiting middleware
+# ─────────────────────────────────────────────────────────────────────────────
+
+_API_KEYS_FILE = _BASE / ".arbiter" / "api_keys.json"
+
+# key_id → {key, username, role, created_at, enabled, rate_limit (req/min)}
+_api_keys: dict[str, dict] = {}
+
+# Sliding-window rate limiter: identifier → deque of request timestamps
+_rate_windows: dict[str, collections.deque] = {}
+_rate_lock = threading.Lock()
+
+
+def _load_api_keys() -> None:
+    global _api_keys
+    if _API_KEYS_FILE.exists():
+        try:
+            _api_keys = json.loads(_API_KEYS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _api_keys = {}
+
+
+def _save_api_keys() -> None:
+    _API_KEYS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _API_KEYS_FILE.write_text(json.dumps(_api_keys, indent=2), encoding="utf-8")
+
+
+_load_api_keys()
+
+
+def _key_index() -> dict[str, str]:
+    """Return a reverse map: key_string → key_id (enabled keys only)."""
+    return {v["key"]: k for k, v in _api_keys.items() if v.get("enabled", True)}
+
+
+# Paths that always bypass auth and rate-limiting
+_PUBLIC_PATHS = frozenset({"/", "/health", "/status"})
+
+
+class _ApiKeyRateLimitMiddleware(BaseHTTPMiddleware):
+    """Validate the ``X-API-Key`` header and enforce per-key rate limits.
+
+    Behaviour:
+
+    * If **no** API keys have been configured (default fresh install) every
+      request is allowed — no auth needed.
+    * Once at least one key has been registered via ``POST /api-keys/create``,
+      all non-public endpoints require a valid, enabled key.
+    * A sliding-window rate limiter is applied per key (when auth is on) or
+      per client IP (when auth is off).  The default limit is 120 req/min.
+
+    P5-3
+    """
+
+    async def dispatch(self, request: _StarletteRequest, call_next: Any) -> Any:
+        path = request.url.path
+
+        # Public endpoints and CORS preflight are never gated
+        if path in _PUBLIC_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+
+        key_str = request.headers.get("X-API-Key", "")
+        idx = _key_index()
+
+        if idx:  # At least one key registered → enforce authentication
+            if not key_str or key_str not in idx:
+                return _StarletteJSONResponse(
+                    {"detail": "Invalid or missing API key. Pass X-API-Key header."},
+                    status_code=401,
+                )
+            key_id = idx[key_str]
+            meta   = _api_keys[key_id]
+            if not meta.get("enabled", True):
+                return _StarletteJSONResponse(
+                    {"detail": "API key is disabled."},
+                    status_code=403,
+                )
+            # Attach identity to request state for downstream handlers
+            request.state.api_key_id = key_id
+            request.state.api_user   = meta["username"]
+            request.state.api_role   = meta.get("role", "player")
+            rate_id = key_id
+            rate_limit = int(meta.get("rate_limit", 120))
+        else:
+            # No keys configured — rate-limit by IP
+            rate_id    = request.client.host if request.client else "unknown"
+            rate_limit = 120
+
+        # Sliding-window rate limit (per 60 s)
+        now = time.time()
+        with _rate_lock:
+            if rate_id not in _rate_windows:
+                _rate_windows[rate_id] = collections.deque()
+            window = _rate_windows[rate_id]
+            while window and now - window[0] > 60.0:
+                window.popleft()
+            if len(window) >= rate_limit:
+                retry_after = int(60.0 - (now - window[0])) + 1
+                return _StarletteJSONResponse(
+                    {"detail": f"Rate limit exceeded ({rate_limit} req/min). Retry after {retry_after}s."},
+                    status_code=429,
+                    headers={"Retry-After": str(retry_after)},
+                )
+            window.append(now)
+
+        return await call_next(request)
+
+
+app.add_middleware(_ApiKeyRateLimitMiddleware)
+
+
+# ── CRUD endpoints ────────────────────────────────────────────────────────────
+
+class _ApiKeyCreateReq(BaseModel):
+    username:   str
+    role:       str = "operator"
+    rate_limit: int = 120          # requests per minute
+    actor:      str = "admin"
+
+
+class _ApiKeyValidateReq(BaseModel):
+    key: str
+
+
+@app.post("/api-keys/create")
+def api_key_create(req: _ApiKeyCreateReq) -> dict:
+    """Create a new per-user API key.
+
+    Returns the generated key string — store it securely as it is shown only
+    once.  The key is stored as a SHA-256 hash; only the plain-text value
+    returned here can be used with ``X-API-Key``.
+
+    P5-3
+    """
+    role = req.role.lower()
+    if role not in _ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Unknown role '{role}'")
+
+    # Generate a URL-safe token
+    raw_key = "arbiter_" + _secrets.token_urlsafe(32)
+    key_id  = "kid_" + _secrets.token_hex(8)
+
+    _api_keys[key_id] = {
+        "key":        raw_key,
+        "username":   req.username,
+        "role":       role,
+        "created_at": datetime.datetime.utcnow().isoformat(),
+        "enabled":    True,
+        "rate_limit": max(1, min(req.rate_limit, 10_000)),
+    }
+    _save_api_keys()
+    _write_audit("api_key.create", req.actor, req.username, {"key_id": key_id, "role": role})
+    logger.info("[P5-3] API key created for '%s' (%s)", req.username, key_id)
+
+    return {
+        "status":   "created",
+        "key_id":   key_id,
+        "key":      raw_key,          # shown once — client must save this
+        "username": req.username,
+        "role":     role,
+    }
+
+
+@app.get("/api-keys")
+def api_key_list() -> dict:
+    """Return all API key metadata (key strings are masked).
+
+    P5-3
+    """
+    entries = []
+    for kid, meta in _api_keys.items():
+        raw = meta.get("key", "")
+        entries.append({
+            "key_id":     kid,
+            "key_prefix": raw[:16] + "…" if len(raw) > 16 else raw,
+            "username":   meta.get("username"),
+            "role":       meta.get("role"),
+            "created_at": meta.get("created_at"),
+            "enabled":    meta.get("enabled", True),
+            "rate_limit": meta.get("rate_limit", 120),
+        })
+    return {"total": len(entries), "keys": entries}
+
+
+@app.delete("/api-keys/{key_id}")
+def api_key_delete(key_id: str, actor: str = "admin") -> dict:
+    """Permanently delete an API key.
+
+    P5-3
+    """
+    if key_id not in _api_keys:
+        raise HTTPException(status_code=404, detail=f"Key '{key_id}' not found")
+    meta = _api_keys.pop(key_id)
+    _save_api_keys()
+    _write_audit("api_key.delete", actor, meta.get("username", ""), {"key_id": key_id})
+    return {"status": "deleted", "key_id": key_id, "username": meta.get("username")}
+
+
+@app.post("/api-keys/{key_id}/disable")
+def api_key_disable(key_id: str, actor: str = "admin") -> dict:
+    """Disable an API key without deleting it.
+
+    P5-3
+    """
+    if key_id not in _api_keys:
+        raise HTTPException(status_code=404, detail=f"Key '{key_id}' not found")
+    _api_keys[key_id]["enabled"] = False
+    _save_api_keys()
+    _write_audit("api_key.disable", actor, _api_keys[key_id].get("username", ""), {"key_id": key_id})
+    return {"status": "disabled", "key_id": key_id}
+
+
+@app.post("/api-keys/{key_id}/enable")
+def api_key_enable(key_id: str, actor: str = "admin") -> dict:
+    """Re-enable a previously disabled API key.
+
+    P5-3
+    """
+    if key_id not in _api_keys:
+        raise HTTPException(status_code=404, detail=f"Key '{key_id}' not found")
+    _api_keys[key_id]["enabled"] = True
+    _save_api_keys()
+    _write_audit("api_key.enable", actor, _api_keys[key_id].get("username", ""), {"key_id": key_id})
+    return {"status": "enabled", "key_id": key_id}
+
+
+@app.post("/api-keys/validate")
+def api_key_validate(req: _ApiKeyValidateReq) -> dict:
+    """Check whether a key is valid and return the associated user/role.
+
+    P5-3
+    """
+    idx = _key_index()
+    if req.key not in idx:
+        return {"valid": False, "reason": "unknown or disabled key"}
+    kid  = idx[req.key]
+    meta = _api_keys[kid]
+    return {
+        "valid":    True,
+        "key_id":   kid,
+        "username": meta.get("username"),
+        "role":     meta.get("role"),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5-2 — POST /self/update
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _SelfUpdateReq(BaseModel):
+    branch: str = ""          # leave blank to pull the current branch
+    restart: bool = False     # if True, exec-restart the process after pull
+
+
+@app.post("/self/update")
+async def self_update(req: _SelfUpdateReq) -> dict:
+    """Pull the latest Arbiter source from git and report the result.
+
+    1. Runs ``git fetch`` then ``git pull --ff-only`` (or a specific branch).
+    2. Returns the before/after commit SHAs, the pull summary, and any changed
+       file paths so the caller knows what was updated.
+    3. If ``restart=true``, the process exec-restarts itself after the pull
+       (only safe when running under a process supervisor or in a container
+       with ``restart: unless-stopped``).
+
+    P5-2
+    """
+    repo_root = _BASE.parent.parent  # repo root (two dirs up from server.py)
+
+    # Safety: verify we're inside a git repository
+    try:
+        _subprocess.check_output(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=5,
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Not a git repository — cannot self-update.")
+
+    # Record current HEAD before pull
+    try:
+        sha_before = _subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+    except Exception:
+        sha_before = "unknown"
+
+    # Validate branch name if provided
+    if req.branch and not _GIT_REF_PATTERN.fullmatch(req.branch):
+        raise HTTPException(status_code=422, detail="Invalid branch name")
+
+    # git fetch
+    try:
+        _subprocess.check_output(
+            ["git", "fetch", "--prune"],
+            cwd=str(repo_root), stderr=_subprocess.STDOUT, timeout=60,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"git fetch failed: {exc}") from exc
+
+    # git pull
+    pull_cmd = ["git", "pull", "--ff-only"]
+    if req.branch:
+        pull_cmd += ["origin", req.branch]
+    try:
+        pull_out = await _asyncio.to_thread(
+            _subprocess.check_output,
+            pull_cmd,
+            cwd=str(repo_root),
+            stderr=_subprocess.STDOUT,
+            timeout=60,
+        )
+        pull_summary = pull_out.decode(errors="replace").strip()
+    except _subprocess.CalledProcessError as exc:
+        output = exc.output.decode(errors="replace").strip() if exc.output else str(exc)
+        raise HTTPException(status_code=500, detail=f"git pull failed: {output}") from exc
+
+    # Record new HEAD
+    try:
+        sha_after = _subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+    except Exception:
+        sha_after = "unknown"
+
+    # Identify changed files (only when commits actually advanced)
+    changed_files: list[str] = []
+    if sha_before != sha_after and sha_before != "unknown":
+        try:
+            diff_out = _subprocess.check_output(
+                ["git", "diff", "--name-only", sha_before, sha_after],
+                cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=10,
+            ).decode(errors="replace").strip()
+            changed_files = [l for l in diff_out.splitlines() if l]
+        except Exception:
+            pass
+
+    updated = sha_before != sha_after
+    logger.info("[P5-2/self/update] %s → %s (%d files changed)",
+                sha_before[:8], sha_after[:8], len(changed_files))
+
+    result = {
+        "updated":       updated,
+        "sha_before":    sha_before[:12],
+        "sha_after":     sha_after[:12],
+        "pull_summary":  pull_summary,
+        "changed_files": changed_files,
+        "restart_required": updated,
+    }
+
+    # Exec-restart if requested and update succeeded
+    if req.restart and updated:
+        logger.warning("[P5-2] Exec-restarting Arbiter after self-update …")
+        result["restarting"] = True
+        # Schedule restart after a brief delay so the response can be sent
+        async def _delayed_restart():
+            await _asyncio.sleep(2)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        _asyncio.create_task(_delayed_restart())
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5-4 — Plugin route registration
+#
+# Each plugin may supply an optional ``routes.py`` module.  That module must
+# expose either:
+#   • a FastAPI ``APIRouter`` instance named ``router``, OR
+#   • a callable ``register(app)`` that adds routes to the provided app.
+#
+# The PluginLoader is extended (see core/plugin_loader.py) to call
+# ``_register_plugin_routes(plugin_name, plugin_dir)`` after loading.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_registered_plugin_routes: dict[str, list[str]] = {}  # plugin_name → list of mounted paths
+
+
+def _register_plugin_routes(name: str, plugin_dir_path: Path) -> list[str]:
+    """Import a plugin's ``routes.py`` and mount its router onto the global app.
+
+    Returns the list of route paths that were registered.
+    """
+    routes_file = plugin_dir_path / "routes.py"
+    if not routes_file.exists():
+        return []
+
+    import importlib.util as _ilu
+    try:
+        spec = _ilu.spec_from_file_location(f"plugin_{name}_routes", routes_file)
+        if spec is None or spec.loader is None:
+            return []
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    except Exception as exc:
+        logger.error("[P5-4] Failed to import routes.py for plugin '%s': %s", name, exc)
+        return []
+
+    mounted: list[str] = []
+
+    # Option A: module exposes an APIRouter named 'router'
+    router_obj = getattr(mod, "router", None)
+    if router_obj is not None:
+        try:
+            from fastapi import APIRouter as _APIRouter
+            if isinstance(router_obj, _APIRouter):
+                prefix = f"/plugins/{name}"
+                app.include_router(router_obj, prefix=prefix, tags=[f"plugin:{name}"])
+                mounted += [f"{prefix}{r.path}" for r in router_obj.routes]
+                logger.info("[P5-4] Mounted %d routes for plugin '%s' at %s",
+                            len(router_obj.routes), name, prefix)
+        except Exception as exc:
+            logger.error("[P5-4] Failed to mount router for plugin '%s': %s", name, exc)
+
+    # Option B: module exposes register(app) callable
+    register_fn = getattr(mod, "register", None)
+    if register_fn is not None and callable(register_fn) and not mounted:
+        try:
+            register_fn(app)
+            logger.info("[P5-4] Called register(app) for plugin '%s'", name)
+            mounted.append(f"/plugins/{name}/*")
+        except Exception as exc:
+            logger.error("[P5-4] register(app) failed for plugin '%s': %s", name, exc)
+
+    _registered_plugin_routes[name] = mounted
+    return mounted
+
+
+# Retroactively register routes for any plugins that were loaded at startup
+for _p_name, _p_meta in list(_plugin_loader.loaded_plugins.items()):
+    _p_dir = _BASE / "plugins" / _p_meta.get("_dir", _p_name)
+    if _p_dir.is_dir():
+        _register_plugin_routes(_p_name, _p_dir)
+
+
+@app.post("/plugins/install")
+def install_plugin(req: dict = {}) -> dict:
+    """Install a plugin from a local directory path.
+
+    Pass ``{"path": "/absolute/path/to/plugin-dir"}`` to load a plugin from
+    disk.  The directory must contain a valid ``plugin.json`` manifest.  If the
+    plugin includes a ``routes.py`` the routes are registered immediately.
+
+    P5-4
+    """
+    plugin_path_str = req.get("path", "") if isinstance(req, dict) else ""
+    if not plugin_path_str:
+        raise HTTPException(status_code=422, detail="Provide 'path' in the request body.")
+
+    plugin_path = Path(plugin_path_str)
+
+    # Security: for relative paths, restrict to simple names (no traversal chars)
+    # and resolve under the engine's plugins dir.
+    if not plugin_path.is_absolute():
+        if not _re.fullmatch(r"[A-Za-z0-9_-]{1,64}", plugin_path_str):
+            raise HTTPException(status_code=422, detail="Relative plugin path must be a simple name [A-Za-z0-9_-].")
+        plugin_path = (_BASE / "plugins" / plugin_path_str).resolve()
+        # Guard: resolved path must stay inside plugins dir
+        try:
+            plugin_path.relative_to((_BASE / "plugins").resolve())
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Plugin path escapes plugins directory.")
+
+    if not plugin_path.is_dir():
+        raise HTTPException(status_code=404, detail=f"Plugin directory not found: {plugin_path}")
+
+    if not (plugin_path / "plugin.json").exists():
+        raise HTTPException(status_code=422, detail="Missing plugin.json manifest.")
+
+    # Load via plugin_loader
+    _plugin_loader.load_plugin(plugin_path)
+
+    # Read manifest to get plugin name
+    try:
+        meta = json.loads((plugin_path / "plugin.json").read_text(encoding="utf-8"))
+        name = meta.get("name", plugin_path.name)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read manifest: {exc}") from exc
+
+    # Register routes
+    mounted = _register_plugin_routes(name, plugin_path)
+
+    return {
+        "status":         "installed",
+        "name":           name,
+        "version":        meta.get("version", "?"),
+        "routes_mounted": mounted,
+    }
+
+
+@app.get("/plugins/routes")
+def plugin_routes_list() -> dict:
+    """Return all plugin-registered route paths.
+
+    P5-4
+    """
+    return {
+        "plugins": [
+            {"name": n, "routes": routes}
+            for n, routes in _registered_plugin_routes.items()
+        ]
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

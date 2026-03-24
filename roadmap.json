@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1298,27 +1298,31 @@
       "id": "Phase5",
       "title": "Production & Deployment",
       "description": "Package and harden Arbiter for production use: Docker support, auto-update, multi-user API key scoping, rate limiting, and a plugin system for extending the API with custom modules.",
-      "status": "active",
+      "status": "done",
       "tasks": [
         {
           "id": "P5-1",
           "title": "Dockerfile for ArbiterEngine — single-container deployment with config volume mount",
-          "status": "pending"
+          "status": "done",
+          "notes": "Dockerfile updated: added /app/arbiter-config, /app/configs, /app/plugins volumes. docker-compose.yml has corresponding named volumes. docker-entrypoint.sh symlinks volumes into container on start."
         },
         {
           "id": "P5-2",
           "title": "POST /self/update — pull latest Arbiter source, apply, and hot-reload endpoints without downtime",
-          "status": "pending"
+          "status": "done",
+          "notes": "POST /self/update: git fetch + git pull --ff-only; returns sha_before/sha_after, pull_summary, changed_files. restart=true triggers os.execv after 2s delay. Branch name validated with _GIT_REF_PATTERN."
         },
         {
           "id": "P5-3",
           "title": "Multi-user API keys — per-user keys with role enforcement; rate limiting middleware",
-          "status": "pending"
+          "status": "done",
+          "notes": "Multi-user API keys stored in .arbiter/api_keys.json. X-API-Key header validated by _ApiKeyRateLimitMiddleware. Rate limiter: sliding 60s window per key (or per IP when no keys registered). CRUD: POST /api-keys/create, GET /api-keys, DELETE /api-keys/{key_id}, POST /api-keys/{key_id}/disable|enable, POST /api-keys/validate."
         },
         {
           "id": "P5-4",
           "title": "Plugin system — loadable Python modules in plugins/ that register new FastAPI routes on startup",
-          "status": "pending"
+          "status": "done",
+          "notes": "Plugin route registration: plugins/*/routes.py can expose 'router' (APIRouter) or 'register(app)' callable. PluginLoader stores _dir in meta for discovery. POST /plugins/install now fully functional. GET /plugins/routes lists mounted paths."
         }
       ]
     }
