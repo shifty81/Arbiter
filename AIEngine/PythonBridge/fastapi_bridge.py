@@ -14,6 +14,7 @@ def _ensure_dependencies() -> None:
     """Install requirements.txt dependencies if they are not already present."""
     try:
         import fastapi  # noqa: F401 — presence check only
+        import python_multipart  # noqa: F401 — form-data support for /stt
         return  # already installed
     except ImportError:
         pass
@@ -91,7 +92,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import sqlite3
-from llm_interface import generate_response, generate_response_stream, get_model_status, preload_model
+from llm_interface import generate_response, generate_response_stream, get_model_status, preload_model, reload_model
 from VoiceManager import speak
 from persona_manager import (
     get_active_persona,
@@ -463,12 +464,14 @@ def download_model_endpoint(req: DownloadRequest):
     - Otherwise supply ``repo_id`` and ``filename`` explicitly.
 
     Poll ``GET /models/download/status`` for progress.
+    The LLM backend is automatically reloaded once the download completes.
     """
     started = start_background_download(
         repo_id=req.repo_id,
         filename=req.filename,
         auto=req.auto,
         destination_dir=DEFAULT_MODEL_DIR,
+        on_complete=lambda _path: reload_model(),
     )
     if not started:
         return {"status": "already_running", "detail": get_download_status()}
@@ -479,6 +482,19 @@ def download_model_endpoint(req: DownloadRequest):
 def download_status_endpoint():
     """Return the current model download progress and status."""
     return get_download_status()
+
+
+@app.post("/models/reload")
+def reload_model_endpoint():
+    """
+    Force the LLM backend to re-detect and reload its model.
+
+    Use this after manually placing a ``.gguf`` file in the model directory,
+    or if the auto-reload after ``POST /models/download`` did not fire.
+    Returns the new backend status.
+    """
+    reload_model()
+    return get_model_status()
 
 
 @app.post("/build")
