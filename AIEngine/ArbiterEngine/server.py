@@ -8056,15 +8056,14 @@ async def wiki_page(page: str):
     *page* is the filename stem (without ``.md``).  The endpoint also accepts
     the full filename with extension for convenience.
     """
-    from fastapi import HTTPException as _HTTPEx
     # Strip .md extension if passed
     stem = page.removesuffix(".md")
     # Prevent path traversal
     if "/" in stem or "\\" in stem or ".." in stem:
-        raise _HTTPEx(status_code=400, detail="invalid page name")
+        raise HTTPException(status_code=400, detail="invalid page name")
     md_path = _WIKI_DIR / f"{stem}.md"
     if not md_path.exists():
-        raise _HTTPEx(status_code=404, detail=f"page '{stem}' not found")
+        raise HTTPException(status_code=404, detail=f"page '{stem}' not found")
     content = md_path.read_text(encoding="utf-8", errors="replace")
     return {"name": stem, "filename": md_path.name, "content": content}
 
@@ -9502,6 +9501,573 @@ async def project_scaffold(req: _ScaffoldReq) -> dict:
             f"Projects/{project_id}/roadmap.json",
             f"Projects/{project_id}/workspace_profile.json",
         ] + [f"Projects/{project_id}/{d}/.gitkeep" for d in dirs],
+    }
+
+
+# =============================================================================
+# Phase 4 — Development Agent Enhancement
+# =============================================================================
+# P4-1  GET  /git/watch          — SSE stream of new commit events + AI summaries
+# P4-2  POST /git/review-commit  — AI structured review of a commit diff
+# P4-3  POST /self/improve       — Arbiter agent improves its own source
+# P4-4  POST /tests/run          — detect + run test suite, AI analyses results
+# =============================================================================
+
+# Shared validation constants used across Phase 4 endpoints
+_PROJECT_ID_PATTERN = _re.compile(r"[A-Za-z0-9_-]{1,64}")
+_GIT_REF_PATTERN    = _re.compile(r"[A-Za-z0-9_.^~/-]{1,80}")
+_FILE_PATH_PATTERN  = _re.compile(r"[A-Za-z0-9_./-]{1,128}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-1 — GET /git/watch  (SSE)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/git/watch")
+async def git_watch(
+    project: str = "",
+    interval: int = 15,
+) -> StreamingResponse:
+    """Stream new git commit events as Server-Sent Events.
+
+    Polls the repository (or a specific project sub-path) for new commits
+    every *interval* seconds.  When new commits are detected the endpoint
+    emits one SSE event per commit containing the SHA, author, date, subject,
+    and an AI-generated one-line summary.
+
+    Event format::
+
+        data: {"sha":"abc123","author":"Alice","date":"2026-03-24",
+               "subject":"Fix crash","ai_summary":"…"}
+
+    A heartbeat ``data: {"heartbeat":true}`` is sent on every poll cycle
+    that finds no new commits, so the browser can detect a stalled connection.
+
+    P4-1
+    """
+    interval = max(5, min(interval, 300))  # clamp 5s–5min
+
+    # Resolve path scope
+    watch_path: str = ""
+    if project:
+        if not _PROJECT_ID_PATTERN.fullmatch(project):
+            async def _bad():
+                yield "data: {\"error\": \"invalid project\"}\n\n"
+            return StreamingResponse(_bad(), media_type="text/event-stream")
+        watch_path = str(_BASE.parent.parent / "Projects" / project)
+
+    async def _generate():
+        # Seed: remember the SHA of the most recent commit at watch start
+        try:
+            seed_args = ["log", "--format=%H", "-1"]
+            if watch_path:
+                seed_args += ["--", watch_path]
+            last_sha = _subprocess.check_output(
+                ["git"] + seed_args,
+                cwd=str(_BASE.parent.parent),
+                stderr=_subprocess.DEVNULL,
+                timeout=5,
+            ).decode().strip()
+        except Exception:
+            last_sha = ""
+
+        while True:
+            await _asyncio.sleep(interval)
+
+            # Fetch new commits since last_sha
+            try:
+                log_args = [
+                    "log",
+                    "--format=%H|%ad|%an|%s",
+                    "--date=short",
+                ]
+                if last_sha:
+                    log_args.append(f"{last_sha}..HEAD")
+                else:
+                    log_args.append("-5")
+                if watch_path:
+                    log_args += ["--", watch_path]
+
+                raw = _subprocess.check_output(
+                    ["git"] + log_args,
+                    cwd=str(_BASE.parent.parent),
+                    stderr=_subprocess.DEVNULL,
+                    timeout=5,
+                ).decode(errors="replace").strip()
+            except Exception:
+                yield "data: {\"heartbeat\": true}\n\n"
+                continue
+
+            new_commits = [ln for ln in raw.splitlines() if "|" in ln]
+
+            if not new_commits:
+                yield "data: {\"heartbeat\": true}\n\n"
+                continue
+
+            # Emit newest last so client sees them in chronological order
+            for line in reversed(new_commits):
+                sha, date, author, subject = line.split("|", 3)
+
+                # Ask AI for a one-line summary (best-effort; skip if LLM down)
+                ai_summary = ""
+                if _llm is not None:
+                    try:
+                        prompt = (
+                            f"Commit {sha[:8]} by {author}: \"{subject}\"\n"
+                            "Write ONE sentence (max 120 chars) summarising the impact of this commit."
+                        )
+                        ai_summary = await _asyncio.to_thread(
+                            _llm.chat,
+                            [{"role": "user", "content": prompt}],
+                            max_tokens=80,
+                        )
+                        ai_summary = ai_summary.strip().replace('"', "'")
+                    except Exception:
+                        ai_summary = ""
+
+                event = json.dumps({
+                    "sha":        sha[:12],
+                    "date":       date,
+                    "author":     author,
+                    "subject":    subject,
+                    "ai_summary": ai_summary,
+                }, ensure_ascii=False)
+                yield f"data: {event}\n\n"
+
+            # Advance pointer
+            last_sha = new_commits[0].split("|")[0]
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-2 — POST /git/review-commit
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ReviewCommitReq(BaseModel):
+    sha: str = "HEAD"          # commit to review (SHA, branch, or "HEAD")
+    project: str = ""          # optional: restrict diff to this Projects/ sub-path
+    max_diff_chars: int = 6000 # cap diff sent to LLM
+
+
+@app.post("/git/review-commit")
+async def git_review_commit(req: _ReviewCommitReq) -> dict:
+    """AI-powered structured review of a git commit diff.
+
+    Retrieves the diff for *sha* (defaults to HEAD), sends it to the LLM,
+    and returns a structured review with:
+
+    - ``summary``     — one-paragraph plain-English description of the change
+    - ``issues``      — list of potential bugs, style violations, or risks
+    - ``suggestions`` — concrete improvement suggestions
+    - ``verdict``     — ``approve`` | ``needs_work`` | ``blocking``
+
+    P4-2
+    """
+    # Resolve optional project path scope
+    path_scope: list[str] = []
+    if req.project:
+        if not _PROJECT_ID_PATTERN.fullmatch(req.project):
+            raise HTTPException(status_code=422, detail="Invalid project name")
+        path_scope = ["--", f"Projects/{req.project}"]
+
+    # Safety: only allow safe SHA-like values
+    if not _GIT_REF_PATTERN.fullmatch(req.sha):
+        raise HTTPException(status_code=422, detail="Invalid sha value")
+
+    # Get the diff
+    try:
+        diff_raw = _subprocess.check_output(
+            ["git", "diff", f"{req.sha}^", req.sha, "--"] + path_scope,
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=15,
+        ).decode(errors="replace")
+    except _subprocess.CalledProcessError:
+        # Might be the first commit — try without parent
+        try:
+            diff_raw = _subprocess.check_output(
+                ["git", "show", "--format=", req.sha, "--"] + path_scope,
+                cwd=str(_BASE.parent.parent),
+                stderr=_subprocess.DEVNULL,
+                timeout=15,
+            ).decode(errors="replace")
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"git diff failed: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"git diff failed: {exc}") from exc
+
+    # Get commit metadata
+    try:
+        meta_raw = _subprocess.check_output(
+            ["git", "log", "-1", "--format=%H|%ad|%an|%s", "--date=short", req.sha],
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=5,
+        ).decode(errors="replace").strip()
+        sha_full, date, author, subject = meta_raw.split("|", 3) if "|" in meta_raw else (req.sha, "", "", "")
+    except Exception:
+        sha_full, date, author, subject = req.sha, "", "", ""
+
+    # Truncate diff if too large
+    diff_truncated = len(diff_raw) > req.max_diff_chars
+    diff_for_llm   = diff_raw[:req.max_diff_chars]
+
+    if _llm is None:
+        return {
+            "sha": sha_full[:12], "date": date, "author": author, "subject": subject,
+            "diff_lines": len(diff_raw.splitlines()),
+            "diff_truncated": diff_truncated,
+            "review": None,
+            "error": "LLM not available",
+        }
+
+    review_prompt = (
+        f"Review the following git commit.\n\n"
+        f"Commit: {sha_full[:12]}  Author: {author}  Date: {date}\n"
+        f"Subject: {subject}\n\n"
+        f"Diff ({len(diff_raw.splitlines())} lines"
+        + (" — truncated" if diff_truncated else "") + "):\n"
+        "```diff\n" + diff_for_llm + "\n```\n\n"
+        "Return a JSON object with exactly these keys:\n"
+        '{"summary": "<1-paragraph description>", '
+        '"issues": ["<issue1>", ...], '
+        '"suggestions": ["<suggestion1>", ...], '
+        '"verdict": "approve|needs_work|blocking"}'
+        "\nOutput ONLY the JSON object."
+    )
+
+    try:
+        raw_review = await _asyncio.to_thread(
+            _llm.chat,
+            [
+                {"role": "system", "content": "You are an expert code reviewer. Be concise and constructive."},
+                {"role": "user",   "content": review_prompt},
+            ],
+            max_tokens=600,
+        )
+        # Parse JSON from response
+        brace_start = raw_review.find("{")
+        brace_end   = raw_review.rfind("}") + 1
+        review_data = json.loads(raw_review[brace_start:brace_end]) if brace_start != -1 else {}
+    except Exception as exc:
+        review_data = {"error": f"LLM parse failed: {exc}", "raw": raw_review[:400] if 'raw_review' in dir() else ""}
+
+    return {
+        "sha":            sha_full[:12],
+        "date":           date,
+        "author":         author,
+        "subject":        subject,
+        "diff_lines":     len(diff_raw.splitlines()),
+        "diff_truncated": diff_truncated,
+        "review":         review_data,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-3 — POST /self/improve
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _SelfImproveReq(BaseModel):
+    goal: str = (
+        "Review the ArbiterEngine source code and propose specific improvements "
+        "to code quality, error handling, or performance. Focus on small, safe changes."
+    )
+    max_steps: int = 5
+    dry_run: bool = True       # default True — never write without explicit opt-in
+    target_file: str = ""      # optional: scope to one file (e.g. "core/logger.py")
+
+
+@app.post("/self/improve")
+async def self_improve(req: _SelfImproveReq) -> dict:
+    """Run the Arbiter agent against its own source code to propose improvements.
+
+    By default ``dry_run=True`` so no files are written — the agent only
+    *proposes* changes.  Set ``dry_run=false`` with caution: the agent will
+    write directly to the ArbiterEngine source tree.
+
+    The agent is scoped to ``AIEngine/ArbiterEngine/`` so it cannot wander
+    outside the engine directory.
+
+    P4-3
+    """
+    engine_dir = _BASE  # AIEngine/ArbiterEngine/
+
+    # Build context: list relevant source files
+    scope_path = engine_dir
+    if req.target_file:
+        if not _FILE_PATH_PATTERN.fullmatch(req.target_file):
+            raise HTTPException(status_code=422, detail="Invalid target_file")
+        candidate = (engine_dir / req.target_file).resolve()
+        try:
+            candidate.relative_to(engine_dir.resolve())
+            if candidate.is_file():
+                scope_path = candidate.parent
+        except ValueError:
+            raise HTTPException(status_code=422, detail="target_file escapes engine directory")
+
+    try:
+        file_list = "\n".join(
+            str(f.relative_to(engine_dir))
+            for f in sorted(scope_path.rglob("*.py"))
+            if ".git" not in f.parts and "__pycache__" not in f.parts
+        )[:3000]
+    except Exception:
+        file_list = "(could not list files)"
+
+    # Optionally read the target file as extra context
+    target_content = ""
+    if req.target_file:
+        try:
+            target_path = (engine_dir / req.target_file).resolve()
+            target_path.relative_to(engine_dir.resolve())   # security check
+            target_content = target_path.read_text(encoding="utf-8", errors="replace")[:4000]
+        except Exception:
+            target_content = ""
+
+    system_prompt = (
+        "You are an expert Python developer reviewing the Arbiter AI Engine source code.\n"
+        "For each step return a JSON object:\n"
+        '{"action": "write_file|answer|done", '
+        '"path": "<relative path from engine root if write_file>", '
+        '"content": "<new full file content if write_file, or explanation if answer>", '
+        '"reasoning": "<why this improvement>"}\n'
+        "Output ONLY the JSON object."
+    )
+
+    messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content":
+            f"Goal: {req.goal}\n\n"
+            f"Engine directory: AIEngine/ArbiterEngine/\n"
+            f"Source files in scope:\n{file_list}\n\n"
+            + (f"Target file content ({req.target_file}):\n```python\n{target_content}\n```\n\n" if target_content else "")
+            + "Begin your analysis. Return your first action JSON."},
+    ]
+
+    steps: list[_AgentStep] = []
+    final_answer = ""
+
+    for step_num in range(1, req.max_steps + 1):
+        if _llm is None:
+            steps.append(_AgentStep(step=step_num, action="error",
+                                    result="LLM not available", status="error"))
+            break
+        try:
+            raw = await _asyncio.to_thread(_llm.chat, messages)
+        except Exception as exc:
+            steps.append(_AgentStep(step=step_num, action="error", result=str(exc), status="error"))
+            break
+
+        json_match = _re.search(r"\{[\s\S]+?\}", raw)
+        if not json_match:
+            steps.append(_AgentStep(step=step_num, action="parse_error",
+                                    result=raw[:200], status="error"))
+            break
+
+        try:
+            action_data = json.loads(json_match.group())
+        except Exception:
+            steps.append(_AgentStep(step=step_num, action="parse_error",
+                                    result=raw[:200], status="error"))
+            break
+
+        action_type = action_data.get("action", "answer")
+        reasoning   = action_data.get("reasoning", "")
+
+        if action_type in ("done", "answer"):
+            final_answer = action_data.get("content", reasoning)
+            steps.append(_AgentStep(step=step_num, action="done",
+                                    result=final_answer[:500], status="success"))
+            break
+
+        elif action_type == "write_file":
+            rel_path = action_data.get("path", "")
+            content  = action_data.get("content", "")
+            observation = "skipped (dry_run=True)"
+
+            if not req.dry_run and rel_path:
+                try:
+                    target = (engine_dir / rel_path).resolve()
+                    # Must stay inside engine_dir
+                    target.relative_to(engine_dir.resolve())
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content, encoding="utf-8")
+                    observation = f"Written {len(content)} chars to {rel_path}"
+                    logger.info("[P4-3/self/improve] Wrote %s (%d chars)", rel_path, len(content))
+                except ValueError:
+                    observation = f"Write rejected: path '{rel_path}' escapes engine directory"
+                except Exception as exc:
+                    observation = f"Write failed: {exc}"
+
+            steps.append(_AgentStep(step=step_num,
+                                    action=f"write_file:{rel_path}",
+                                    result=observation,
+                                    status="success" if "Written" in observation else "skipped"))
+        else:
+            observation = f"Unknown action '{action_type}' — skipped."
+            steps.append(_AgentStep(step=step_num, action=action_type,
+                                    result=observation, status="skipped"))
+
+        messages.append({"role": "assistant", "content": raw})
+        messages.append({"role": "user", "content":
+            f"Observation from step {step_num}: {observation}\n"
+            "Continue. Return next action JSON, or {\"action\":\"done\",\"content\":\"<summary>\"} when finished."
+        })
+
+    return {
+        "goal":         req.goal,
+        "target_file":  req.target_file,
+        "steps":        [s.model_dump() for s in steps],
+        "total_steps":  len(steps),
+        "final_answer": final_answer,
+        "dry_run":      req.dry_run,
+        "engine_dir":   str(engine_dir),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-4 — POST /tests/run
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _TestsRunReq(BaseModel):
+    project: str              # project name under Projects/ or absolute path
+    command: str = ""         # override auto-detected test command
+    timeout: int = 120        # seconds before the test run is killed
+    ai_analysis: bool = True  # feed results to AI for analysis after run
+
+
+@app.post("/tests/run")
+async def tests_run(req: _TestsRunReq) -> dict:
+    """Detect and run a project's test suite, then feed results to the AI.
+
+    Auto-detects the test runner based on project files:
+
+    - ``pytest`` if ``pytest.ini``, ``pyproject.toml``, or ``tests/`` exists
+    - ``dotnet test`` for C# projects
+    - ``npm test`` for Node.js projects
+    - ``cargo test`` for Rust projects
+    - ``go test ./...`` for Go projects
+
+    After the run completes, the combined stdout/stderr is summarised by the
+    AI and returned as ``ai_analysis`` in the response.
+
+    P4-4
+    """
+    timeout = max(10, min(req.timeout, 600))
+
+    # Resolve project directory
+    p = Path(req.project)
+    if p.is_absolute() and p.exists():
+        project_dir = p
+    else:
+        project_dir = _BASE.parent.parent / "Projects" / req.project
+        if not project_dir.exists():
+            # Fall back to engine root (allows running Arbiter's own tests)
+            project_dir = _BASE.parent.parent / req.project
+        if not project_dir.exists():
+            raise HTTPException(status_code=404,
+                                detail=f"Project directory not found: {req.project}")
+
+    # Auto-detect test command
+    def _detect_test_cmd(d: Path) -> str:
+        if (d / "pytest.ini").exists() or (d / "pyproject.toml").exists() or (d / "tests").is_dir():
+            return "python -m pytest -v --tb=short"
+        if list(d.glob("*.csproj")) or list(d.glob("*.sln")):
+            return "dotnet test"
+        if (d / "package.json").exists():
+            return "npm test"
+        if (d / "Cargo.toml").exists():
+            return "cargo test"
+        if (d / "go.mod").exists():
+            return "go test ./..."
+        return ""
+
+    cmd = req.command.strip() or _detect_test_cmd(project_dir)
+    if not cmd:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot auto-detect test command for '{req.project}'. Pass 'command' explicitly.",
+        )
+
+    # Run tests in a subprocess, capture output
+    start_ts = datetime.datetime.utcnow()
+    try:
+        result = await _asyncio.to_thread(
+            _subprocess.run,
+            cmd,
+            shell=True,
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        exit_code = result.returncode
+        stdout    = result.stdout
+        stderr    = result.stderr
+        timed_out = False
+    except _subprocess.TimeoutExpired:
+        exit_code = -1
+        stdout    = ""
+        stderr    = f"Test run killed after {timeout}s timeout"
+        timed_out = True
+    except Exception as exc:
+        exit_code = -1
+        stdout    = ""
+        stderr    = str(exc)
+        timed_out = False
+
+    end_ts    = datetime.datetime.utcnow()
+    duration  = round((end_ts - start_ts).total_seconds(), 2)
+    passed    = exit_code == 0
+
+    # Combine output for AI (cap to avoid huge prompts)
+    combined_output = (stdout + "\n" + stderr).strip()
+    output_for_ai   = combined_output[:5000]
+    output_truncated = len(combined_output) > 5000
+
+    # AI analysis
+    ai_analysis: str = ""
+    if req.ai_analysis and _llm is not None:
+        status_word = "PASSED" if passed else ("TIMED OUT" if timed_out else "FAILED")
+        analysis_prompt = (
+            f"The test suite for project '{req.project}' {status_word} "
+            f"(exit code {exit_code}, {duration}s).\n\n"
+            f"Test output ({len(combined_output.splitlines())} lines"
+            + (" — truncated" if output_truncated else "") + "):\n"
+            "```\n" + output_for_ai + "\n```\n\n"
+            "Provide a concise analysis:\n"
+            "1. What passed / failed?\n"
+            "2. Root cause of any failures (if applicable).\n"
+            "3. Suggested next steps to fix failures or improve coverage."
+        )
+        try:
+            ai_analysis = await _asyncio.to_thread(
+                _llm.chat,
+                [
+                    {"role": "system", "content": "You are a senior QA engineer. Be concise and actionable."},
+                    {"role": "user",   "content": analysis_prompt},
+                ],
+                max_tokens=500,
+            )
+        except Exception as exc:
+            ai_analysis = f"(AI analysis failed: {exc})"
+
+    return {
+        "project":          req.project,
+        "command":          cmd,
+        "exit_code":        exit_code,
+        "passed":           passed,
+        "timed_out":        timed_out,
+        "duration_seconds": duration,
+        "output_lines":     len(combined_output.splitlines()),
+        "output_truncated": output_truncated,
+        "stdout":           stdout[:4000],
+        "stderr":           stderr[:2000],
+        "ai_analysis":      ai_analysis,
     }
 
 

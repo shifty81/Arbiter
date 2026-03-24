@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1266,27 +1266,31 @@
       "id": "Phase4",
       "title": "Development Agent Enhancement",
       "description": "Extend the Arbiter AI agent with repo monitoring, automated commit review, a self-build loop, and test orchestration so Arbiter can participate actively in any project's development cycle.",
-      "status": "active",
+      "status": "done",
       "tasks": [
         {
           "id": "P4-1",
           "title": "GET /git/watch (SSE) — stream new commit events as they land; surface AI-generated summaries",
-          "status": "pending"
+          "status": "done",
+          "notes": "GET /git/watch (SSE): polls git log every N seconds (clamp 5–300s). Emits one event per new commit with sha, author, date, subject, ai_summary. Heartbeat event sent when no new commits. Scoped to Projects/{project} path if supplied."
         },
         {
           "id": "P4-2",
           "title": "POST /git/review-commit — AI reviews the latest commit diff and returns structured feedback",
-          "status": "pending"
+          "status": "done",
+          "notes": "POST /git/review-commit: fetches diff for any SHA/branch (defaults HEAD). LLM returns JSON: summary, issues[], suggestions[], verdict (approve|needs_work|blocking). SHA whitelist validated; diff capped at max_diff_chars (default 6000)."
         },
         {
           "id": "P4-3",
           "title": "POST /self/improve — Arbiter agent proposes and applies improvements to its own codebase via the agent loop",
-          "status": "pending"
+          "status": "done",
+          "notes": "POST /self/improve: runs the Plan→Act→Observe agent loop scoped to AIEngine/ArbiterEngine/. dry_run=True by default — only proposes changes, never writes without explicit opt-in. Optional target_file scopes analysis to a single source file."
         },
         {
           "id": "P4-4",
           "title": "POST /tests/run — run a project's test suite and feed results back to the AI for analysis",
-          "status": "pending"
+          "status": "done",
+          "notes": "POST /tests/run: auto-detects pytest/dotnet/npm/cargo/go test runner. Runs test suite with configurable timeout (10–600s). AI analyses combined stdout+stderr and returns pass/fail root cause and next-step suggestions."
         }
       ]
     },
@@ -1294,7 +1298,7 @@
       "id": "Phase5",
       "title": "Production & Deployment",
       "description": "Package and harden Arbiter for production use: Docker support, auto-update, multi-user API key scoping, rate limiting, and a plugin system for extending the API with custom modules.",
-      "status": "pending",
+      "status": "active",
       "tasks": [
         {
           "id": "P5-1",
