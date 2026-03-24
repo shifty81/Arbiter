@@ -2472,6 +2472,19 @@ async def _phase9_project_stub(project_id: str, _req: _Request):
     }
 
 
+# Phase 11 — parameterised bridge stubs
+
+@app.post("/projects/{project_id}/security-audit")
+async def _phase11_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 11 project-scoped endpoints (PA11-3)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase11",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
 def _stub_handler(feature: str):
     async def _h(_req: _Request):
         return {
@@ -2527,6 +2540,12 @@ for _stub_path, _stub_tag in [
     ("/ai/embedded/status", "phase10"),
     ("/ai/embedded/models", "phase10"),
     ("/ai/embedded/unload", "phase10"),
+    # Phase 11 — AI Code Intelligence & Semantic Workspace Search
+    ("/ai/semantic-search", "phase11"),
+    ("/ai/fix", "phase11"),
+    ("/ai/context/build", "phase11"),
+    ("/ai/rename-symbol", "phase11"),
+    ("/workspace/ai-stats", "phase11"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),

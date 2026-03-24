@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1536,6 +1536,50 @@
           "title": "GET /models/backends updated to include embedded backend with in-process reachability check",
           "status": "done",
           "notes": "GET /models/backends: embedded entry added with is_loaded from _ModelState as reachability indicator (no HTTP probe needed). base.py _fmt_unavailable updated to mention embedded. local.py stub message updated to recommend embedded. requirements.txt has llama-cpp-python as commented optional dep."
+        }
+      ]
+    },
+    {
+      "id": "Phase11",
+      "title": "AI Code Intelligence & Semantic Workspace Search",
+      "description": "Intelligent code search, one-shot AI fixes, security auditing, auto context building, symbol rename, and AI usage analytics — all powered by the existing LLM infrastructure.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA11-1",
+          "title": "POST /ai/semantic-search — natural-language search across workspace source files with AI keyword expansion and re-ranking",
+          "status": "done",
+          "notes": "POST /ai/semantic-search: uses LLM to expand query into 10-15 keywords, scores source files by TF-weighted keyword frequency, returns top results with snippets. Optional AI re-ranking step ranks candidates and writes a summary. Parameters: query, project_id, max_results (1-20), include_snippet, ai_rank."
+        },
+        {
+          "id": "PA11-2",
+          "title": "POST /ai/fix — one-shot AI code fix given file + error/lint message; returns original, fixed, unified diff, and explanation",
+          "status": "done",
+          "notes": "POST /ai/fix: reads file (or inline content), sends to LLM with error description + optional context. LLM returns complete corrected source + EXPLANATION: section. Response includes original, fixed, unified diff (difflib), lines_changed count, explanation. Parameters: file_path, project_id, error, content, context."
+        },
+        {
+          "id": "PA11-3",
+          "title": "POST /projects/{id}/security-audit — AI-powered OWASP/CWE security scan of project source; structured findings with severity",
+          "status": "done",
+          "notes": "POST /projects/{id}/security-audit: iterates up to 30 source files, sends excerpts to LLM with OWASP/CWE audit prompt. Parses structured FINDING blocks (SEVERITY/FILE/LINE/CATEGORY/DESCRIPTION/RECOMMENDATION/END_FINDING). Returns findings sorted by severity + audit summary. Supports all major language extensions."
+        },
+        {
+          "id": "PA11-4",
+          "title": "POST /ai/context/build — auto-build focused AI context window by scoring project files for a query",
+          "status": "done",
+          "notes": "POST /ai/context/build: tokenises query, scores all project source files by keyword frequency, selects top max_files (capped at 10) within max_total_chars (capped at 20000). Returns assembled context string + per-file score/char breakdown + usage hint. Parameters: query, project_id, max_files, max_total_chars."
+        },
+        {
+          "id": "PA11-5",
+          "title": "POST /ai/rename-symbol — AI-assisted whole-project symbol rename with dry-run, word-boundary matching, and advisory notes",
+          "status": "done",
+          "notes": "POST /ai/rename-symbol: whole-word regex rename across all source files in a project. dry_run=true by default (returns plan without writing). AI advisory step identifies risky cases (serialised keys, reflection, config files). Parameters: project_id, old_name, new_name, dry_run, whole_word."
+        },
+        {
+          "id": "PA11-6",
+          "title": "GET /workspace/ai-stats — AI usage statistics: call count, token estimates, active backend, per-project breakdown, top endpoints, cache size, uptime",
+          "status": "done",
+          "notes": "GET /workspace/ai-stats: aggregates _budget (per-project calls + estimated tokens), _metrics (per-endpoint request/error/latency), _llm_cache size, _SERVER_START_TIME for uptime. Returns structured JSON: total_ai_calls, total_estimated_tokens, active_backend, projects[], top_endpoints[], cache_size, uptime_seconds, session_start."
         }
       ]
     }

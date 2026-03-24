@@ -7,7 +7,7 @@
 
 ## Current Status
 
-**Version:** 1.12.0 | **All M0–M14 milestones + Phases 1–10 complete** ✅
+**Version:** 1.13.0 | **All M0–M14 milestones + Phases 1–11 complete** ✅
 
 ---
 
@@ -47,6 +47,7 @@
 | **Phase 8** | Smart Automation & Workspace Productivity | /ai/project-refactor, /projects/{id}/docs, /workspace/todos, /ai/migrate, /projects/{id}/estimate, /projects/{id}/test-generate | ✅ Done |
 | **Phase 9** | Advanced Collaboration & Knowledge Management | /ai/code-walkthrough, /projects/{id}/coverage-report, /workspace/notes, /projects/{id}/progress, /projects/{id}/roadmap/task, /workspace/summary | ✅ Done |
 | **Phase 10** | Embedded AI & Zero-External-Dependency Local Inference | /ai/embedded/load, /ai/embedded/status, /ai/embedded/models, /ai/embedded/unload, llm/embedded.py (llama-cpp-python), /models/backends updated | ✅ Done |
+| **Phase 11** | AI Code Intelligence & Semantic Workspace Search | /ai/semantic-search, /ai/fix, /projects/{id}/security-audit, /ai/context/build, /ai/rename-symbol, /workspace/ai-stats | ✅ Done |
 
 ---
 
@@ -76,4 +77,4 @@ Monaco IDE. See [Self-Build Loop](docs/wiki/SELF_BUILD.md) for details.
 
 ---
 
-*Last updated: 2026-03-24 — v1.12.0*
+*Last updated: 2026-03-24 — v1.13.0*

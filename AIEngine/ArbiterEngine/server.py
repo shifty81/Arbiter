@@ -113,6 +113,7 @@ _PERSONAS = [
 ]
 _active_personas: dict[str, str] = {}
 _MAX_CHAT_HISTORY_TURNS = 40
+_SERVER_START_TIME: float = time.time()   # set at import time for uptime tracking
 
 # ─── M13: Metrics, Budget tracking, and LRU response cache ───────────────────
 
@@ -13850,6 +13851,846 @@ async def ai_embedded_unload() -> dict:
         "status":         "ok",
         "was_loaded":     was_loaded,
         "active_backend": _config.get("agent.default_llm_backend", "ollama"),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 11 — AI Code Intelligence & Semantic Workspace Search
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA11-1: Natural-language semantic search across workspace source files ─────
+
+_SEMANTIC_SEARCH_EXTS = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                         ".cpp", ".c", ".h", ".hpp", ".rb", ".php", ".swift"}
+_SEMANTIC_SEARCH_SKIP = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                         "dist", "build", ".venv", "venv", "env"}
+_SEMANTIC_SEARCH_MAX_FILE_CHARS = 8_000
+_SEMANTIC_SEARCH_MAX_RESULTS    = 20
+
+
+class _SemanticSearchReq(BaseModel):
+    query: str                      # natural-language search query
+    project_id: str = ""            # if set, restrict to Projects/{id}/
+    max_results: int = 10           # number of results to return (1–20)
+    include_snippet: bool = True    # include a context snippet per result
+    ai_rank: bool = True            # ask the LLM to re-rank and summarise results
+
+
+@app.post("/ai/semantic-search")
+def ai_semantic_search(req: _SemanticSearchReq) -> dict:
+    """Search workspace source files by natural-language meaning.
+
+    Steps:
+    1. Use the LLM to expand the query into concrete keywords / identifiers.
+    2. Score every source file by keyword-frequency (BM25-style TF weighting).
+    3. Return the top-N files with matched lines and an optional AI summary.
+
+    Parameters
+    ----------
+    query
+        Natural-language description of what you are looking for
+        (e.g. "rate limiting middleware", "database connection pool",
+        "authentication token validation").
+    project_id
+        If set, restrict the search to ``Projects/{project_id}/``.
+    max_results
+        Maximum number of files to return (capped at 20).
+    include_snippet
+        Include up to 3 matching lines per file.
+    ai_rank
+        Re-rank the raw results and add a 1-sentence relevance note for each
+        match using the LLM.
+
+    PA11-1
+    """
+    import re as _re11
+
+    max_r = max(1, min(req.max_results, _SEMANTIC_SEARCH_MAX_RESULTS))
+
+    # ── Step 1: Keyword expansion ─────────────────────────────────────────────
+    kw_system = (
+        "You are a code search assistant. "
+        "Given a natural-language query, output ONLY a comma-separated list of "
+        "10–15 keywords, function names, class names, or identifiers that a "
+        "developer would use in source code to implement the described concept. "
+        "No explanation. Output only the comma-separated list."
+    )
+    try:
+        kw_raw = _llm.chat([
+            {"role": "system", "content": kw_system},
+            {"role": "user",   "content": req.query},
+        ])
+        keywords = [
+            kw.strip().lower()
+            for kw in kw_raw.replace("\n", ",").split(",")
+            if kw.strip() and len(kw.strip()) > 1
+        ]
+    except Exception:
+        # Fallback: split the query itself into keywords
+        keywords = [
+            w.lower() for w in _re11.split(r"\W+", req.query) if len(w) > 2
+        ]
+
+    if not keywords:
+        return {"query": req.query, "keywords": [], "results": [], "summary": ""}
+
+    # ── Step 2: Scan files ────────────────────────────────────────────────────
+    if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        search_root = _PROJECTS_DIR / req.project_id
+        if not search_root.is_dir():
+            raise HTTPException(status_code=404,
+                                detail=f"Project '{req.project_id}' not found")
+    else:
+        search_root = _PROJECTS_DIR if _PROJECTS_DIR.is_dir() else _BASE
+
+    scored: list[dict] = []
+    for fp in sorted(search_root.rglob("*")):
+        if fp.suffix.lower() not in _SEMANTIC_SEARCH_EXTS:
+            continue
+        if any(p in _SEMANTIC_SEARCH_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        excerpt = content[:_SEMANTIC_SEARCH_MAX_FILE_CHARS].lower()
+        # TF-style score: sum of keyword occurrence counts (unique keywords weighted)
+        score = 0
+        matched_lines: list[str] = []
+        for kw in set(keywords):
+            cnt = excerpt.count(kw)
+            if cnt:
+                score += 1 + (cnt - 1) * 0.1   # diminishing returns for repetition
+        # Collect matching lines if requested
+        if req.include_snippet and score > 0:
+            for line in content.splitlines():
+                if any(kw in line.lower() for kw in keywords):
+                    matched_lines.append(line.rstrip())
+                    if len(matched_lines) >= 3:
+                        break
+
+        if score > 0:
+            try:
+                rel = str(fp.relative_to(search_root))
+            except ValueError:
+                rel = str(fp)
+            scored.append({
+                "file":    rel,
+                "score":   round(score, 2),
+                "snippet": matched_lines if req.include_snippet else [],
+            })
+
+    # Sort by score descending, take top candidates for AI ranking
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    top = scored[:max_r * 2]
+
+    # ── Step 3: AI re-ranking & summary ──────────────────────────────────────
+    summary = ""
+    if req.ai_rank and top:
+        rank_payload = "\n".join(
+            f"{i+1}. {r['file']} (score {r['score']})"
+            + (f"\n   Sample: {r['snippet'][0][:120]}" if r["snippet"] else "")
+            for i, r in enumerate(top)
+        )
+        rank_system = (
+            "You are a code search assistant. "
+            "Given a search query and a list of candidate files with scores, "
+            "re-rank the files by true relevance, remove obvious noise, "
+            "and output ONLY a JSON object:\n"
+            '{"ranked": ["file1", "file2", ...], '
+            '"summary": "One sentence explaining what was found."}'
+        )
+        rank_user = f"Query: {req.query}\n\nCandidates:\n{rank_payload}"
+        try:
+            import json as _json11
+            raw_rank = _llm.chat([
+                {"role": "system", "content": rank_system},
+                {"role": "user",   "content": rank_user},
+            ])
+            start = raw_rank.find("{")
+            end   = raw_rank.rfind("}") + 1
+            if start >= 0 and end > start:
+                parsed = _json11.loads(raw_rank[start:end])
+                ranked_names = parsed.get("ranked", [])
+                summary = parsed.get("summary", "")
+                # Re-order top results by ranked list
+                name_to_item = {r["file"]: r for r in top}
+                reranked = [name_to_item[n] for n in ranked_names if n in name_to_item]
+                # Append any items the LLM dropped
+                seen = {n for n in ranked_names}
+                for r in top:
+                    if r["file"] not in seen:
+                        reranked.append(r)
+                top = reranked
+        except Exception:
+            pass
+
+    results = top[:max_r]
+    return {
+        "query":    req.query,
+        "keywords": keywords,
+        "results":  results,
+        "total_candidates": len(scored),
+        "summary":  summary,
+    }
+
+
+# ── PA11-2: One-shot AI code fix ──────────────────────────────────────────────
+
+_MAX_FIX_FILE_CHARS = 12_000
+
+
+class _AIFixReq(BaseModel):
+    file_path: str              # absolute or relative path to the file to fix
+    project_id: str = ""        # restrict path resolution to Projects/{id}/
+    error: str                  # error message / lint output / description of the problem
+    content: str = ""           # inline source content (overrides file_path if provided)
+    context: str = ""           # optional extra context (stack trace, related file snippet)
+
+
+@app.post("/ai/fix")
+def ai_fix(req: _AIFixReq) -> dict:
+    """Apply a one-shot AI code fix to a file given an error or lint message.
+
+    The LLM receives the file content and the error description, then returns
+    a complete corrected version. The endpoint diffs the original against the
+    fixed version and returns both alongside a unified diff and a plain-English
+    explanation.
+
+    Parameters
+    ----------
+    file_path
+        Path to the source file that needs fixing. Relative paths are resolved
+        within ``project_id`` if provided, otherwise treated as absolute.
+    project_id
+        Optional project scope — restricts path resolution to
+        ``Projects/{project_id}/``.
+    error
+        The error message, lint warning, or free-text description of the
+        problem to fix.
+    content
+        Inline source content. When provided, ``file_path`` is used only as a
+        label and no disk read is performed.
+    context
+        Optional extra context (e.g. stack trace, related code snippet) passed
+        to the LLM as additional background.
+
+    PA11-2
+    """
+    import difflib as _diff11
+
+    # ── Resolve source content ────────────────────────────────────────────────
+    code = req.content.strip()
+    resolved_path = req.file_path
+
+    if not code:
+        candidate: Path | None = None
+        if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+            candidate = _PROJECTS_DIR / req.project_id / req.file_path
+        if candidate is None or not candidate.is_file():
+            candidate = Path(req.file_path)
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {req.file_path}")
+        try:
+            code = candidate.read_text(encoding="utf-8", errors="replace")
+            resolved_path = str(candidate)
+        except Exception as exc:
+            raise HTTPException(status_code=500,
+                                detail=f"Could not read file: {exc}") from exc
+
+    truncated = len(code) > _MAX_FIX_FILE_CHARS
+    excerpt = code[:_MAX_FIX_FILE_CHARS]
+
+    # ── Ask the LLM for a fixed version ──────────────────────────────────────
+    ctx_section = f"\n\nAdditional context:\n{req.context}" if req.context else ""
+    system = (
+        "You are an expert software engineer performing a code fix. "
+        "You will be given a source file and an error or problem description.\n"
+        "Output ONLY the complete corrected source code — no markdown fences, "
+        "no explanation, no preamble. "
+        "After the corrected code, on a NEW line output exactly:\n"
+        "EXPLANATION: <one paragraph explaining what you changed and why>"
+    )
+    user_msg = (
+        f"File: {req.file_path}"
+        + (f" (project: {req.project_id})" if req.project_id else "")
+        + ("\n[Content truncated to first 12 000 chars]" if truncated else "")
+        + ctx_section
+        + f"\n\nError / Problem:\n{req.error}"
+        + f"\n\nSource code:\n{excerpt}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # ── Parse explanation from the response ───────────────────────────────────
+    explanation = ""
+    fixed_code  = raw
+    exp_marker  = "EXPLANATION:"
+    marker_idx  = raw.upper().rfind(exp_marker)
+    if marker_idx >= 0:
+        explanation = raw[marker_idx + len(exp_marker):].strip()
+        fixed_code  = raw[:marker_idx].strip()
+
+    # Strip accidental markdown fences
+    import re as _re11b
+    fixed_code = _re11b.sub(r"^```[^\n]*\n?", "", fixed_code, flags=_re11b.MULTILINE)
+    fixed_code = _re11b.sub(r"\n?```$", "", fixed_code, flags=_re11b.MULTILINE)
+    fixed_code = fixed_code.strip()
+
+    # ── Build unified diff ────────────────────────────────────────────────────
+    diff_lines = list(_diff11.unified_diff(
+        excerpt.splitlines(keepends=True),
+        fixed_code.splitlines(keepends=True),
+        fromfile=f"a/{req.file_path}",
+        tofile=f"b/{req.file_path}",
+        lineterm="",
+    ))
+    diff_text  = "".join(diff_lines)
+    lines_changed = sum(1 for l in diff_lines if l.startswith(("+", "-"))
+                        and not l.startswith(("+++", "---")))
+
+    return {
+        "file_path":     resolved_path,
+        "project_id":    req.project_id,
+        "truncated":     truncated,
+        "original":      excerpt,
+        "fixed":         fixed_code,
+        "diff":          diff_text,
+        "lines_changed": lines_changed,
+        "explanation":   explanation,
+    }
+
+
+# ── PA11-3: AI-powered security audit ────────────────────────────────────────
+
+_SEC_AUDIT_EXTS  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                    ".php", ".rb", ".cpp", ".c", ".h"}
+_SEC_AUDIT_SKIP  = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                    "dist", "build", ".venv", "venv", "env"}
+_SEC_AUDIT_MAX_FILE_CHARS  = 6_000
+_SEC_AUDIT_MAX_FILES       = 30
+
+
+@app.post("/projects/{project_id}/security-audit")
+def project_security_audit(project_id: str) -> dict:
+    """Run an AI-powered security audit on a project's source code.
+
+    Iterates source files (up to ``_SEC_AUDIT_MAX_FILES``) and asks the LLM
+    to identify OWASP-Top-10-style vulnerabilities, insecure patterns, and
+    hardcoded secrets. Returns a structured list of findings.
+
+    Each finding includes:
+    - ``severity`` — CRITICAL / HIGH / MEDIUM / LOW / INFO
+    - ``file``     — relative file path
+    - ``line_hint`` — approximate line number or range (best effort)
+    - ``category`` — vulnerability category (e.g. "Injection", "Hardcoded Secret")
+    - ``description`` — plain-English explanation
+    - ``recommendation`` — how to fix it
+
+    PA11-3
+    """
+    import re as _re11c
+
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    # Collect source files (skip test files to focus on production code)
+    source_files: list[Path] = []
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _SEC_AUDIT_EXTS:
+            continue
+        if any(p in _SEC_AUDIT_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        source_files.append(fp)
+        if len(source_files) >= _SEC_AUDIT_MAX_FILES:
+            break
+
+    if not source_files:
+        return {
+            "project_id": project_id,
+            "files_audited": 0,
+            "findings": [],
+            "summary": "No auditable source files found.",
+        }
+
+    # Build audit prompt with all file excerpts
+    file_sections: list[str] = []
+    for fp in source_files:
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+            excerpt = content[:_SEC_AUDIT_MAX_FILE_CHARS]
+            rel = str(fp.relative_to(project_dir))
+            file_sections.append(f"=== FILE: {rel} ===\n{excerpt}")
+        except Exception:
+            pass
+
+    combined = "\n\n".join(file_sections)
+
+    system = (
+        "You are an expert application security engineer performing a code audit. "
+        "Identify security vulnerabilities, insecure patterns, and hardcoded "
+        "secrets using OWASP Top 10 and CWE as your reference.\n\n"
+        "For each issue found output EXACTLY this format (one block per finding):\n"
+        "FINDING:\n"
+        "SEVERITY: CRITICAL|HIGH|MEDIUM|LOW|INFO\n"
+        "FILE: <relative path>\n"
+        "LINE: <approximate line number or range>\n"
+        "CATEGORY: <vulnerability category>\n"
+        "DESCRIPTION: <plain-English explanation>\n"
+        "RECOMMENDATION: <how to fix it>\n"
+        "END_FINDING\n\n"
+        "After all findings output:\n"
+        "AUDIT_SUMMARY: <2-3 sentence overall assessment>\n\n"
+        "If no issues are found output: NO_FINDINGS"
+    )
+    user_msg = (
+        f"Audit the following source files from project '{project_id}':\n\n"
+        f"{combined}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # ── Parse findings ────────────────────────────────────────────────────────
+    findings: list[dict] = []
+    audit_summary = ""
+
+    if "NO_FINDINGS" in raw.upper():
+        audit_summary = "No security issues identified."
+    else:
+        # Parse structured findings
+        for block in _re11c.split(r"FINDING:", raw, flags=_re11c.IGNORECASE):
+            block = block.strip()
+            if not block:
+                continue
+            end = block.upper().find("END_FINDING")
+            if end >= 0:
+                block = block[:end].strip()
+
+            def _extract(label: str, text: str) -> str:
+                m = _re11c.search(
+                    rf"^{label}\s*:\s*(.+)$", text,
+                    _re11c.IGNORECASE | _re11c.MULTILINE,
+                )
+                return m.group(1).strip() if m else ""
+
+            severity    = _extract("SEVERITY", block)
+            file_hint   = _extract("FILE", block)
+            line_hint   = _extract("LINE", block)
+            category    = _extract("CATEGORY", block)
+            description = _extract("DESCRIPTION", block)
+            recommend   = _extract("RECOMMENDATION", block)
+
+            if severity or category or description:
+                findings.append({
+                    "severity":       severity or "INFO",
+                    "file":           file_hint,
+                    "line_hint":      line_hint,
+                    "category":       category,
+                    "description":    description,
+                    "recommendation": recommend,
+                })
+
+        # Extract audit summary
+        summ_m = _re11c.search(r"AUDIT_SUMMARY\s*:\s*(.+?)(?:$|\nFINDING:)",
+                                raw, _re11c.IGNORECASE | _re11c.DOTALL)
+        if summ_m:
+            audit_summary = summ_m.group(1).strip()
+
+    # Severity ordering for sort
+    _sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+    findings.sort(key=lambda f: _sev_order.get(f["severity"].upper(), 5))
+
+    return {
+        "project_id":    project_id,
+        "files_audited": len(source_files),
+        "findings":      findings,
+        "finding_count": len(findings),
+        "summary":       audit_summary,
+    }
+
+
+# ── PA11-4: Auto-build AI context window ─────────────────────────────────────
+
+_CTX_BUILD_EXTS  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                    ".cpp", ".c", ".h", ".rb", ".php"}
+_CTX_BUILD_SKIP  = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                    "dist", "build", ".venv", "venv", "env"}
+_CTX_BUILD_MAX_CONTEXT_CHARS = 20_000
+_CTX_BUILD_MAX_FILE_CHARS    = 4_000
+
+
+class _ContextBuildReq(BaseModel):
+    query: str               # what you want to ask the AI about
+    project_id: str          # project to pull context from
+    max_files: int = 5       # maximum number of files to include (1–10)
+    max_total_chars: int = 16_000   # cap on total context characters
+
+
+@app.post("/ai/context/build")
+def ai_context_build(req: _ContextBuildReq) -> dict:
+    """Auto-build a focused AI context window for a natural-language query.
+
+    Scores all source files in the project by keyword relevance to the query,
+    selects the most pertinent ones up to ``max_files`` and ``max_total_chars``,
+    and returns the assembled context string ready to paste into an AI prompt.
+
+    This is useful for feeding just the right code into a follow-up AI call
+    without blowing the context window with irrelevant files.
+
+    Parameters
+    ----------
+    query
+        What you want to ask the AI — used for file relevance scoring.
+    project_id
+        The project to mine for context.
+    max_files
+        Maximum number of source files to include (capped at 10).
+    max_total_chars
+        Hard limit on the total size of the assembled context (capped at 20 000).
+
+    PA11-4
+    """
+    import re as _re11d
+
+    if not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / req.project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{req.project_id}' not found")
+
+    max_files = max(1, min(req.max_files, 10))
+    max_chars = max(1_000, min(req.max_total_chars, _CTX_BUILD_MAX_CONTEXT_CHARS))
+
+    # Tokenise the query for scoring
+    query_words = {w.lower() for w in _re11d.split(r"\W+", req.query) if len(w) > 2}
+
+    # Score files
+    scored: list[tuple[float, Path]] = []
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _CTX_BUILD_EXTS:
+            continue
+        if any(p in _CTX_BUILD_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        low = content.lower()
+        score = sum(low.count(w) for w in query_words)
+        if score > 0:
+            scored.append((score, fp))
+
+    scored.sort(reverse=True)
+    selected = scored[:max_files]
+
+    # Assemble context
+    context_parts: list[str] = []
+    selected_files: list[dict] = []
+    total_chars = 0
+
+    for score, fp in selected:
+        if total_chars >= max_chars:
+            break
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        remaining = max_chars - total_chars
+        excerpt = content[:min(_CTX_BUILD_MAX_FILE_CHARS, remaining)]
+        rel = str(fp.relative_to(project_dir))
+        header = f"// File: {rel}\n"
+        context_parts.append(header + excerpt)
+        total_chars += len(header) + len(excerpt)
+        selected_files.append({
+            "file":  rel,
+            "score": score,
+            "chars": len(excerpt),
+        })
+
+    context_str = "\n\n".join(context_parts)
+
+    return {
+        "query":          req.query,
+        "project_id":     req.project_id,
+        "files_selected": selected_files,
+        "file_count":     len(selected_files),
+        "total_chars":    total_chars,
+        "context":        context_str,
+        "usage_hint":     (
+            "Prepend this context to your AI prompt with a system message like: "
+            "'Here is the relevant project code:\\n{context}'"
+        ),
+    }
+
+
+# ── PA11-5: AI-assisted symbol rename across a project ───────────────────────
+
+_RENAME_EXTS  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                 ".cpp", ".c", ".h", ".hpp", ".rb", ".php"}
+_RENAME_SKIP  = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                 "dist", "build", ".venv", "venv", "env"}
+
+
+class _RenameSymbolReq(BaseModel):
+    project_id: str          # project to rename within
+    old_name: str            # current symbol name (exact, case-sensitive)
+    new_name: str            # desired new symbol name
+    dry_run: bool = True     # if true, return the plan but do not write files
+    whole_word: bool = True  # match whole words only (avoids partial matches)
+
+
+@app.post("/ai/rename-symbol")
+def ai_rename_symbol(req: _RenameSymbolReq) -> dict:
+    """Rename a symbol across an entire project with AI-generated migration advice.
+
+    Scans all source files for occurrences of ``old_name`` and replaces them
+    with ``new_name``. By default runs in **dry-run** mode — set
+    ``dry_run=false`` to write changes to disk.
+
+    The endpoint also asks the LLM to flag any tricky cases where a simple
+    text substitution might not be enough (e.g. serialised JSON keys,
+    documentation strings, generated code, reflection-based access).
+
+    Parameters
+    ----------
+    project_id
+        Project to operate on.
+    old_name
+        Exact current symbol name (case-sensitive).
+    new_name
+        Desired replacement name.
+    dry_run
+        Default ``true`` — returns the change plan without writing any files.
+    whole_word
+        Default ``true`` — only replace whole-word occurrences (uses
+        ``\\b`` word-boundary regex).
+
+    PA11-5
+    """
+    import re as _re11e
+
+    if not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if not req.old_name.strip():
+        raise HTTPException(status_code=422, detail="old_name must not be empty")
+    if not req.new_name.strip():
+        raise HTTPException(status_code=422, detail="new_name must not be empty")
+    if req.old_name == req.new_name:
+        raise HTTPException(status_code=422,
+                            detail="old_name and new_name must differ")
+
+    project_dir = _PROJECTS_DIR / req.project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{req.project_id}' not found")
+
+    if req.whole_word:
+        pattern = _re11e.compile(rf"\b{_re11e.escape(req.old_name)}\b")
+    else:
+        pattern = _re11e.compile(_re11e.escape(req.old_name))
+
+    changes: list[dict] = []
+    total_occurrences = 0
+
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _RENAME_EXTS:
+            continue
+        if any(p in _RENAME_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        try:
+            original = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        occurrences = len(pattern.findall(original))
+        if occurrences == 0:
+            continue
+
+        updated = pattern.sub(req.new_name, original)
+        rel     = str(fp.relative_to(project_dir))
+
+        if not req.dry_run:
+            try:
+                fp.write_text(updated, encoding="utf-8")
+            except Exception as exc:
+                logger.warning("Could not write renamed file %s: %s", fp, exc)
+
+        changes.append({
+            "file":        rel,
+            "occurrences": occurrences,
+            "written":     not req.dry_run,
+        })
+        total_occurrences += occurrences
+
+    # ── AI advisory ──────────────────────────────────────────────────────────
+    advisory = ""
+    if total_occurrences > 0:
+        adv_system = (
+            "You are a software engineer reviewing a symbol rename. "
+            "Given the old name, new name, and the list of changed files, "
+            "identify any risky cases where a simple text replacement might "
+            "not be sufficient — for example: serialised keys, documentation, "
+            "dynamic/reflection-based access, migration scripts, generated code, "
+            "config files, or external API contracts. "
+            "Output only 1–3 short bullet points. If no risks exist, output: "
+            "'No additional risks identified.'"
+        )
+        files_list = "\n".join(f"- {c['file']} ({c['occurrences']} occurrence(s))"
+                                for c in changes)
+        adv_user = (
+            f"Rename: `{req.old_name}` → `{req.new_name}` "
+            f"in project `{req.project_id}`\n\n"
+            f"Changed files:\n{files_list}"
+        )
+        try:
+            advisory = _llm.chat([
+                {"role": "system", "content": adv_system},
+                {"role": "user",   "content": adv_user},
+            ])
+        except Exception:
+            advisory = ""
+
+    return {
+        "project_id":       req.project_id,
+        "old_name":         req.old_name,
+        "new_name":         req.new_name,
+        "dry_run":          req.dry_run,
+        "whole_word":       req.whole_word,
+        "files_changed":    len(changes),
+        "total_occurrences": total_occurrences,
+        "changes":          changes,
+        "advisory":         advisory.strip(),
+    }
+
+
+# ── PA11-6: AI usage statistics ──────────────────────────────────────────────
+
+@app.get("/workspace/ai-stats")
+def workspace_ai_stats() -> dict:
+    """Return AI usage statistics for the current server session.
+
+    Aggregates data from the budget tracker (per-project call counts and
+    token estimates), the metrics store (per-endpoint request counts), and
+    the active backend configuration to give a complete view of AI activity.
+
+    Returns
+    -------
+    total_ai_calls
+        Total number of AI inference calls made since the server started.
+    total_estimated_tokens
+        Rough token count across all calls (1 token ≈ 4 characters).
+    active_backend
+        The currently configured LLM backend name.
+    projects
+        Per-project breakdown of call counts and estimated tokens, sorted
+        by call count descending.
+    top_endpoints
+        The 5 most-called API endpoints (all routes, not just AI ones).
+    cache_size
+        Number of entries currently in the LRU response cache.
+    uptime_seconds
+        Approximate server uptime in seconds (since first request or boot).
+    session_start
+        ISO-8601 timestamp of the first recorded request (if available).
+
+    PA11-6
+    """
+    # Aggregate budget data
+    with _budget_lock:
+        budget_snapshot = dict(_budget)
+
+    total_calls  = sum(v["calls"] for v in budget_snapshot.values())
+    total_tokens = sum(v["estimated_tokens"] for v in budget_snapshot.values())
+
+    projects_list = sorted(
+        [
+            {
+                "project":          proj,
+                "calls":            stats["calls"],
+                "estimated_tokens": stats["estimated_tokens"],
+            }
+            for proj, stats in budget_snapshot.items()
+        ],
+        key=lambda x: x["calls"],
+        reverse=True,
+    )
+
+    # Top endpoints by request count
+    with _metrics_lock:
+        metrics_snapshot = {
+            route: dict(m) for route, m in _metrics.items()
+        }
+
+    top_endpoints = sorted(
+        [
+            {
+                "endpoint": route,
+                "requests": m["requests"],
+                "errors":   m["errors"],
+                "avg_ms":   round(m["total_ms"] / m["requests"], 1)
+                            if m["requests"] else 0,
+            }
+            for route, m in metrics_snapshot.items()
+        ],
+        key=lambda x: x["requests"],
+        reverse=True,
+    )[:5]
+
+    # Cache size
+    with _llm_cache_lock:
+        cache_size = len(_llm_cache)
+
+    # Uptime approximation
+    session_start_iso = ""
+    uptime_secs: float = 0.0
+    try:
+        uptime_secs = round(time.time() - _SERVER_START_TIME, 1)
+        session_start_iso = datetime.datetime.fromtimestamp(
+            _SERVER_START_TIME, tz=datetime.timezone.utc
+        ).isoformat()
+    except Exception:
+        pass
+
+    return {
+        "total_ai_calls":         total_calls,
+        "total_estimated_tokens": total_tokens,
+        "active_backend":         _config.get("agent.default_llm_backend", "ollama"),
+        "projects":               projects_list,
+        "top_endpoints":          top_endpoints,
+        "cache_size":             cache_size,
+        "uptime_seconds":         uptime_secs,
+        "session_start":          session_start_iso,
     }
 
 
