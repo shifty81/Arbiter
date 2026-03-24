@@ -1,6 +1,6 @@
 # Novaforge — Master Design Bible
 
-> **Version:** 0.1.0  
+> **Version:** 0.2.0  
 > **Last updated:** 2026-03-24  
 > **Maintained by:** Arbiter AI (ArbiterEngine + PythonBridge)
 
