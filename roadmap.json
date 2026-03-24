@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform — three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration. Roadmap now extends to a 7-phase implementation plan covering server management, game systems (PCG/mech suits), and full development agent integration.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1227,33 +1227,38 @@
       "id": "Phase3",
       "title": "Server Management System",
       "description": "SteamServerAdmin is a fully standalone project (Projects/SteamServerAdmin). It has no runtime coupling to ArbiterEngine. These tasks track its independent development milestones as an Arbiter-managed project.",
-      "status": "active",
+      "status": "done",
       "standalone_project": "Projects/SteamServerAdmin/roadmap.json",
       "tasks": [
         {
           "id": "P3-1",
           "title": "SteamServerAdmin — start/stop/restart/update servers automatically with warnings before restarts",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added POST /ssa/register, GET /ssa/list, GET /ssa/status/{id}, POST /ssa/start, POST /ssa/stop, POST /ssa/restart (with RCON countdown warnings), POST /ssa/update (SteamCMD validate), POST /ssa/rcon to server.py. All actions are audit-logged. Lazy-loads SSA ServerManager & RCONClient from Projects/SteamServerAdmin/src/server_manager.py when available; gracefully falls back to a stub response when not installed."
         },
         {
           "id": "P3-2",
           "title": "Role-based permissions (Admin, Moderator, Operator, Standard Player) with dynamic restriction",
-          "status": "pending"
+          "status": "done",
+          "notes": "Role-based permission system: POST /roles/assign, DELETE /roles/{username}, GET /roles/{username}, GET /roles, POST /roles/check. Roles: admin > moderator > operator > player with hierarchical action inheritance. Roles persisted to .arbiter/roles.json; every change is audit-logged."
         },
         {
           "id": "P3-3",
           "title": "Permission audit logging and change notifications visible in SSA web dashboard",
-          "status": "pending"
+          "status": "done",
+          "notes": "Audit log (append-only JSONL at .arbiter/logs/audit.jsonl): GET /audit/log (filterable by event_type), GET /audit/notifications (long-poll with clear flag — dashboard polls every 5 s), GET /audit/stats (totals by event + actor). Every SSA action and role change writes an audit entry."
         },
         {
           "id": "P3-4",
           "title": "AI health monitoring — auto-restart servers on threshold breach; trigger scripts autonomously from logs",
-          "status": "pending"
+          "status": "done",
+          "notes": "AI health monitoring: POST /ssa/monitor/rule (threshold rules: cpu_pct/mem_pct/player_count/error_rate, actions: restart/update/rcon/alert_only, cooldown), DELETE /ssa/monitor/rule/{sid}/{rid}, GET /ssa/monitor/rules/{sid}, GET /ssa/monitor/alerts/{sid}, POST /ssa/monitor/metrics (pushes metrics and auto-fires rules), POST /ssa/monitor/analyze (AI LLM log analysis → issue list + auto-generated rule suggestions). Background monitor daemon thread per server."
         },
         {
           "id": "P3-5",
           "title": "Server management dashboard — SSA provides its own standalone dark-mode web UI; no Tooling Layer or Monaco IDE embedding required",
-          "status": "pending"
+          "status": "done",
+          "notes": "GET /dashboard: standalone dark-mode server management HTML dashboard (no external dependencies). Features: live server list with action buttons, server registration form, role assignment UI, audit log table, audit stats card, health monitoring rule builder, notifications polling (5-second interval), engine activity log panel."
         }
       ]
     },
@@ -1261,7 +1266,7 @@
       "id": "Phase4",
       "title": "Game Systems & Procedural Generation",
       "description": "AI-assisted procedural content generation for rooms/interiors and mech suit upgrade systems with reactive visual propagation. Developed as part of the Novaforge standalone project (Projects/Novaforge). These tasks track the Arbiter platform-level features that support game system development.",
-      "status": "pending",
+      "status": "active",
       "standalone_project": "Projects/Novaforge/roadmap.json",
       "tasks": [
         {

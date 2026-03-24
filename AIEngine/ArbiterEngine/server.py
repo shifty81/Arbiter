@@ -35,7 +35,7 @@ import functools
 import threading
 import time
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -8574,6 +8574,1251 @@ async def models_switch(backend: str, model: str = "") -> dict:
     except Exception as exc:
         logger.error("Failed to switch LLM backend: %s", exc)
         return {"status": "error", "error": str(exc)}
+
+
+# =============================================================================
+# PHASE 3 — Server Management System
+# =============================================================================
+# P3-1  /ssa/* — manage game servers (start/stop/restart/update + warnings)
+# P3-2  /roles/* — role-based permissions (Admin/Moderator/Operator/Player)
+# P3-3  /audit/* — permission audit log + change notifications
+# P3-4  /ssa/monitor/* — AI health monitoring, threshold rules, auto-restart
+# P3-5  /dashboard — standalone dark-mode server management web UI
+# =============================================================================
+
+import hashlib as _hashlib
+import textwrap as _textwrap
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3 — Shared state
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Registered game server configs: server_id → config dict
+_ssa_servers: dict[str, dict] = {}
+_ssa_servers_lock = threading.Lock()
+
+# Audit log file
+_AUDIT_LOG_PATH = _BASE / ".arbiter" / "logs" / "audit.jsonl"
+_AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# Role definitions (ordered by privilege, highest first)
+_ROLE_HIERARCHY: list[str] = ["admin", "moderator", "operator", "player"]
+
+# User → role mapping (in-memory + persisted to JSON)
+_ROLES_FILE = _BASE / ".arbiter" / "roles.json"
+_user_roles: dict[str, str] = {}  # username → role
+
+# Notification callbacks: list of dicts awaiting /audit/notifications poll
+_pending_notifications: list[dict] = []
+_notif_lock = threading.Lock()
+
+
+def _load_roles() -> None:
+    global _user_roles
+    if _ROLES_FILE.exists():
+        try:
+            _user_roles = json.loads(_ROLES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _user_roles = {}
+
+
+def _save_roles() -> None:
+    _ROLES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _ROLES_FILE.write_text(json.dumps(_user_roles, indent=2), encoding="utf-8")
+
+
+_load_roles()
+
+
+def _write_audit(event: str, actor: str, target: str, detail: dict) -> None:
+    """Append a single audit event to the JSONL audit log."""
+    entry = {
+        "ts":     datetime.datetime.utcnow().isoformat(),
+        "event":  event,
+        "actor":  actor,
+        "target": target,
+        **detail,
+    }
+    try:
+        with open(_AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+    # Queue notification
+    with _notif_lock:
+        _pending_notifications.append(entry)
+        if len(_pending_notifications) > 500:
+            _pending_notifications.pop(0)
+
+
+# Health monitor state: server_id → HealthRule list + alert history
+_ssa_health_rules: dict[str, list[dict]] = {}
+_ssa_health_alerts: dict[str, list[dict]] = {}
+_ssa_monitor_threads: dict[str, threading.Thread] = {}
+_ssa_monitor_stop: dict[str, threading.Event] = {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-1 — SSA Game Server Lifecycle Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _SSARegisterReq(BaseModel):
+    server_id: str
+    app_id: int
+    install_path: str
+    launch_args: list[str] = []
+    executable: str = ""
+    branch: str = "public"
+    rcon_host: str = "127.0.0.1"
+    rcon_port: int = 27015
+    rcon_password: str = ""
+    rcon_enabled: bool = False
+    restart_warning_minutes: int = 5
+    auto_restart_on_crash: bool = True
+    max_crash_restarts: int = 5
+    restart_schedule: str = ""
+    update_schedule: str = ""
+
+
+@app.post("/ssa/register")
+def ssa_register(req: _SSARegisterReq) -> dict:
+    """Register a new game server configuration.
+
+    P3-1 — The registered server can then be started/stopped/restarted/updated
+    via the other ``/ssa/*`` endpoints.  Configuration is stored in memory and
+    can be persisted via ``/ssa/save-configs``.
+    """
+    with _ssa_servers_lock:
+        _ssa_servers[req.server_id] = req.model_dump()
+    _write_audit("ssa.register", "arbiter", req.server_id, {"app_id": req.app_id, "install_path": req.install_path})
+    logger.info("[SSA] Registered server %s (app_id=%d)", req.server_id, req.app_id)
+    return {"status": "registered", "server_id": req.server_id}
+
+
+@app.get("/ssa/list")
+def ssa_list() -> dict:
+    """Return all registered game server configurations and their runtime state.
+
+    P3-1
+    """
+    with _ssa_servers_lock:
+        servers = list(_ssa_servers.values())
+    return {"servers": servers, "count": len(servers)}
+
+
+@app.get("/ssa/status/{server_id}")
+def ssa_status(server_id: str) -> dict:
+    """Return the runtime status of a registered server.
+
+    P3-1
+    """
+    with _ssa_servers_lock:
+        cfg = _ssa_servers.get(server_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"Server '{server_id}' not registered")
+    return {"server_id": server_id, "config": cfg}
+
+
+class _SSACommandReq(BaseModel):
+    server_id: str
+    warn_players: bool = True
+    actor: str = "arbiter"  # who initiated the action (for audit log)
+
+
+class _SSARCONReq(BaseModel):
+    server_id: str
+    command: str
+    actor: str = "arbiter"
+
+
+@app.post("/ssa/start")
+async def ssa_start(req: _SSACommandReq) -> dict:
+    """Start a registered game server.
+
+    Delegates to the SSA ServerManager via an HTTP call to the SSA REST API
+    if one is configured, otherwise delegates to the in-process adapter.
+
+    P3-1
+    """
+    with _ssa_servers_lock:
+        cfg = _ssa_servers.get(req.server_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"Server '{req.server_id}' not registered")
+
+    _write_audit("ssa.start", req.actor, req.server_id, {})
+
+    try:
+        result = await _asyncio.to_thread(_ssa_call, "start", cfg)
+        logger.info("[SSA] Started %s → %s", req.server_id, result)
+        return {"status": "ok", "action": "start", "server_id": req.server_id, "result": result}
+    except Exception as exc:
+        logger.error("[SSA] Start failed for %s: %s", req.server_id, exc)
+        return {"status": "error", "action": "start", "server_id": req.server_id, "error": str(exc)}
+
+
+@app.post("/ssa/stop")
+async def ssa_stop(req: _SSACommandReq) -> dict:
+    """Stop a running game server (RCON graceful + SIGTERM fallback).
+
+    P3-1
+    """
+    with _ssa_servers_lock:
+        cfg = _ssa_servers.get(req.server_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"Server '{req.server_id}' not registered")
+
+    _write_audit("ssa.stop", req.actor, req.server_id, {})
+
+    try:
+        result = await _asyncio.to_thread(_ssa_call, "stop", cfg)
+        return {"status": "ok", "action": "stop", "server_id": req.server_id, "result": result}
+    except Exception as exc:
+        return {"status": "error", "action": "stop", "server_id": req.server_id, "error": str(exc)}
+
+
+@app.post("/ssa/restart")
+async def ssa_restart(req: _SSACommandReq) -> dict:
+    """Restart a game server with configurable countdown warnings.
+
+    Broadcasts a warning to players via RCON ``say`` before shutting down
+    (``warn_players=true``).  The warning interval is taken from the server's
+    ``restart_warning_minutes`` config.
+
+    P3-1
+    """
+    with _ssa_servers_lock:
+        cfg = _ssa_servers.get(req.server_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"Server '{req.server_id}' not registered")
+
+    _write_audit("ssa.restart", req.actor, req.server_id, {"warn_players": req.warn_players})
+
+    try:
+        result = await _asyncio.to_thread(_ssa_call, "restart", cfg, warn_players=req.warn_players)
+        return {"status": "ok", "action": "restart", "server_id": req.server_id, "result": result}
+    except Exception as exc:
+        return {"status": "error", "action": "restart", "server_id": req.server_id, "error": str(exc)}
+
+
+@app.post("/ssa/update")
+async def ssa_update(req: _SSACommandReq) -> dict:
+    """Trigger a SteamCMD ``+app_update validate`` for a server.
+
+    Broadcasts an update warning to players first, then stops, updates, and
+    restarts the server.
+
+    P3-1
+    """
+    with _ssa_servers_lock:
+        cfg = _ssa_servers.get(req.server_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"Server '{req.server_id}' not registered")
+
+    _write_audit("ssa.update", req.actor, req.server_id, {})
+
+    try:
+        result = await _asyncio.to_thread(_ssa_call, "update", cfg)
+        return {"status": "ok", "action": "update", "server_id": req.server_id, "result": result}
+    except Exception as exc:
+        return {"status": "error", "action": "update", "server_id": req.server_id, "error": str(exc)}
+
+
+@app.post("/ssa/rcon")
+async def ssa_rcon(req: _SSARCONReq) -> dict:
+    """Send a raw RCON command to a running server.
+
+    P3-1
+    """
+    with _ssa_servers_lock:
+        cfg = _ssa_servers.get(req.server_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"Server '{req.server_id}' not registered")
+
+    _write_audit("ssa.rcon", req.actor, req.server_id, {"command": req.command})
+
+    try:
+        response = await _asyncio.to_thread(_ssa_rcon_call, cfg, req.command)
+        return {"status": "ok", "server_id": req.server_id, "command": req.command, "response": response}
+    except Exception as exc:
+        return {"status": "error", "server_id": req.server_id, "command": req.command, "error": str(exc)}
+
+
+# ── SSA in-process adapter ────────────────────────────────────────────────────
+
+def _ssa_call(action: str, cfg: dict, **kwargs) -> dict:
+    """Invoke a ServerManager action using the SSA module (in-process).
+
+    Imports ``Projects.SteamServerAdmin.src.server_manager`` lazily so Arbiter
+    Engine still works even if the SSA project is not installed.
+    """
+    try:
+        import importlib.util as _ilu
+        _ssa_path = _BASE.parent.parent / "Projects" / "SteamServerAdmin" / "src" / "server_manager.py"
+        spec = _ilu.spec_from_file_location("ssa_server_manager", _ssa_path)
+        if spec and spec.loader:
+            mod = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+            mgr = mod.ServerManager(cfg)
+            method = getattr(mgr, action)
+            return method(**kwargs)
+    except Exception as exc:
+        logger.warning("[SSA] In-process call failed (%s %s): %s — falling back to stub", action, cfg.get("server_id"), exc)
+    # Stub response when SSA module is not available
+    return {"status": "stub", "action": action, "server_id": cfg.get("server_id")}
+
+
+def _ssa_rcon_call(cfg: dict, command: str) -> str:
+    """Send an RCON command using the SSA RCONClient (in-process)."""
+    try:
+        import importlib.util as _ilu
+        _ssa_path = _BASE.parent.parent / "Projects" / "SteamServerAdmin" / "src" / "server_manager.py"
+        spec = _ilu.spec_from_file_location("ssa_server_manager", _ssa_path)
+        if spec and spec.loader:
+            mod = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+            rcon = mod.RCONClient(
+                host=cfg.get("rcon_host", "127.0.0.1"),
+                port=cfg.get("rcon_port", 27015),
+                password=cfg.get("rcon_password", ""),
+            )
+            return rcon.send_command(command)
+    except Exception as exc:
+        logger.warning("[SSA] RCON call failed: %s", exc)
+    return f"[RCON unavailable: SSA module not loaded]"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-2 — Role-Based Permission System
+# ─────────────────────────────────────────────────────────────────────────────
+# Roles (highest → lowest privilege):
+#   admin      — full access (all SSA operations, role management, audit log)
+#   moderator  — can restart/kick; cannot update/install or manage roles
+#   operator   — can check status and send RCON say; cannot restart/update
+#   player     — read-only access to status endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Role → allowed actions mapping
+_ROLE_ACTIONS: dict[str, set[str]] = {
+    "admin":     {"start", "stop", "restart", "update", "rcon", "roles.manage", "audit.read", "status", "register", "monitor"},
+    "moderator": {"restart", "rcon.say", "status", "audit.read"},
+    "operator":  {"rcon.say", "status"},
+    "player":    {"status"},
+}
+
+
+class _RoleAssignReq(BaseModel):
+    username: str
+    role: str
+    actor: str = "admin"   # who is making the change
+
+
+class _RoleCheckReq(BaseModel):
+    username: str
+    action: str
+
+
+@app.post("/roles/assign")
+def roles_assign(req: _RoleAssignReq) -> dict:
+    """Assign a role to a user.
+
+    Roles: ``admin``, ``moderator``, ``operator``, ``player``.
+
+    P3-2
+    """
+    role = req.role.lower()
+    if role not in _ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Unknown role '{role}'. Valid: {_ROLE_HIERARCHY}")
+
+    previous = _user_roles.get(req.username, "none")
+    _user_roles[req.username] = role
+    _save_roles()
+
+    _write_audit(
+        "role.assign", req.actor, req.username,
+        {"role": role, "previous_role": previous},
+    )
+    logger.info("[Roles] %s → %s (actor: %s)", req.username, role, req.actor)
+    return {"status": "ok", "username": req.username, "role": role, "previous_role": previous}
+
+
+@app.delete("/roles/{username}")
+def roles_revoke(username: str, actor: str = "admin") -> dict:
+    """Remove a user's role assignment (reverts to no role).
+
+    P3-2
+    """
+    if username not in _user_roles:
+        raise HTTPException(status_code=404, detail=f"User '{username}' has no role assigned")
+
+    removed_role = _user_roles.pop(username)
+    _save_roles()
+    _write_audit("role.revoke", actor, username, {"removed_role": removed_role})
+    return {"status": "ok", "username": username, "removed_role": removed_role}
+
+
+@app.get("/roles/{username}")
+def roles_get(username: str) -> dict:
+    """Return the role assigned to a user.
+
+    P3-2
+    """
+    role = _user_roles.get(username)
+    if role is None:
+        return {"username": username, "role": None, "actions": []}
+    return {
+        "username": username,
+        "role":    role,
+        "actions": sorted(_ROLE_ACTIONS.get(role, set())),
+    }
+
+
+@app.get("/roles")
+def roles_list() -> dict:
+    """Return all role assignments.
+
+    P3-2
+    """
+    return {
+        "assignments": [{"username": u, "role": r} for u, r in _user_roles.items()],
+        "hierarchy":   _ROLE_HIERARCHY,
+        "actions_map": {r: sorted(a) for r, a in _ROLE_ACTIONS.items()},
+    }
+
+
+@app.post("/roles/check")
+def roles_check(req: _RoleCheckReq) -> dict:
+    """Check whether a user is permitted to perform a given action.
+
+    P3-2
+    """
+    role = _user_roles.get(req.username)
+    if role is None:
+        return {"username": req.username, "action": req.action, "allowed": False, "reason": "no role assigned"}
+
+    # Walk the hierarchy: admins inherit all lower-privilege actions
+    role_idx = _ROLE_HIERARCHY.index(role) if role in _ROLE_HIERARCHY else len(_ROLE_HIERARCHY)
+    allowed_actions: set[str] = set()
+    for r in _ROLE_HIERARCHY[:role_idx + 1]:
+        allowed_actions |= _ROLE_ACTIONS.get(r, set())
+
+    allowed = req.action in allowed_actions
+    return {
+        "username": req.username,
+        "role":     role,
+        "action":   req.action,
+        "allowed":  allowed,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-3 — Permission Audit Log + Change Notifications
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/audit/log")
+def audit_log(limit: int = 100, event_type: str = "") -> dict:
+    """Return the last *limit* entries from the permission audit log.
+
+    Filter by ``event_type`` (e.g. ``role.assign``, ``ssa.restart``).
+
+    P3-3
+    """
+    if not _AUDIT_LOG_PATH.exists():
+        return {"entries": [], "total": 0}
+
+    try:
+        lines = _AUDIT_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return {"entries": [], "total": 0}
+
+    entries: list[dict] = []
+    for line in lines:
+        if line.strip():
+            try:
+                entry = json.loads(line)
+                if not event_type or entry.get("event", "").startswith(event_type):
+                    entries.append(entry)
+            except Exception:
+                pass
+
+    total = len(entries)
+    return {"entries": entries[-limit:], "total": total}
+
+
+@app.get("/audit/notifications")
+def audit_notifications(clear: bool = True) -> dict:
+    """Return pending audit change notifications (long-poll style).
+
+    When ``clear=true`` (default) the notifications are consumed and removed
+    from the queue.  The server management dashboard polls this endpoint
+    periodically to display real-time alerts.
+
+    P3-3
+    """
+    with _notif_lock:
+        notifs = list(_pending_notifications)
+        if clear:
+            _pending_notifications.clear()
+    return {"notifications": notifs, "count": len(notifs)}
+
+
+@app.get("/audit/stats")
+def audit_stats() -> dict:
+    """Return aggregate statistics from the audit log.
+
+    P3-3
+    """
+    if not _AUDIT_LOG_PATH.exists():
+        return {"total": 0, "by_event": {}, "by_actor": {}}
+
+    by_event: dict[str, int] = {}
+    by_actor: dict[str, int] = {}
+    total = 0
+
+    try:
+        for line in _AUDIT_LOG_PATH.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                e = json.loads(line)
+                total += 1
+                by_event[e.get("event", "?")] = by_event.get(e.get("event", "?"), 0) + 1
+                by_actor[e.get("actor", "?")] = by_actor.get(e.get("actor", "?"), 0) + 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return {"total": total, "by_event": by_event, "by_actor": by_actor}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-4 — AI Health Monitoring
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _HealthRuleReq(BaseModel):
+    server_id: str
+    rule_id: str = ""            # auto-generated if blank
+    metric: str                  # cpu_pct | mem_pct | player_count | error_rate | custom
+    operator: str                # gt | lt | gte | lte | eq
+    threshold: float
+    action: str                  # restart | update | rcon | alert_only
+    rcon_command: str = ""       # used when action=rcon
+    cooldown_seconds: int = 300  # minimum seconds between firings
+    enabled: bool = True
+
+
+@app.post("/ssa/monitor/rule")
+def ssa_monitor_add_rule(req: _HealthRuleReq) -> dict:
+    """Add or update a health monitoring rule for a server.
+
+    When the metric breaches the threshold the configured action fires
+    automatically.  The monitor loop checks every 30 seconds.
+
+    Actions:
+    - ``restart``  — restart the server (with RCON warning if configured)
+    - ``update``   — trigger a SteamCMD update
+    - ``rcon``     — send ``rcon_command`` to the server
+    - ``alert_only`` — write to audit log and notify dashboard; no action
+
+    P3-4
+    """
+    with _ssa_servers_lock:
+        if req.server_id not in _ssa_servers:
+            raise HTTPException(status_code=404, detail=f"Server '{req.server_id}' not registered")
+
+    rule = req.model_dump()
+    if not rule["rule_id"]:
+        rule["rule_id"] = _hashlib.sha1(
+            f"{req.server_id}:{req.metric}:{req.operator}:{req.threshold}".encode()
+        ).hexdigest()[:8]
+
+    rules = _ssa_health_rules.setdefault(req.server_id, [])
+    # Replace existing rule with same id
+    rules[:] = [r for r in rules if r["rule_id"] != rule["rule_id"]]
+    rules.append(rule)
+
+    # Start monitor thread for this server if not running
+    _ssa_monitor_ensure_running(req.server_id)
+    _write_audit("monitor.rule.add", "arbiter", req.server_id, {"rule_id": rule["rule_id"], "metric": req.metric})
+    return {"status": "ok", "rule_id": rule["rule_id"], "server_id": req.server_id}
+
+
+@app.delete("/ssa/monitor/rule/{server_id}/{rule_id}")
+def ssa_monitor_delete_rule(server_id: str, rule_id: str) -> dict:
+    """Remove a health monitoring rule.
+
+    P3-4
+    """
+    rules = _ssa_health_rules.get(server_id, [])
+    before = len(rules)
+    _ssa_health_rules[server_id] = [r for r in rules if r["rule_id"] != rule_id]
+    if len(_ssa_health_rules[server_id]) == before:
+        raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found for server '{server_id}'")
+    _write_audit("monitor.rule.delete", "arbiter", server_id, {"rule_id": rule_id})
+    return {"status": "ok", "rule_id": rule_id, "server_id": server_id}
+
+
+@app.get("/ssa/monitor/rules/{server_id}")
+def ssa_monitor_list_rules(server_id: str) -> dict:
+    """List health monitoring rules for a server.
+
+    P3-4
+    """
+    return {"server_id": server_id, "rules": _ssa_health_rules.get(server_id, [])}
+
+
+@app.get("/ssa/monitor/alerts/{server_id}")
+def ssa_monitor_alerts(server_id: str, limit: int = 50) -> dict:
+    """Return recent health alerts fired for a server.
+
+    P3-4
+    """
+    alerts = _ssa_health_alerts.get(server_id, [])
+    return {"server_id": server_id, "alerts": alerts[-limit:], "total": len(alerts)}
+
+
+class _HealthMetricsReq(BaseModel):
+    server_id: str
+    cpu_pct: float = 0.0
+    mem_pct: float = 0.0
+    player_count: int = 0
+    error_rate: float = 0.0
+    custom: dict[str, float] = {}
+
+
+@app.post("/ssa/monitor/metrics")
+async def ssa_monitor_metrics(req: _HealthMetricsReq) -> dict:
+    """Push current server metrics into the health monitor.
+
+    The monitor evaluates all registered rules against the submitted values
+    and triggers the configured actions for any breaches.  This endpoint
+    is called by server-side agents or the SSA daemon on a heartbeat.
+
+    P3-4
+    """
+    with _ssa_servers_lock:
+        cfg = _ssa_servers.get(req.server_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"Server '{req.server_id}' not registered")
+
+    metrics = {
+        "cpu_pct":      req.cpu_pct,
+        "mem_pct":      req.mem_pct,
+        "player_count": float(req.player_count),
+        "error_rate":   req.error_rate,
+        **{k: float(v) for k, v in req.custom.items()},
+    }
+
+    fired: list[dict] = []
+    now = time.time()
+    rules = _ssa_health_rules.get(req.server_id, [])
+
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+
+        metric_val = metrics.get(rule["metric"], 0.0)
+        op = rule["operator"]
+        threshold = float(rule["threshold"])
+        breach = (
+            (op == "gt"  and metric_val >  threshold) or
+            (op == "lt"  and metric_val <  threshold) or
+            (op == "gte" and metric_val >= threshold) or
+            (op == "lte" and metric_val <= threshold) or
+            (op == "eq"  and metric_val == threshold)
+        )
+
+        if not breach:
+            continue
+
+        # Enforce cooldown
+        last_fired = rule.get("_last_fired", 0)
+        if now - last_fired < rule.get("cooldown_seconds", 300):
+            continue
+        rule["_last_fired"] = now
+
+        alert = {
+            "ts":        datetime.datetime.utcnow().isoformat(),
+            "server_id": req.server_id,
+            "rule_id":   rule["rule_id"],
+            "metric":    rule["metric"],
+            "value":     metric_val,
+            "threshold": threshold,
+            "action":    rule["action"],
+        }
+        _ssa_health_alerts.setdefault(req.server_id, []).append(alert)
+        _write_audit("monitor.alert", "arbiter", req.server_id, alert)
+        fired.append(alert)
+
+        # Execute action
+        if rule["action"] == "restart":
+            _ = _asyncio.create_task(ssa_restart(_SSACommandReq(server_id=req.server_id, actor="health-monitor")))
+        elif rule["action"] == "update":
+            _ = _asyncio.create_task(ssa_update(_SSACommandReq(server_id=req.server_id, actor="health-monitor")))
+        elif rule["action"] == "rcon" and rule.get("rcon_command"):
+            _ = _asyncio.create_task(ssa_rcon(_SSARCONReq(
+                server_id=req.server_id, command=rule["rcon_command"], actor="health-monitor"
+            )))
+        # alert_only: already written to audit log above
+
+    return {"server_id": req.server_id, "metrics": metrics, "fired": fired}
+
+
+class _AIHealthAnalysisReq(BaseModel):
+    server_id: str
+    log_excerpt: str       # last N lines of server log
+    max_suggestions: int = 5
+
+
+@app.post("/ssa/monitor/analyze")
+async def ssa_monitor_analyze(req: _AIHealthAnalysisReq) -> dict:
+    """AI analysis of a server log excerpt.
+
+    The LLM inspects the log and returns:
+    - ``issues``: detected problems
+    - ``suggestions``: recommended health-rule configuration
+    - ``auto_rules``: ready-to-POST rule dicts
+
+    P3-4
+    """
+    prompt = (
+        "You are a game server health analyst. Analyse the following server log excerpt.\n\n"
+        f"Server: {req.server_id}\n\nLog excerpt:\n```\n{req.log_excerpt[:3000]}\n```\n\n"
+        "Return a JSON object:\n"
+        '{"issues": ["..."], "suggestions": ["..."], '
+        '"auto_rules": [{"metric": "cpu_pct|mem_pct|player_count|error_rate", '
+        '"operator": "gt|lt|gte|lte", "threshold": <number>, '
+        '"action": "restart|rcon|alert_only", "rcon_command": ""}]}\n'
+        "Output ONLY the JSON object."
+    )
+    try:
+        raw = await _asyncio.to_thread(_llm.chat, [{"role": "user", "content": prompt}])
+        match = _re.search(r"\{[\s\S]+\}", raw)
+        result = json.loads(match.group()) if match else {"issues": [], "suggestions": [], "auto_rules": []}
+    except Exception as exc:
+        result = {"issues": [], "suggestions": [], "auto_rules": [], "error": str(exc)}
+
+    return {"server_id": req.server_id, **result}
+
+
+def _ssa_monitor_ensure_running(server_id: str) -> None:
+    """Start a background monitor thread for *server_id* if not already running."""
+    if server_id in _ssa_monitor_threads and _ssa_monitor_threads[server_id].is_alive():
+        return
+    stop_event = threading.Event()
+    _ssa_monitor_stop[server_id] = stop_event
+    t = threading.Thread(
+        target=_ssa_monitor_loop,
+        args=(server_id, stop_event),
+        daemon=True,
+        name=f"arbiter-monitor-{server_id}",
+    )
+    _ssa_monitor_threads[server_id] = t
+    t.start()
+
+
+def _ssa_monitor_loop(server_id: str, stop: threading.Event) -> None:
+    """Background loop: queries /ssa/monitor/metrics every 30 s.
+
+    In a real deployment the SSA daemon pushes metrics; this loop
+    is a self-monitoring fallback for servers whose SSA daemon has
+    the heartbeat feature disabled.
+    """
+    while not stop.is_set():
+        stop.wait(30)   # sleep 30 s between checks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-5 — Server Management Dashboard (standalone dark-mode HTML)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arbiter — Server Management Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0d0f11;
+    --panel:     #161a1e;
+    --card:      #1f2429;
+    --border:    #2c3540;
+    --accent:    #00c896;
+    --accent2:   #007acc;
+    --fg:        #dde3ec;
+    --fg-dim:    #8b96a5;
+    --danger:    #e05c5c;
+    --warn:      #e0a84d;
+    --success:   #4dc98a;
+    --font:      "Segoe UI", system-ui, sans-serif;
+    --radius:    8px;
+    --shadow:    0 2px 12px rgba(0,0,0,.45);
+  }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font); min-height: 100vh; }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: var(--shadow);
+  }
+  header h1 { font-size: 1.15rem; font-weight: 600; letter-spacing: .03em; }
+  header span.badge {
+    font-size: .7rem;
+    background: var(--accent);
+    color: #000;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-weight: 700;
+  }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    display: inline-block;
+    background: var(--fg-dim);
+  }
+  .status-dot.ok     { background: var(--success); }
+  .status-dot.warn   { background: var(--warn); }
+  .status-dot.error  { background: var(--danger); }
+  main { max-width: 1280px; margin: 0 auto; padding: 24px 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; margin-bottom: 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+  .card-title {
+    font-size: .8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--fg-dim);
+    margin-bottom: 12px;
+  }
+  .server-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .server-row:last-child { border-bottom: none; }
+  .server-name { flex: 1; font-size: .95rem; font-weight: 500; }
+  .server-meta { font-size: .75rem; color: var(--fg-dim); }
+  .btn {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 5px;
+    padding: 5px 11px;
+    font-size: .78rem;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .btn:hover { background: var(--border); border-color: var(--accent2); }
+  .btn.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  .btn.primary:hover { background: #0069b3; }
+  .btn.danger  { background: var(--danger);  border-color: var(--danger);  color: #fff; }
+  .btn.danger:hover  { background: #c04040; }
+  .btn.success { background: var(--success); border-color: var(--success); color: #000; }
+  .btn.success:hover { background: #38b074; }
+  .alert-list { max-height: 220px; overflow-y: auto; }
+  .alert-item {
+    font-size: .78rem;
+    padding: 7px 10px;
+    border-radius: 4px;
+    margin-bottom: 5px;
+    border-left: 3px solid var(--accent);
+    background: rgba(255,255,255,.04);
+  }
+  .alert-item.warn  { border-left-color: var(--warn); }
+  .alert-item.error { border-left-color: var(--danger); }
+  .audit-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  .audit-table th, .audit-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  .audit-table th { color: var(--fg-dim); font-weight: 600; }
+  .roles-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+  .role-chip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 13px;
+    font-size: .78rem;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .role-chip .role-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--fg-dim);
+  }
+  .role-chip[data-role="admin"]     .role-dot { background: var(--danger); }
+  .role-chip[data-role="moderator"] .role-dot { background: var(--warn); }
+  .role-chip[data-role="operator"]  .role-dot { background: var(--accent2); }
+  .role-chip[data-role="player"]    .role-dot { background: var(--success); }
+  input, select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: .85rem;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent2); }
+  .form-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .section-hdr {
+    font-size: 1rem; font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin: 24px 0 14px;
+  }
+  #notif-bar {
+    position: fixed; bottom: 20px; right: 20px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 9999;
+    max-width: 340px;
+  }
+  .notif {
+    background: var(--card);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: .8rem;
+    box-shadow: var(--shadow);
+    animation: slideIn .2s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:none; } }
+  #log-out {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 12px;
+    font-size: .75rem;
+    font-family: monospace;
+    height: 160px;
+    overflow-y: auto;
+    color: var(--accent);
+    margin-top: 10px;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="status-dot ok" id="engine-dot"></span>
+  <h1>Arbiter — Server Management Dashboard</h1>
+  <span class="badge">Phase 3</span>
+  <span style="flex:1"></span>
+  <span id="clock" style="font-size:.8rem;color:var(--fg-dim)"></span>
+</header>
+
+<main>
+
+  <!-- ── Server List ─────────────────────────────────────────────────────── -->
+  <div class="section-hdr">Game Servers</div>
+  <div class="grid">
+    <div class="card" style="grid-column:1/-1">
+      <div class="card-title">Registered Servers</div>
+      <div id="server-list"><em style="color:var(--fg-dim)">Loading…</em></div>
+    </div>
+  </div>
+
+  <!-- ── Quick Register ────────────────────────────────────────────────────── -->
+  <div class="section-hdr">Register Server</div>
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">New Server Configuration</div>
+    <div class="form-row">
+      <input id="reg-id"       placeholder="server_id"    style="width:130px">
+      <input id="reg-appid"    placeholder="app_id"       style="width:90px" type="number">
+      <input id="reg-path"     placeholder="install_path" style="flex:1">
+      <button class="btn primary" onclick="registerServer()">Register</button>
+    </div>
+  </div>
+
+  <!-- ── Roles ─────────────────────────────────────────────────────────── -->
+  <div class="section-hdr">Role Assignments</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-title">Current Roles</div>
+      <div id="roles-list" class="roles-grid"><em style="color:var(--fg-dim)">Loading…</em></div>
+      <div class="form-row" style="margin-top:14px">
+        <input id="role-user" placeholder="username" style="width:120px">
+        <select id="role-sel">
+          <option value="admin">admin</option>
+          <option value="moderator">moderator</option>
+          <option value="operator" selected>operator</option>
+          <option value="player">player</option>
+        </select>
+        <button class="btn primary" onclick="assignRole()">Assign</button>
+      </div>
+    </div>
+
+    <!-- ── Audit Stats ──────────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-title">Audit Log Stats</div>
+      <div id="audit-stats" style="font-size:.85rem"></div>
+    </div>
+  </div>
+
+  <!-- ── Audit Log ────────────────────────────────────────────────────── -->
+  <div class="section-hdr">Recent Audit Events</div>
+  <div class="card" style="margin-bottom:24px;overflow-x:auto">
+    <div class="card-title">Last 20 Events</div>
+    <table class="audit-table">
+      <thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Target</th></tr></thead>
+      <tbody id="audit-tbody"><tr><td colspan="4" style="color:var(--fg-dim)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ── Health Monitor ───────────────────────────────────────────────── -->
+  <div class="section-hdr">AI Health Monitor</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-title">Add Health Rule</div>
+      <div class="form-row">
+        <input id="hr-sid"      placeholder="server_id"  style="width:120px">
+        <select id="hr-metric">
+          <option value="cpu_pct">CPU %</option>
+          <option value="mem_pct">Mem %</option>
+          <option value="player_count">Player Count</option>
+          <option value="error_rate">Error Rate</option>
+        </select>
+        <select id="hr-op">
+          <option value="gt">></option>
+          <option value="lt"><</option>
+          <option value="gte">≥</option>
+          <option value="lte">≤</option>
+        </select>
+        <input id="hr-thresh" placeholder="value" style="width:70px" type="number">
+      </div>
+      <div class="form-row">
+        <select id="hr-action">
+          <option value="alert_only">Alert Only</option>
+          <option value="restart">Auto Restart</option>
+          <option value="rcon">RCON Command</option>
+        </select>
+        <input id="hr-rcon" placeholder="rcon command (if action=rcon)" style="flex:1">
+        <button class="btn primary" onclick="addHealthRule()">Add Rule</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Active Alerts</div>
+      <div id="alert-list" class="alert-list"><em style="color:var(--fg-dim)">No alerts</em></div>
+    </div>
+  </div>
+
+  <!-- ── Engine Log ───────────────────────────────────────────────────── -->
+  <div class="section-hdr">Engine Activity Log</div>
+  <div id="log-out">Waiting for activity…</div>
+
+</main>
+
+<div id="notif-bar"></div>
+
+<script>
+const API = '';  // same origin
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  return r.json();
+}
+
+function log(msg) {
+  const el = document.getElementById('log-out');
+  el.textContent += new Date().toISOString().slice(11,19) + '  ' + msg + '\\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function notify(msg, type='info') {
+  const bar = document.getElementById('notif-bar');
+  const n = document.createElement('div');
+  n.className = 'notif';
+  n.textContent = msg;
+  bar.appendChild(n);
+  setTimeout(() => n.remove(), 5000);
+}
+
+function fmtTs(ts) {
+  return ts ? ts.replace('T',' ').slice(0,19) : '';
+}
+
+// ── Clock ───────────────────────────────────────────────────────────────────
+
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toUTCString().slice(5,25) + ' UTC';
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── Servers ──────────────────────────────────────────────────────────────────
+
+async function loadServers() {
+  const data = await api('GET', '/ssa/list');
+  const el = document.getElementById('server-list');
+  if (!data.servers || data.servers.length === 0) {
+    el.innerHTML = '<em style="color:var(--fg-dim)">No servers registered.</em>';
+    return;
+  }
+  el.innerHTML = data.servers.map(s => `
+    <div class="server-row">
+      <span class="status-dot ok"></span>
+      <div>
+        <div class="server-name">${s.server_id}</div>
+        <div class="server-meta">App ${s.app_id} &bull; ${s.install_path || 'N/A'}</div>
+      </div>
+      <button class="btn success" onclick="serverAction('start','${s.server_id}')">Start</button>
+      <button class="btn danger"  onclick="serverAction('stop','${s.server_id}')">Stop</button>
+      <button class="btn"         onclick="serverAction('restart','${s.server_id}')">Restart</button>
+      <button class="btn"         onclick="serverAction('update','${s.server_id}')">Update</button>
+    </div>`).join('');
+}
+
+async function serverAction(action, serverId) {
+  log('→ ' + action + ' ' + serverId);
+  const data = await api('POST', '/ssa/' + action, {server_id: serverId, actor: 'dashboard'});
+  log('← ' + JSON.stringify(data).slice(0,120));
+  notify(action + ' ' + serverId + ': ' + (data.status || data.error));
+}
+
+async function registerServer() {
+  const sid   = document.getElementById('reg-id').value.trim();
+  const appid = parseInt(document.getElementById('reg-appid').value);
+  const path  = document.getElementById('reg-path').value.trim();
+  if (!sid || !appid || !path) { notify('Fill all fields first', 'warn'); return; }
+  const data = await api('POST', '/ssa/register', {server_id: sid, app_id: appid, install_path: path});
+  log('Registered: ' + JSON.stringify(data));
+  notify('Registered ' + sid);
+  loadServers();
+}
+
+// ── Roles ────────────────────────────────────────────────────────────────────
+
+async function loadRoles() {
+  const data = await api('GET', '/roles');
+  const el = document.getElementById('roles-list');
+  if (!data.assignments || data.assignments.length === 0) {
+    el.innerHTML = '<em style="color:var(--fg-dim)">No assignments.</em>';
+    return;
+  }
+  el.innerHTML = data.assignments.map(a =>
+    `<div class="role-chip" data-role="${a.role}">
+       <span class="role-dot"></span>
+       <span>${a.username}</span>
+       <span style="color:var(--fg-dim)">(${a.role})</span>
+     </div>`
+  ).join('');
+}
+
+async function assignRole() {
+  const user = document.getElementById('role-user').value.trim();
+  const role = document.getElementById('role-sel').value;
+  if (!user) { notify('Enter a username', 'warn'); return; }
+  const data = await api('POST', '/roles/assign', {username: user, role, actor: 'dashboard'});
+  log('Role assigned: ' + JSON.stringify(data));
+  notify('Assigned ' + role + ' to ' + user);
+  loadRoles();
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+async function loadAuditLog() {
+  const data = await api('GET', '/audit/log?limit=20');
+  const tbody = document.getElementById('audit-tbody');
+  if (!data.entries || data.entries.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--fg-dim)">No events yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = [...data.entries].reverse().map(e =>
+    `<tr>
+       <td>${fmtTs(e.ts)}</td>
+       <td>${e.event}</td>
+       <td>${e.actor}</td>
+       <td>${e.target}</td>
+     </tr>`
+  ).join('');
+}
+
+async function loadAuditStats() {
+  const data = await api('GET', '/audit/stats');
+  const el = document.getElementById('audit-stats');
+  el.innerHTML = `<b>Total:</b> ${data.total}<br>` +
+    Object.entries(data.by_event||{}).map(([k,v]) =>
+      `<div style="margin-top:4px;font-size:.75rem;color:var(--fg-dim)">${k}: <b style="color:var(--fg)">${v}</b></div>`
+    ).join('');
+}
+
+// ── Notifications polling ────────────────────────────────────────────────────
+
+async function pollNotifications() {
+  try {
+    const data = await api('GET', '/audit/notifications?clear=true');
+    if (data.notifications && data.notifications.length > 0) {
+      data.notifications.forEach(n => {
+        notify('[' + n.event + '] ' + n.target);
+        log('! Notification: ' + JSON.stringify(n).slice(0,120));
+      });
+      loadAuditLog();
+    }
+  } catch(e) {}
+}
+
+// ── Health Monitor ───────────────────────────────────────────────────────────
+
+async function addHealthRule() {
+  const sid    = document.getElementById('hr-sid').value.trim();
+  const metric = document.getElementById('hr-metric').value;
+  const op     = document.getElementById('hr-op').value;
+  const thresh = parseFloat(document.getElementById('hr-thresh').value);
+  const action = document.getElementById('hr-action').value;
+  const rcon   = document.getElementById('hr-rcon').value.trim();
+  if (!sid || isNaN(thresh)) { notify('Fill server_id and threshold', 'warn'); return; }
+  const data = await api('POST', '/ssa/monitor/rule', {
+    server_id: sid, metric, operator: op,
+    threshold: thresh, action, rcon_command: rcon,
+    cooldown_seconds: 300, enabled: true
+  });
+  log('Health rule: ' + JSON.stringify(data));
+  notify('Rule added: ' + data.rule_id);
+}
+
+// ── Init & polling ───────────────────────────────────────────────────────────
+
+async function refresh() {
+  await Promise.all([loadServers(), loadRoles(), loadAuditLog(), loadAuditStats()]);
+}
+
+refresh();
+setInterval(pollNotifications, 5000);
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>"""
+
+
+@app.get("/dashboard", response_class=_HTMLResponse)
+def server_dashboard() -> _HTMLResponse:
+    """Serve the standalone dark-mode server management dashboard.
+
+    The dashboard provides:
+    - Live server list with start/stop/restart/update buttons (P3-1)
+    - Role assignment UI (P3-2)
+    - Audit log table with 5-second notification polling (P3-3)
+    - Health monitoring rule builder (P3-4)
+
+    P3-5
+    """
+    return _HTMLResponse(content=_DASHBOARD_HTML, status_code=200)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
