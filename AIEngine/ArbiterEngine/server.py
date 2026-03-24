@@ -7938,6 +7938,158 @@ async def review_workflow(req: _ReviewWorkflowReq) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# P1-7 — In-application Wiki panel: /wiki REST endpoints
+# Serves markdown files from docs/wiki/ so the WPF IDE can display them.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WIKI_DIR = _BASE.parent.parent / "docs" / "wiki"
+
+
+@app.get("/wiki")
+async def wiki_list():
+    """Return a list of all wiki documents (name + title extracted from first heading)."""
+    if not _WIKI_DIR.is_dir():
+        return {"pages": []}
+    pages = []
+    for md_file in sorted(_WIKI_DIR.glob("*.md")):
+        title = md_file.stem.replace("_", " ").replace("-", " ").title()
+        try:
+            first_line = md_file.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+            if first_line.startswith("#"):
+                title = first_line.lstrip("#").strip()
+        except Exception:
+            pass
+        pages.append({"name": md_file.stem, "filename": md_file.name, "title": title})
+    return {"pages": pages}
+
+
+@app.get("/wiki/{page}")
+async def wiki_page(page: str):
+    """Return the raw markdown content of a single wiki page.
+
+    *page* is the filename stem (without ``.md``).  The endpoint also accepts
+    the full filename with extension for convenience.
+    """
+    # Strip .md extension if passed
+    stem = page.removesuffix(".md")
+    # Prevent path traversal
+    if "/" in stem or "\\" in stem or ".." in stem:
+        return {"error": "invalid page name"}
+    md_path = _WIKI_DIR / f"{stem}.md"
+    if not md_path.exists():
+        return {"error": f"page '{stem}' not found"}
+    content = md_path.read_text(encoding="utf-8", errors="replace")
+    return {"name": stem, "filename": md_path.name, "content": content}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1-8 — Changelog automation: /changelog/generate
+# Parses git log for [arbiter-self-build] commits and returns structured
+# CHANGELOG entries.  Also writes docs/wiki/CHANGELOG.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import re as _re_cl  # noqa: F811 – already imported above; alias for clarity
+
+_SELF_BUILD_COMMIT_RE = _re.compile(
+    r"\[arbiter-self-build\]\s*(?P<task_id>[\w-]+)?:?\s*(?P<title>.+)",
+    _re.IGNORECASE,
+)
+_CHANGELOG_WIKI_PATH = _BASE.parent.parent / "docs" / "wiki" / "CHANGELOG.md"
+
+
+def _git_log_self_build(repo_root: Path, max_commits: int = 500) -> list[dict]:
+    """Return parsed [arbiter-self-build] commit metadata from the git log."""
+    try:
+        result = subprocess.run(
+            [
+                "git", "-C", str(repo_root), "log",
+                f"--max-count={max_commits}",
+                "--pretty=format:%H%x1f%as%x1f%s",  # hash, date (YYYY-MM-DD), subject
+                "--grep=[arbiter-self-build]",
+                "--regexp-ignore-case",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+    except Exception:
+        return []
+
+    entries: list[dict] = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\x1f", 2)
+        if len(parts) != 3:
+            continue
+        sha, date, subject = parts
+        m = _SELF_BUILD_COMMIT_RE.search(subject)
+        task_id = m.group("task_id") if m else None
+        title = m.group("title").strip() if m else subject.strip()
+        entries.append({"sha": sha[:12], "date": date, "task_id": task_id, "title": title})
+    return entries
+
+
+def _build_changelog_markdown(entries: list[dict]) -> str:
+    """Convert parsed git entries into a CHANGELOG.md-style markdown string."""
+    if not entries:
+        return "# Changelog\n\nNo `[arbiter-self-build]` commits found.\n"
+
+    # Group by date (YYYY-MM-DD)
+    by_date: dict[str, list[dict]] = {}
+    for e in entries:
+        by_date.setdefault(e["date"], []).append(e)
+
+    lines = ["# Changelog", "", "_Auto-generated from `[arbiter-self-build]` git commits._", ""]
+    for date in sorted(by_date, reverse=True):
+        lines.append(f"## {date}")
+        lines.append("")
+        for e in by_date[date]:
+            prefix = f"[{e['task_id']}] " if e["task_id"] else ""
+            lines.append(f"- {prefix}{e['title']} (`{e['sha']}`)")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@app.post("/changelog/generate")
+async def changelog_generate(max_commits: int = 500, write_file: bool = True):
+    """Generate CHANGELOG entries from ``[arbiter-self-build]`` git commits.
+
+    Optionally writes the result to ``docs/wiki/CHANGELOG.md``.
+
+    Returns the generated markdown and the list of parsed entries.
+    """
+    repo_root = _BASE.parent.parent
+    entries = await _asyncio.to_thread(_git_log_self_build, repo_root, max_commits)
+    markdown = _build_changelog_markdown(entries)
+
+    written = False
+    if write_file:
+        try:
+            _CHANGELOG_WIKI_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _CHANGELOG_WIKI_PATH.write_text(markdown, encoding="utf-8")
+            written = True
+        except Exception as exc:
+            logger.warning("Could not write CHANGELOG.md: %s", exc)
+
+    return {
+        "entries": entries,
+        "total": len(entries),
+        "markdown": markdown,
+        "written_to": str(_CHANGELOG_WIKI_PATH) if written else None,
+    }
+
+
+@app.get("/changelog")
+async def changelog_get():
+    """Return the existing CHANGELOG.md content from docs/wiki/ (if present)."""
+    if not _CHANGELOG_WIKI_PATH.exists():
+        return {"content": None, "message": "No changelog found. POST /changelog/generate to create one."}
+    content = _CHANGELOG_WIKI_PATH.read_text(encoding="utf-8", errors="replace")
+    return {"content": content}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")

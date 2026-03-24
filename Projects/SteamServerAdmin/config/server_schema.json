@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SteamServerAdmin — Per-Server Configuration Schema",
+  "description": "Schema for a single Steam game server configuration file. Place one JSON file per server in config/<server_name>.json.",
+  "type": "object",
+  "required": ["server_id", "name", "app_id", "install_path"],
+  "additionalProperties": false,
+  "properties": {
+    "server_id": {
+      "type": "string",
+      "description": "Unique identifier for this server instance (snake_case, e.g. 'novaforge_eu1')."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable display name shown in the dashboard."
+    },
+    "app_id": {
+      "type": "integer",
+      "description": "Steam AppID of the dedicated server (e.g. 896660 for Valheim, 380870 for ARK)."
+    },
+    "install_path": {
+      "type": "string",
+      "description": "Absolute or relative path where SteamCMD installs the server files."
+    },
+    "branch": {
+      "type": "string",
+      "default": "public",
+      "description": "Steam beta branch to install from (e.g. 'public', 'staging')."
+    },
+    "launch_args": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Command-line arguments passed to the server executable at launch."
+    },
+    "executable": {
+      "type": "string",
+      "description": "Path to the server executable relative to install_path (auto-detected if omitted)."
+    },
+    "rcon": {
+      "type": "object",
+      "description": "RCON connection settings.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "host":    { "type": "string", "default": "127.0.0.1" },
+        "port":    { "type": "integer", "default": 27015 },
+        "password": { "type": "string", "default": "" }
+      }
+    },
+    "restart_schedule": {
+      "type": "string",
+      "description": "Cron expression for scheduled automatic restarts (e.g. '0 4 * * *' = 4 AM daily). Leave null to disable.",
+      "default": null
+    },
+    "update_schedule": {
+      "type": "string",
+      "description": "Cron expression for scheduled automatic updates (e.g. '30 3 * * 0' = 3:30 AM every Sunday). Leave null to disable.",
+      "default": null
+    },
+    "restart_warning_minutes": {
+      "type": "integer",
+      "default": 5,
+      "description": "Minutes before a scheduled restart to broadcast a warning message to connected players."
+    },
+    "auto_restart_on_crash": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically restart the server process if it exits unexpectedly."
+    },
+    "max_crash_restarts": {
+      "type": "integer",
+      "default": 5,
+      "description": "Maximum consecutive crash restarts before the supervisor gives up and alerts the admin."
+    },
+    "health_rules": {
+      "type": "array",
+      "description": "AI-driven log threshold rules. Each rule defines a log pattern and the action to trigger.",
+      "items": {
+        "type": "object",
+        "required": ["id", "pattern", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "id":          { "type": "string" },
+          "description": { "type": "string" },
+          "pattern":     { "type": "string", "description": "Regex pattern to match against live log lines." },
+          "threshold":   { "type": "integer", "default": 1, "description": "Number of matches within the window before the action fires." },
+          "window_seconds": { "type": "integer", "default": 60 },
+          "action": {
+            "type": "string",
+            "enum": ["restart", "update", "notify", "log"],
+            "description": "Action dispatched when the threshold is exceeded."
+          },
+          "enabled": { "type": "boolean", "default": true }
+        }
+      },
+      "default": []
+    },
+    "permissions": {
+      "type": "object",
+      "description": "Role assignments. Keys are Steam IDs or usernames; values are role names.",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["admin", "moderator", "operator", "standard"]
+      },
+      "default": {}
+    },
+    "whitelist": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Steam IDs or usernames allowed to connect (empty = open to all).",
+      "default": []
+    },
+    "notifications": {
+      "type": "object",
+      "description": "Optional notification channels for events (restarts, bans, permission changes).",
+      "additionalProperties": false,
+      "properties": {
+        "discord_webhook": { "type": "string", "default": null },
+        "email":           { "type": "string", "default": null }
+      },
+      "default": {}
+    },
+    "log_path": {
+      "type": "string",
+      "description": "Path where this server writes its own log files (used by the log-tail ingestion pipeline). Relative to install_path if not absolute."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional free-form tags for grouping servers in the dashboard (e.g. ['novaforge', 'eu', 'test']).",
+      "default": []
+    }
+  }
+}
