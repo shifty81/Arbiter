@@ -1,12 +1,13 @@
 {
   "project": "ArbiterAI",
-  "description": "Self-hosted, fully offline AI-powered development platform \u2014 three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration.",
+  "description": "Self-hosted, fully offline AI-powered development platform — three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration. Roadmap now extends to a 7-phase implementation plan covering server management, game systems (PCG/mech suits), and full development agent integration.",
   "version": "1.1.0",
-  "last_updated": "2026-03-23",
+  "last_updated": "2026-03-24",
   "pillars": [
-    "Pillar 1 \u2014 Chat Engine: context-aware, multi-turn conversational development assistant",
-    "Pillar 2 \u2014 Visual Studio Integration: native VSIX extension for Visual Studio 2022",
-    "Pillar 3 \u2014 Self-Iteration: autonomous roadmap-driven self-build loop"
+    "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
+    "Pillar 2 — Visual Studio Integration: native VSIX extension for Visual Studio 2022",
+    "Pillar 3 — Self-Iteration: autonomous roadmap-driven self-build loop",
+    "Phase 1–7 — Full Vision: platform consolidation → tooling layer → server management → game systems (PCG/mech) → development agent → integration & testing → deployment & scaling"
   ],
   "milestones": [
     {
@@ -1131,6 +1132,227 @@
           "title": "AI-powered full code review workflow: combine static lint + complexity analysis with a structured LLM review pass evaluating correctness, security, performance, readability, and error-handling via /review/workflow",
           "status": "done",
           "notes": "Implemented /review/workflow combining M14-1 lint and M14-3 complexity results with an LLM prompt requesting structured JSON findings per checklist category. Returns merged static + AI findings with severity, line numbers, and fix suggestions."
+        }
+      ]
+    },
+    {
+      "id": "Phase1",
+      "title": "Platform Consolidation",
+      "description": "Consolidate all subsystems under one cohesive structure with uniform conventions, per-system logging, comprehensive documentation, and improved UX (server shutdown prompt, enhanced banner).",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "P1-1",
+          "title": "Per-system rotating log files in top-level logs/<system>/ subfolders",
+          "status": "done",
+          "notes": "Added setup_system_logging() to core/logger.py. ArbiterEngine writes to logs/arbiter_engine/, PythonBridge to logs/python_bridge/. Top-level logs/ directory created with subfolders for arbiter_engine, python_bridge, host_app, vs_extension, self_build."
+        },
+        {
+          "id": "P1-2",
+          "title": "Comprehensive documentation wiki in docs/wiki/",
+          "status": "done",
+          "notes": "Created docs/wiki/ with: README.md (index), ARCHITECTURE.md, GETTING_STARTED.md, CONFIGURATION.md, API_REFERENCE.md, LOGGING.md, SELF_BUILD.md, VS_EXTENSION.md, CHAT_ENGINE.md, MONACO_IDE.md, ROADMAP.md, CHANGELOG.md, CONTRIBUTING.md, TROUBLESHOOTING.md."
+        },
+        {
+          "id": "P1-3",
+          "title": "Server shutdown prompt — ask user to keep servers live or shut down on app close",
+          "status": "done",
+          "notes": "Updated App.xaml.cs App_Exit handler to show a Yes/No dialog when managed server processes are running. Yes = kill processes; No = leave running for remote web UI access."
+        },
+        {
+          "id": "P1-4",
+          "title": "Enhanced README banner with tool icons, roadmap section, and updated milestone badges",
+          "status": "done",
+          "notes": "README updated: version badge 1.1.0, milestones badge M0-M14 complete, roadmap ASCII visualization below banner, tool suite icon grid, Documentation section with wiki links."
+        },
+        {
+          "id": "P1-5",
+          "title": "ROADMAP.md as standalone user-facing roadmap document",
+          "status": "done",
+          "notes": "Created ROADMAP.md at repo root covering all completed milestones (M0-M14) and all 7 implementation phases (Phase 1 Consolidation through Phase 7 Deployment & Scaling)."
+        },
+        {
+          "id": "P1-6",
+          "title": "Master Design Bible in docs/design/MASTER_DESIGN_BIBLE.md covering full system architecture, feature specifications, and all integration points",
+          "status": "pending"
+        },
+        {
+          "id": "P1-7",
+          "title": "In-application Wiki panel populated from docs/wiki/ markdown files via /wiki REST endpoint",
+          "status": "pending"
+        },
+        {
+          "id": "P1-8",
+          "title": "Changelog automation — generate CHANGELOG entries from git log [arbiter-self-build] commits",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "Phase2",
+      "title": "Tooling Layer & AI Integration",
+      "description": "Single interface for AI-assisted development and project management across all project types. WPF-based UI for all editor tools integrated with Visual Studio and ArbiterAI.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P2-1",
+          "title": "Unified WPF UI for all editor tools — no ImGui dependencies",
+          "status": "pending"
+        },
+        {
+          "id": "P2-2",
+          "title": "Deeper Visual Studio Code and Visual Studio plugin integration",
+          "status": "pending"
+        },
+        {
+          "id": "P2-3",
+          "title": "ArbiterAI agent for automated coding, asset iteration, PCG, and system debugging",
+          "status": "pending"
+        },
+        {
+          "id": "P2-4",
+          "title": "Open-source model integration (Ollama, CodeGeeX, etc.) for unrestricted free code assistance",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "Phase3",
+      "title": "Server Management System",
+      "description": "Autonomous server administration for game and application servers. SteamServerAdmin with role-based permissions, AI health monitoring, and full Tooling Layer integration.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P3-1",
+          "title": "SteamServerAdmin — start/stop/restart/update servers automatically with warnings before restarts",
+          "status": "pending"
+        },
+        {
+          "id": "P3-2",
+          "title": "Role-based permissions (Admin, Moderator, Operator, Standard Player) with dynamic restriction",
+          "status": "pending"
+        },
+        {
+          "id": "P3-3",
+          "title": "Permission audit logging and change notifications visible in Tooling Layer",
+          "status": "pending"
+        },
+        {
+          "id": "P3-4",
+          "title": "AI health monitoring — auto-restart servers on threshold breach; trigger scripts autonomously from logs",
+          "status": "pending"
+        },
+        {
+          "id": "P3-5",
+          "title": "Server management dashboard integrated into Tooling Layer and Monaco IDE",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "Phase4",
+      "title": "Game Systems & Procedural Generation",
+      "description": "AI-assisted procedural content generation for rooms/interiors and mech suit upgrade systems with reactive visual propagation.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P4-1",
+          "title": "Mech suit systems — tiered upgrades for Reactor, Armor, Weapons, and Cockpit with piloted mechanic",
+          "status": "pending"
+        },
+        {
+          "id": "P4-2",
+          "title": "Visual propagation — upgrades affect interior/exterior aesthetics, LCD panels, conduits, pipes, textures",
+          "status": "pending"
+        },
+        {
+          "id": "P4-3",
+          "title": "PCG room/interior/exterior generation with modular dynamic asset placement",
+          "status": "pending"
+        },
+        {
+          "id": "P4-4",
+          "title": "PCG ↔ Mech integration — upgrade tier drives generation complexity and asset richness",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "Phase5",
+      "title": "Development Agent Integration",
+      "description": "ArbiterAI as a full-time repository overseer and automation agent. Monitors repos, ensures PCG and mech upgrades stay cohesive, automates code generation and server maintenance.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P5-1",
+          "title": "Repo monitoring — AI watches for new commits and suggests or implements changes automatically",
+          "status": "pending"
+        },
+        {
+          "id": "P5-2",
+          "title": "PCG coherence checker — ensures game assets stay consistent with mech upgrade tiers",
+          "status": "pending"
+        },
+        {
+          "id": "P5-3",
+          "title": "Automated code → test → asset placement → AI feedback continuous loop",
+          "status": "pending"
+        },
+        {
+          "id": "P5-4",
+          "title": "Server monitoring automation — AI triggers server admin scripts from log thresholds",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "Phase6",
+      "title": "Integration & Testing",
+      "description": "Cross-system integration tests validating Tooling Layer, AI, VS, game systems, PCG, mech logic, server monitoring, and agent behaviors all working together.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P6-1",
+          "title": "Tooling Layer ↔ ArbiterAI ↔ Visual Studio cross-system integration test suite",
+          "status": "pending"
+        },
+        {
+          "id": "P6-2",
+          "title": "Game systems ↔ PCG ↔ Mech logic validation suite — upgrade propagation and role-based permissions",
+          "status": "pending"
+        },
+        {
+          "id": "P6-3",
+          "title": "Server monitoring ↔ Admin tools ↔ AI agent end-to-end automated behavior tests",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "Phase7",
+      "title": "Deployment & Scaling",
+      "description": "Deploy Tooling Layer and Dev Agent across developer machines and live servers. Enable full AI oversight for continuous project iteration. Monitor with analytics dashboards.",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P7-1",
+          "title": "Deploy Tooling Layer and Dev Agent to developer machines",
+          "status": "pending"
+        },
+        {
+          "id": "P7-2",
+          "title": "Deploy server admin scripts to live Steam/game servers",
+          "status": "pending"
+        },
+        {
+          "id": "P7-3",
+          "title": "Enable full AI oversight for continuous project iteration and feedback loops",
+          "status": "pending"
+        },
+        {
+          "id": "P7-4",
+          "title": "Analytics dashboards for AI-driven optimisation and project health monitoring",
+          "status": "pending"
         }
       ]
     }

@@ -41,4 +41,9 @@ Temp/
 # OS
 .DS_Store
 Thumbs.db
-AIEngine/ArbiterEngine/logs/arbiter_engine.log
+
+# Log files — keep directory structure (.gitkeep) but not the log files themselves
+logs/**/*.log
+logs/**/*.log.*
+AIEngine/ArbiterEngine/logs/*.log
+AIEngine/ArbiterEngine/logs/*.log.*

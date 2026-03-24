@@ -1,4 +1,18 @@
-"""Logging setup for Arbiter Engine."""
+"""Logging setup for Arbiter Engine.
+
+Each Arbiter subsystem writes its rotating log file into a dedicated subfolder
+under the repository-level ``logs/`` directory so all system logs are
+aggregated in one place.  The subfolder mapping is:
+
+    logs/arbiter_engine/   – Arbiter Engine (server.py, port 8001)
+    logs/python_bridge/    – FastAPI PythonBridge (fastapi_bridge.py, port 8000)
+    logs/host_app/         – WPF HostApp events forwarded via the bridge
+    logs/vs_extension/     – Visual Studio extension events
+    logs/self_build/       – Autonomous self-build loop
+
+Per-project structured logs (JSONL) continue to live in the workspace at
+``.arbiter/logs/workspace.jsonl`` and are managed by :func:`write_workspace_log`.
+"""
 from __future__ import annotations
 import json
 import logging
@@ -16,12 +30,54 @@ _initialized = False
 _LOG_MAX_BYTES = 5 * 1024 * 1024
 _LOG_BACKUP_COUNT = 5
 
+# Mapping from subsystem name to subfolder name under the repo-level logs/ dir
+_SYSTEM_LOG_DIRS: dict[str, str] = {
+    "arbiter_engine": "arbiter_engine",
+    "python_bridge": "python_bridge",
+    "host_app": "host_app",
+    "vs_extension": "vs_extension",
+    "self_build": "self_build",
+}
+
+
+def _find_repo_root(start: Path | None = None) -> Path:
+    """Walk upward from *start* (default: this file's directory) to find the
+    repository root — identified by the presence of ``roadmap.json``.
+
+    Falls back to a directory two levels above this file if not found.
+    """
+    candidate = (start or Path(__file__).resolve().parent)
+    for _ in range(8):
+        if (candidate / "roadmap.json").exists():
+            return candidate
+        parent = candidate.parent
+        if parent == candidate:
+            break
+        candidate = parent
+    # Fallback: two levels above the core/ package (ArbiterEngine root)
+    return Path(__file__).resolve().parent.parent
+
+
+def get_system_log_path(system: str, filename: str | None = None) -> Path:
+    """Return the path for a system-level log file under ``<repo_root>/logs/<system>/``.
+
+    If *filename* is omitted it defaults to ``<system>.log``.
+    """
+    root = _find_repo_root()
+    folder = _SYSTEM_LOG_DIRS.get(system, system)
+    log_dir = root / "logs" / folder
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / (filename or f"{folder}.log")
+
 
 def setup_logging(level: int = logging.INFO, log_file: str | Path | None = None) -> None:
     """Configure root logger for Arbiter Engine.
 
     When *log_file* is given a :class:`RotatingFileHandler` is used so the
     log never grows unbounded.
+
+    If *log_file* is ``None`` a default system-level log is written to
+    ``<repo_root>/logs/arbiter_engine/arbiter_engine.log`` automatically.
     """
     global _initialized
     if _initialized:
@@ -33,17 +89,65 @@ def setup_logging(level: int = logging.INFO, log_file: str | Path | None = None)
     ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
     root.addHandler(ch)
-    if log_file:
+
+    # Resolve the file path — fall back to the default system log location
+    if log_file is None:
+        log_path = get_system_log_path("arbiter_engine")
+    else:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        fh = logging.handlers.RotatingFileHandler(
-            log_path,
-            maxBytes=_LOG_MAX_BYTES,
-            backupCount=_LOG_BACKUP_COUNT,
-            encoding="utf-8",
-        )
-        fh.setFormatter(fmt)
-        root.addHandler(fh)
+
+    fh = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=_LOG_MAX_BYTES,
+        backupCount=_LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+
+def setup_system_logging(
+    system: str,
+    level: int = logging.INFO,
+    filename: str | None = None,
+) -> logging.Logger:
+    """Set up a dedicated rotating log file for a named subsystem.
+
+    The log file is written to ``<repo_root>/logs/<system>/<filename>``.
+    Returns a logger namespaced as ``arbiter.<system>``.
+
+    This is the preferred entry point for non-engine subsystems (e.g. the
+    PythonBridge, self-build loop, VS extension event relay).
+
+    Example::
+
+        logger = setup_system_logging("python_bridge")
+        logger.info("PythonBridge started on port 8000")
+    """
+    log_path = get_system_log_path(system, filename)
+    logger_name = f"arbiter.{system}"
+    sys_logger = logging.getLogger(logger_name)
+    if sys_logger.handlers:
+        # Already configured — return as-is to support hot-reload scenarios
+        return sys_logger
+
+    sys_logger.setLevel(level)
+    fmt = logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATE_FMT)
+
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(fmt)
+    sys_logger.addHandler(ch)
+
+    fh = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=_LOG_MAX_BYTES,
+        backupCount=_LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    fh.setFormatter(fmt)
+    sys_logger.addHandler(fh)
+    return sys_logger
 
 
 def get_logger(name: str) -> logging.Logger:

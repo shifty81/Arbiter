@@ -15,10 +15,54 @@
 ![.NET](https://img.shields.io/badge/.NET-8.0-512bd4?style=flat-square&logo=dotnet)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=flat-square&logo=python)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/version-0.6.0-blue?style=flat-square)
-![Milestones](https://img.shields.io/badge/milestones-M0–M9%20%E2%9C%85%20complete-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)
+![Milestones](https://img.shields.io/badge/milestones-M0–M14%20✅%20complete-brightgreen?style=flat-square)
+![Docs](https://img.shields.io/badge/docs-wiki-orange?style=flat-square)
 
 </div>
+
+---
+
+## 🗺️ Roadmap
+
+> Full task breakdown: [`roadmap.json`](roadmap.json) · Human-readable: [`ROADMAP.md`](ROADMAP.md) · Wiki: [`docs/wiki/ROADMAP.md`](docs/wiki/ROADMAP.md)
+
+```
+COMPLETED ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  M0 ✅ Foundation       M1 ✅ IDE Integration    M2 ✅ Arbiter Engine
+  M3 ✅ Archive/Library  M4 ✅ WPF IDE            M5 ✅ Advanced Chat
+  M6 ✅ VS Integration   M7 ✅ Self-Iteration     M8 ✅ Distribution
+  M9 ✅ Productivity    M10 ✅ Enhanced Chat     M11 ✅ Advanced AI
+ M12 ✅ Logging/Issues  M13 ✅ Reliability       M14 ✅ Code Quality
+
+ACTIVE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Phase 1 🔄 Platform Consolidation   (per-system logs, docs wiki, shutdown prompt)
+
+PLANNED ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Phase 2 🔜 Tooling Layer & AI       Phase 3 🔜 Server Management
+  Phase 4 🔜 Game Systems & PCG       Phase 5 🔜 Development Agent
+  Phase 6 🔜 Integration & Testing    Phase 7 🔜 Deployment & Scaling
+```
+
+---
+
+## 🛠️ Tool Suite
+
+Arbiter ships with dedicated AI-powered tools, each with its own icon inside the interface:
+
+```
+  💬 Chat Engine          🔮 AI Backends          🤖 Multi-Agent
+  🏗️ Scaffold             ✏️  Refactor              📝 DocGen
+  🧪 Test Runner          🔍 Code Quality          🔒 Security Audit
+  🌿 Git Panel            🔨 Build & Run           🚀 Deploy Manager
+  🐳 Docker IDE           📡 CI Integration        ⏰ Cron Scheduler
+  📊 Analytics            📚 Knowledge Archive     🗃️ API Client
+  🔌 Plugin Manager       💾 Cloud Sync            🖥️ Monaco IDE
+  🗺️ Roadmap Viewer       📋 Issues Tracker        📜 Audit Log
+```
 
 ---
 
@@ -442,7 +486,7 @@ GET  /self-build/roadmap          # Current roadmap JSON
 
 ## Roadmap
 
-The full task-level breakdown is in [`roadmap.json`](roadmap.json). The machine-readable format drives the [self-build loop](#pillar-3--self-iteration).
+The full task-level breakdown is in [`roadmap.json`](roadmap.json) (drives the self-build loop) and [`ROADMAP.md`](ROADMAP.md) (human-readable). Detailed documentation in [`docs/wiki/ROADMAP.md`](docs/wiki/ROADMAP.md).
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
@@ -456,8 +500,13 @@ The full task-level breakdown is in [`roadmap.json`](roadmap.json). The machine-
 | **M7** — Self-Iteration | Autonomous self-build loop, 4 autonomy modes, roadmap-driven | ✅ Complete |
 | **M8** — Distribution | Inno Setup installer, auto-update, plugin marketplace, CLI, Docker, cloud sync | ✅ Complete |
 | **M9** — Productivity & Integration | Scaffold, docgen, refactor engine, Docker IDE, task queue, API client, test runner, CI, cron, deploy | ✅ Complete |
-| **M10** — Enhanced Chat & AI | Chat branching, templates, feedback, multi-modal input, smart context, bookmarks, real-time render | 🔜 Planned |
-| **M11** — Advanced AI Intelligence | Multi-model routing, agents marketplace, code gen from requirements, knowledge graph | 🔜 Planned |
+| **M10** — Enhanced Chat & AI | Chat branching, templates, feedback, multi-modal input, smart context, bookmarks, real-time render | ✅ Complete |
+| **M11** — Advanced AI Intelligence | Multi-model routing, agents marketplace, code gen from requirements, knowledge graph | ✅ Complete |
+| **M12** — Logging & Issues Tracking | Workspace JSONL logging, crash capture, rotating log files, local git-backed issues tracker | ✅ Complete |
+| **M13** — Reliability & Performance | asyncio fix, timeout middleware, health endpoint, LRU cache, WS chat, LLM failover | ✅ Complete |
+| **M14** — Code Quality & Security | Lint, dep security audit, complexity, duplicate detection, coverage, profiling, review workflow | ✅ Complete |
+| **Phase 1** — Platform Consolidation | Per-system logs, docs wiki, server shutdown prompt, enhanced banner | 🔄 Active |
+| **Phase 2–7** — Full Vision | Tooling layer, server management, game systems (PCG/mech), dev agent, deployment | 🔜 Planned |
 
 ---
 
@@ -502,7 +551,30 @@ LLM backend selection, tool permissions, agent behaviour, self-build mode, task 
 
 ---
 
-## Contributing
+## Documentation
+
+Arbiter ships with a comprehensive wiki intended to mirror to the in-application Wiki panel
+and the GitHub repository wiki pages.
+
+| Guide | Description |
+|-------|-------------|
+| 📖 [Architecture](docs/wiki/ARCHITECTURE.md) | System architecture, component map, data flow |
+| 🚀 [Getting Started](docs/wiki/GETTING_STARTED.md) | Installation, setup, first run |
+| ⚙️ [Configuration](docs/wiki/CONFIGURATION.md) | All settings files explained |
+| 🔌 [API Reference](docs/wiki/API_REFERENCE.md) | Full REST + WebSocket API (200+ endpoints) |
+| 📋 [Logging](docs/wiki/LOGGING.md) | Logging architecture and per-system log locations |
+| 🔄 [Self-Build Loop](docs/wiki/SELF_BUILD.md) | Autonomous self-iteration system |
+| 🔵 [VS Extension](docs/wiki/VS_EXTENSION.md) | Visual Studio 2022 VSIX extension guide |
+| 💬 [Chat Engine](docs/wiki/CHAT_ENGINE.md) | Chat features, personas, slash commands, voice I/O |
+| 🖥️ [Monaco IDE](docs/wiki/MONACO_IDE.md) | Built-in web IDE panels and features |
+| 🗺️ [Roadmap](docs/wiki/ROADMAP.md) | Phase-by-phase project roadmap |
+| 📜 [Changelog](docs/wiki/CHANGELOG.md) | Release history and notable changes |
+| 🤝 [Contributing](docs/wiki/CONTRIBUTING.md) | Code conventions, PR process |
+| 🔧 [Troubleshooting](docs/wiki/TROUBLESHOOTING.md) | Common problems and fixes |
+
+---
+
+
 
 This is an active solo project. Issues and PRs are welcome — check [`roadmap.json`](roadmap.json) first to avoid duplicating in-progress work.
 
