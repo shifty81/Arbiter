@@ -115,10 +115,29 @@ def download_model(
     try:
         from huggingface_hub import hf_hub_download  # type: ignore
     except ImportError:
-        raise RuntimeError(
-            "huggingface_hub is required for model downloads. "
-            "Run: pip install huggingface-hub"
+        # Auto-install and retry so the "Download model automatically" button works
+        # without requiring the user to run pip manually first.
+        import subprocess as _sp
+        if progress_callback:
+            progress_callback(0.0, "Installing huggingface-hub (first-time setup)…")
+        result = _sp.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "huggingface-hub"],
+            capture_output=True,
+            text=True,
         )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Could not auto-install huggingface-hub. "
+                f"pip output: {result.stderr.strip()}\n"
+                "Please run manually:  pip install huggingface-hub"
+            )
+        try:
+            from huggingface_hub import hf_hub_download  # type: ignore  # noqa: F811
+        except ImportError as exc:
+            raise RuntimeError(
+                "huggingface_hub installed but still not importable. "
+                "Please restart Arbiter and try again."
+            ) from exc
 
     dest = destination_dir or DEFAULT_MODEL_DIR
     dest.mkdir(parents=True, exist_ok=True)
