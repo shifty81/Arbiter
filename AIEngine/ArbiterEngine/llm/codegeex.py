@@ -34,7 +34,7 @@ class CodeGeeXLLM(BaseLLM):
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8080",
+        base_url: str = "http://localhost:8082",
         model: str = _DEFAULT_MODEL,
         api_key: str = "",
     ) -> None:
