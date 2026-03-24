@@ -10588,6 +10588,758 @@ def plugin_routes_list() -> dict:
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 6 — Cross-Project Intelligence
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── PA6-1: AI commit message generation ──────────────────────────────────────
+
+class _CommitMessageReq(BaseModel):
+    diff: str
+    context: str = ""   # optional extra context (e.g. branch name, task description)
+    project: str = ""
+
+
+@app.post("/ai/commit-message")
+def ai_commit_message(req: _CommitMessageReq) -> dict:
+    """Generate a conventional commit message from a git diff.
+
+    Returns a structured conventional-commit breakdown (type, scope, subject,
+    body) plus the full ready-to-use commit string.
+
+    PA6-1
+    """
+    if not req.diff.strip():
+        raise HTTPException(status_code=422, detail="'diff' must not be empty")
+
+    _MAX_DIFF = 8_000
+    truncated = len(req.diff) > _MAX_DIFF
+    diff_snippet = req.diff[:_MAX_DIFF]
+    if truncated:
+        diff_snippet += "\n... [diff truncated]"
+
+    system = (
+        "You are an expert at writing git commit messages following the Conventional Commits "
+        "specification (https://www.conventionalcommits.org/).\n"
+        "Given a git diff (and optional context), produce a commit message in this exact format:\n"
+        "TYPE: <type>   (one of: feat|fix|docs|style|refactor|perf|test|chore|ci|build)\n"
+        "SCOPE: <scope or blank>\n"
+        "SUBJECT: <short imperative summary, ≤72 chars>\n"
+        "BODY:\n<optional multi-line explanation; blank if none>\n"
+        "Output ONLY these labelled lines — no prose, no markdown."
+    )
+    context_note = f"\nExtra context: {req.context}" if req.context else ""
+    project_note = f"\nProject: {req.project}" if req.project else ""
+    user_msg = f"Generate a commit message for this diff:{context_note}{project_note}\n\n```diff\n{diff_snippet}\n```"
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse structured fields
+    commit_type = scope = subject = ""
+    body_lines: list[str] = []
+    in_body = False
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("TYPE:"):
+            commit_type = ls[5:].strip().lower()
+        elif ls.upper().startswith("SCOPE:"):
+            scope = ls[6:].strip()
+        elif ls.upper().startswith("SUBJECT:"):
+            subject = ls[8:].strip()
+        elif ls.upper().startswith("BODY:"):
+            in_body = True
+        elif in_body:
+            body_lines.append(line)
+
+    body = "\n".join(body_lines).strip()
+    scope_part = f"({scope})" if scope else ""
+    full_message = f"{commit_type}{scope_part}: {subject}"
+    if body:
+        full_message += f"\n\n{body}"
+
+    return {
+        "message":       full_message,
+        "type":          commit_type,
+        "scope":         scope,
+        "subject":       subject,
+        "body":          body,
+        "diff_truncated": truncated,
+        "raw":           raw,
+    }
+
+
+# ── PA6-2: AI structured planning ────────────────────────────────────────────
+
+class _AiPlanReq(BaseModel):
+    goal: str
+    project: str = ""
+    context: str = ""        # optional architecture/tech-stack context
+    max_tasks: int = 10
+
+
+@app.post("/ai/plan")
+def ai_plan(req: _AiPlanReq) -> dict:
+    """Turn a natural-language goal into a structured implementation plan.
+
+    Returns a list of tasks suitable for adding to a project roadmap.  Each
+    task has an id, title, description, priority (P0–P3), and estimated effort.
+
+    PA6-2
+    """
+    if not req.goal.strip():
+        raise HTTPException(status_code=422, detail="'goal' must not be empty")
+
+    max_t = max(1, min(req.max_tasks, 20))
+
+    system = (
+        "You are a senior software architect and project planner.\n"
+        "Given a development goal, produce a numbered implementation plan.\n"
+        f"Output at most {max_t} tasks. Use this exact format for each task:\n"
+        "TASK <n>:\n"
+        "TITLE: <short action-oriented title>\n"
+        "DESCRIPTION: <one or two sentences>\n"
+        "PRIORITY: <P0|P1|P2|P3>  (P0=critical, P3=nice-to-have)\n"
+        "EFFORT: <XS|S|M|L|XL>\n"
+        "---\n"
+        "Do not add any other text."
+    )
+    project_note = f" for the '{req.project}' project" if req.project else ""
+    context_note = f"\n\nAdditional context:\n{req.context}" if req.context else ""
+    user_msg = f"Goal{project_note}: {req.goal}{context_note}"
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse tasks from the structured output
+    tasks: list[dict] = []
+    current: dict | None = None
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("TASK ") and ":" in ls:
+            if current:
+                tasks.append(current)
+            num = ls.split(":")[0].split()[-1]
+            current = {"id": f"T{num}", "title": "", "description": "",
+                       "priority": "P2", "effort": "M"}
+        elif current is not None:
+            if ls.upper().startswith("TITLE:"):
+                current["title"] = ls[6:].strip()
+            elif ls.upper().startswith("DESCRIPTION:"):
+                current["description"] = ls[12:].strip()
+            elif ls.upper().startswith("PRIORITY:"):
+                current["priority"] = ls[9:].strip().upper()
+            elif ls.upper().startswith("EFFORT:"):
+                current["effort"] = ls[7:].strip().upper()
+    if current:
+        tasks.append(current)
+
+    return {
+        "goal":    req.goal,
+        "project": req.project,
+        "tasks":   tasks,
+        "count":   len(tasks),
+        "raw":     raw,
+    }
+
+
+# ── PA6-3: Unified workspace timeline ─────────────────────────────────────────
+
+_MAX_TIMELINE_COMMITS = 200
+
+
+@app.get("/workspace/timeline")
+def workspace_timeline(
+    limit: int = 50,
+    project: str = "",
+) -> dict:
+    """Return a unified git commit timeline across all managed project workspaces.
+
+    Aggregates ``git log`` output from every sub-directory under ``Projects/``
+    that is a git repo (has a ``.git`` folder or is inside the main repo).
+    Entries are sorted newest-first.
+
+    Query params:
+      - ``limit``   — max entries to return (default 50, max 200)
+      - ``project`` — if set, restrict to that project subdirectory only
+
+    PA6-3
+    """
+    limit = max(1, min(limit, _MAX_TIMELINE_COMMITS))
+    repo_root = _BASE.parent.parent
+
+    # Collect project dirs to scan
+    projects_base = repo_root / "Projects"
+    dirs_to_scan: list[tuple[str, Path]] = []
+
+    if project:
+        p_dir = projects_base / project
+        if not p_dir.is_dir():
+            raise HTTPException(status_code=404, detail=f"Project '{project}' not found")
+        dirs_to_scan.append((project, p_dir))
+    else:
+        if projects_base.is_dir():
+            for pd in sorted(projects_base.iterdir()):
+                if pd.is_dir():
+                    dirs_to_scan.append((pd.name, pd))
+        # Also include root repo commits touching Projects/
+        dirs_to_scan.append(("[arbiter]", repo_root))
+
+    entries: list[dict] = []
+    seen_shas: set[str] = set()
+
+    for proj_name, scan_dir in dirs_to_scan:
+        try:
+            fmt = "%H\x1f%ad\x1f%an\x1f%s"
+            if scan_dir == repo_root:
+                # Root repo: only commits that touched Projects/
+                out = _subprocess.check_output(
+                    ["git", "log", f"--format={fmt}", "--date=iso-strict",
+                     f"-{limit}", "--", "Projects/"],
+                    cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=10,
+                ).decode(errors="replace")
+            else:
+                # Project dir: check if it has its own git history or log by path
+                git_dir = scan_dir / ".git"
+                if git_dir.is_dir():
+                    out = _subprocess.check_output(
+                        ["git", "log", f"--format={fmt}", "--date=iso-strict",
+                         f"-{limit}"],
+                        cwd=str(scan_dir), stderr=_subprocess.DEVNULL, timeout=10,
+                    ).decode(errors="replace")
+                else:
+                    out = _subprocess.check_output(
+                        ["git", "log", f"--format={fmt}", "--date=iso-strict",
+                         f"-{limit}", "--", str(scan_dir)],
+                        cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=10,
+                    ).decode(errors="replace")
+
+            for line in out.splitlines():
+                parts = line.split("\x1f", 3)
+                if len(parts) != 4:
+                    continue
+                sha, date, author, message = parts
+                sha_short = sha[:12]
+                if sha_short in seen_shas:
+                    continue
+                seen_shas.add(sha_short)
+                entries.append({
+                    "sha":     sha_short,
+                    "date":    date.strip(),
+                    "author":  author.strip(),
+                    "message": message.strip(),
+                    "project": proj_name,
+                })
+        except Exception:
+            continue
+
+    # Sort newest-first
+    entries.sort(key=lambda e: e["date"], reverse=True)
+
+    return {
+        "count":   len(entries[:limit]),
+        "limit":   limit,
+        "entries": entries[:limit],
+    }
+
+
+# ── PA6-4: Project dependency parsing ────────────────────────────────────────
+
+def _parse_requirements_txt(path: Path) -> list[dict]:
+    deps = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Strip extras and env markers
+        m = _re.match(r"^([A-Za-z0-9_.\-\[\]]+)([>=<~!^]{1,2}[^\s;#]+)?", line)
+        if m:
+            deps.append({
+                "name":    m.group(1).split("[")[0],
+                "version": (m.group(2) or "").strip() or "*",
+                "type":    "python",
+                "file":    path.name,
+            })
+    return deps
+
+
+def _parse_package_json(path: Path) -> list[dict]:
+    deps = []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return deps
+    for dep_type in ("dependencies", "devDependencies", "peerDependencies"):
+        for name, version in data.get(dep_type, {}).items():
+            deps.append({
+                "name":    name,
+                "version": version,
+                "type":    "npm" + (":dev" if dep_type == "devDependencies" else ""),
+                "file":    path.name,
+            })
+    return deps
+
+
+def _parse_csproj(path: Path) -> list[dict]:
+    deps = []
+    try:
+        import xml.etree.ElementTree as _ET
+        tree = _ET.parse(path)
+        for ref in tree.iter("PackageReference"):
+            name    = ref.get("Include", "")
+            version = ref.get("Version", "*")
+            if name:
+                deps.append({
+                    "name":    name,
+                    "version": version,
+                    "type":    "nuget",
+                    "file":    path.name,
+                })
+    except Exception:
+        pass
+    return deps
+
+
+def _parse_go_mod(path: Path) -> list[dict]:
+    deps = []
+    in_require = False
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        ls = line.strip()
+        if ls == "require (":
+            in_require = True
+            continue
+        if in_require and ls == ")":
+            in_require = False
+            continue
+        if in_require or ls.startswith("require "):
+            raw = ls[len("require "):].strip() if ls.startswith("require ") else ls
+            parts = raw.split()
+            if len(parts) >= 2:
+                deps.append({
+                    "name":    parts[0],
+                    "version": parts[1],
+                    "type":    "go",
+                    "file":    path.name,
+                })
+    return deps
+
+
+def _parse_cargo_toml(path: Path) -> list[dict]:
+    deps = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        in_deps = False
+        for line in text.splitlines():
+            ls = line.strip()
+            if ls in ("[dependencies]", "[dev-dependencies]", "[build-dependencies]"):
+                in_deps = True
+                continue
+            if ls.startswith("[") and ls != "[dependencies]":
+                in_deps = False
+            if in_deps and "=" in ls and not ls.startswith("#"):
+                name, _, ver_raw = ls.partition("=")
+                ver_raw = ver_raw.strip().strip('"\'').strip()
+                deps.append({
+                    "name":    name.strip(),
+                    "version": ver_raw,
+                    "type":    "cargo",
+                    "file":    path.name,
+                })
+    except Exception:
+        pass
+    return deps
+
+
+_DEP_PARSERS: dict = {
+    "requirements.txt": _parse_requirements_txt,
+    "package.json":     _parse_package_json,
+    "go.mod":           _parse_go_mod,
+    "Cargo.toml":       _parse_cargo_toml,
+}
+
+
+@app.get("/projects/{project_id}/dependencies")
+def project_dependencies(project_id: str) -> dict:
+    """Parse all recognised dependency manifests in a project workspace and
+    return a structured dependency list.
+
+    Recognises: ``requirements.txt``, ``package.json``, ``*.csproj``,
+    ``go.mod``, ``Cargo.toml``.  Searches the project directory recursively
+    up to 3 levels deep.
+
+    PA6-4
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    all_deps: list[dict] = []
+    manifest_files_found: list[str] = []
+
+    def _scan(directory: Path, depth: int) -> None:
+        if depth > 3:
+            return
+        for item in directory.iterdir():
+            if item.is_dir() and not item.name.startswith("."):
+                _scan(item, depth + 1)
+            elif item.is_file():
+                rel = str(item.relative_to(project_dir))
+                if item.name in _DEP_PARSERS:
+                    manifest_files_found.append(rel)
+                    try:
+                        all_deps.extend(_DEP_PARSERS[item.name](item))
+                    except Exception:
+                        pass
+                elif item.suffix == ".csproj":
+                    manifest_files_found.append(rel)
+                    try:
+                        all_deps.extend(_parse_csproj(item))
+                    except Exception:
+                        pass
+
+    try:
+        _scan(project_dir, 0)
+    except PermissionError:
+        pass
+
+    return {
+        "project_id":       project_id,
+        "manifests_found":  manifest_files_found,
+        "dependency_count": len(all_deps),
+        "dependencies":     all_deps,
+    }
+
+
+# ── PA6-5: Workspace snapshots ────────────────────────────────────────────────
+
+_SNAPSHOTS_FILE = _BASE.parent.parent / ".arbiter" / "workspace_snapshots.json"
+_snapshots_lock = _threading.Lock()
+
+
+def _load_snapshots() -> list[dict]:
+    if not _SNAPSHOTS_FILE.exists():
+        return []
+    try:
+        return json.loads(_SNAPSHOTS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_snapshots(snaps: list[dict]) -> None:
+    _SNAPSHOTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _SNAPSHOTS_FILE.write_text(json.dumps(snaps, indent=2), encoding="utf-8")
+
+
+class _SnapshotReq(BaseModel):
+    name: str
+    active_project: str = ""
+    notes: str = ""
+
+
+@app.post("/workspace/snapshot")
+def workspace_snapshot_create(req: _SnapshotReq) -> dict:
+    """Create a named snapshot of the current workspace state.
+
+    Captures the current active project, git branch + dirty-file list for
+    every Projects/ sub-repo (or the main repo path), and any notes.
+    Snapshots are stored in ``.arbiter/workspace_snapshots.json``.
+
+    PA6-5
+    """
+    if not req.name.strip():
+        raise HTTPException(status_code=422, detail="'name' must not be empty")
+
+    repo_root = _BASE.parent.parent
+    projects_base = repo_root / "Projects"
+
+    # Gather git state per project
+    git_states: dict[str, dict] = {}
+    scan_dirs: list[tuple[str, Path]] = []
+    if projects_base.is_dir():
+        for pd in sorted(projects_base.iterdir()):
+            if pd.is_dir():
+                scan_dirs.append((pd.name, pd))
+    scan_dirs.append(("[arbiter]", repo_root))
+
+    for proj_name, scan_dir in scan_dirs:
+        try:
+            cwd = str(scan_dir) if (scan_dir / ".git").is_dir() else str(repo_root)
+            branch = _subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=cwd, stderr=_subprocess.DEVNULL, timeout=5,
+            ).decode().strip()
+            dirty = _subprocess.check_output(
+                ["git", "status", "--short"],
+                cwd=cwd, stderr=_subprocess.DEVNULL, timeout=5,
+            ).decode(errors="replace").strip()
+            sha = _subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=cwd, stderr=_subprocess.DEVNULL, timeout=5,
+            ).decode().strip()
+            git_states[proj_name] = {
+                "branch":      branch,
+                "sha":         sha,
+                "dirty_files": [l.strip() for l in dirty.splitlines() if l.strip()],
+            }
+        except Exception:
+            git_states[proj_name] = {"branch": "?", "sha": "?", "dirty_files": []}
+
+    import uuid as _uuid
+    import datetime as _dt
+    snap = {
+        "id":             _uuid.uuid4().hex[:12],
+        "name":           req.name.strip(),
+        "created_at":     _dt.datetime.utcnow().isoformat(),
+        "active_project": req.active_project,
+        "notes":          req.notes,
+        "git_states":     git_states,
+    }
+
+    with _snapshots_lock:
+        snaps = _load_snapshots()
+        snaps.append(snap)
+        _save_snapshots(snaps)
+
+    logger.info("[PA6-5] Workspace snapshot created: '%s' (%s)", snap["name"], snap["id"])
+    return {"status": "created", "snapshot": snap}
+
+
+@app.get("/workspace/snapshots")
+def workspace_snapshots_list() -> dict:
+    """List all saved workspace snapshots (newest first).
+
+    PA6-5
+    """
+    with _snapshots_lock:
+        snaps = _load_snapshots()
+    snaps_sorted = sorted(snaps, key=lambda s: s.get("created_at", ""), reverse=True)
+    return {"count": len(snaps_sorted), "snapshots": snaps_sorted}
+
+
+@app.post("/workspace/snapshots/{snapshot_id}/restore")
+def workspace_snapshot_restore(snapshot_id: str) -> dict:
+    """Restore a workspace snapshot.
+
+    Returns the snapshot metadata so the client can re-open the saved
+    active_project and display the git state at snapshot time.  Git checkout
+    is NOT performed automatically — the client decides whether to act on the
+    returned branch/sha information.
+
+    PA6-5
+    """
+    with _snapshots_lock:
+        snaps = _load_snapshots()
+
+    snap = next((s for s in snaps if s.get("id") == snapshot_id), None)
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_id}' not found")
+
+    logger.info("[PA6-5] Workspace snapshot restore requested: '%s' (%s)",
+                snap.get("name"), snapshot_id)
+    return {
+        "status":   "restored",
+        "snapshot": snap,
+        "note":     "Set active_project and checkout branches as indicated by git_states.",
+    }
+
+
+# ── PA6-6: AI project context summary ────────────────────────────────────────
+
+_MAX_SUMMARY_FILE_CHARS = 3_000
+_SUMMARY_CANDIDATE_FILES = [
+    "README.md", "readme.md", "README.txt",
+    "roadmap.json",
+    "Specs.md", "ARCHITECTURE.md", "DESIGN.md",
+    "src/main.py", "src/app.py", "src/index.ts", "src/index.js",
+    "Program.cs", "App.cs", "Startup.cs",
+    "main.go", "main.rs", "main.cpp",
+    "package.json", "requirements.txt", "go.mod", "Cargo.toml",
+]
+
+
+@app.post("/projects/{project_id}/context/summary")
+def project_context_summary(project_id: str) -> dict:
+    """Generate a compressed AI summary of a project for fast context injection.
+
+    Reads the project's key documentation and entry-point files, then uses the
+    LLM to produce a concise architecture summary that can be injected into
+    any subsequent chat prompt as compressed context.
+
+    PA6-6
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    # Collect snippets from candidate files
+    snippets: list[str] = []
+    files_read: list[str] = []
+    for candidate in _SUMMARY_CANDIDATE_FILES:
+        fpath = project_dir / candidate
+        if fpath.exists() and fpath.is_file():
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+                snippet = content[:_MAX_SUMMARY_FILE_CHARS]
+                if len(content) > _MAX_SUMMARY_FILE_CHARS:
+                    snippet += "\n... [truncated]"
+                snippets.append(f"=== {candidate} ===\n{snippet}")
+                files_read.append(candidate)
+            except Exception:
+                pass
+
+    if not snippets:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No readable source files found in '{project_id}'",
+        )
+
+    combined = "\n\n".join(snippets)
+    system = (
+        "You are a senior software architect. Given project files, write a concise but "
+        "comprehensive context summary (200–400 words) covering:\n"
+        "1. What the project does (one sentence)\n"
+        "2. Tech stack and key dependencies\n"
+        "3. Architecture overview (main components and their relationships)\n"
+        "4. Current development phase / status\n"
+        "5. Key entry points and important files\n"
+        "Be factual — only include information present in the provided files."
+    )
+    user_msg = f"Project: {project_id}\n\nFiles:\n{combined}"
+
+    try:
+        summary = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    return {
+        "project_id": project_id,
+        "summary":    summary,
+        "key_files":  files_read,
+    }
+
+
+# ── PA6-7: Cross-project file search ─────────────────────────────────────────
+
+_MAX_SEARCH_RESULTS = 500
+_SEARCH_SKIP_DIRS = {
+    ".git", "__pycache__", "node_modules", ".venv", "venv", "env",
+    "bin", "obj", ".vs", "dist", "build", ".idea",
+}
+_SEARCH_SKIP_EXTS = {
+    ".pyc", ".pyo", ".dll", ".exe", ".so", ".dylib", ".class",
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp",
+    ".zip", ".tar", ".gz", ".rar", ".7z",
+    ".db", ".sqlite", ".sqlite3",
+    ".lock",
+}
+
+
+@app.get("/projects/search")
+def projects_search(
+    q: str,
+    project: str = "",
+    ext: str = "",
+    limit: int = 50,
+    case_sensitive: bool = False,
+) -> dict:
+    """Full-text search across all files in managed project workspaces.
+
+    Query params:
+      - ``q``              — search term (required)
+      - ``project``        — restrict to a specific project (optional)
+      - ``ext``            — filter by file extension, e.g. ``.py`` (optional)
+      - ``limit``          — max results (default 50, max 500)
+      - ``case_sensitive`` — default False
+
+    Returns matching lines with file path, line number, and the matched line.
+
+    PA6-7
+    """
+    if not q.strip():
+        raise HTTPException(status_code=422, detail="Query 'q' must not be empty")
+
+    limit = max(1, min(limit, _MAX_SEARCH_RESULTS))
+    needle = q if case_sensitive else q.lower()
+    ext_filter = ext.lower() if ext else ""
+
+    projects_base = _PROJECTS_DIR
+    if not projects_base.is_dir():
+        return {"query": q, "count": 0, "results": []}
+
+    # Determine which project dirs to scan
+    if project:
+        p_dir = projects_base / project
+        if not p_dir.is_dir():
+            raise HTTPException(status_code=404, detail=f"Project '{project}' not found")
+        search_roots = [(project, p_dir)]
+    else:
+        search_roots = [
+            (pd.name, pd) for pd in sorted(projects_base.iterdir())
+            if pd.is_dir()
+        ]
+
+    results: list[dict] = []
+
+    def _walk_and_search(proj_name: str, root: Path) -> None:
+        for dirpath, dirnames, filenames in os.walk(str(root)):
+            # Prune skip dirs in-place
+            dirnames[:] = [d for d in dirnames if d not in _SEARCH_SKIP_DIRS]
+            for fname in filenames:
+                fpath = Path(dirpath) / fname
+                if fpath.suffix.lower() in _SEARCH_SKIP_EXTS:
+                    continue
+                if ext_filter and fpath.suffix.lower() != ext_filter:
+                    continue
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    check = line if case_sensitive else line.lower()
+                    if needle in check:
+                        results.append({
+                            "project":     proj_name,
+                            "file":        str(fpath.relative_to(projects_base)),
+                            "line_number": lineno,
+                            "line":        line.rstrip(),
+                        })
+                        if len(results) >= _MAX_SEARCH_RESULTS:
+                            return
+
+    for proj_name, proj_dir in search_roots:
+        _walk_and_search(proj_name, proj_dir)
+        if len(results) >= _MAX_SEARCH_RESULTS:
+            break
+
+    truncated = len(results) >= _MAX_SEARCH_RESULTS
+    return {
+        "query":     q,
+        "project":   project or "*",
+        "count":     len(results[:limit]),
+        "truncated": truncated,
+        "results":   results[:limit],
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

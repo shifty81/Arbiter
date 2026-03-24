@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1323,6 +1323,49 @@
           "title": "Plugin system — loadable Python modules in plugins/ that register new FastAPI routes on startup",
           "status": "done",
           "notes": "Plugin route registration: plugins/*/routes.py can expose 'router' (APIRouter) or 'register(app)' callable. PluginLoader stores _dir in meta for discovery. POST /plugins/install now fully functional. GET /plugins/routes lists mounted paths."
+        }
+      ]
+    },
+    {
+      "id": "Phase6",
+      "title": "Cross-Project Intelligence",
+      "description": "Extend Arbiter's awareness across all managed project workspaces. New API capabilities: AI-assisted commit messages, structured AI planning, unified git timeline, dependency graph parsing, workspace snapshots, compressed project context summaries, and cross-project file search.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA6-1",
+          "title": "POST /ai/commit-message — diff + context → AI-generated conventional commit message",
+          "status": "done"
+        },
+        {
+          "id": "PA6-2",
+          "title": "POST /ai/plan — natural-language goal → structured task list for project roadmap",
+          "status": "done"
+        },
+        {
+          "id": "PA6-3",
+          "title": "GET /workspace/timeline — unified git commit timeline across all managed Projects/",
+          "status": "done"
+        },
+        {
+          "id": "PA6-4",
+          "title": "GET /projects/{id}/dependencies — parse requirements.txt / package.json / .csproj / go.mod / Cargo.toml into a structured dependency list",
+          "status": "done"
+        },
+        {
+          "id": "PA6-5",
+          "title": "POST /workspace/snapshot, GET /workspace/snapshots, POST /workspace/snapshots/{id}/restore — named workspace state snapshots",
+          "status": "done"
+        },
+        {
+          "id": "PA6-6",
+          "title": "POST /projects/{id}/context/summary — AI-generated compressed architecture summary for fast context injection",
+          "status": "done"
+        },
+        {
+          "id": "PA6-7",
+          "title": "GET /projects/search — full-text search across all files in all managed project workspaces",
+          "status": "done"
         }
       ]
     }
