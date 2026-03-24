@@ -5,26 +5,30 @@
   "last_updated": "2026-03-24",
   "arbiter_integration": {
     "managed_by": "Arbiter",
-    "chat_engine": true,
-    "self_build": true,
+    "chat_engine": false,
+    "self_build": false,
     "vs_extension": false,
     "remote_web_ui": true,
-    "workspace_profile": "Projects/SteamServerAdmin/roadmap.json"
+    "workspace_profile": "Projects/SteamServerAdmin/roadmap.json",
+    "notes": "SteamServerAdmin is a fully standalone project. It lives in Projects/ so Arbiter can track its roadmap, but it has no runtime dependency on ArbiterEngine or the Arbiter IDE."
   },
   "tech_stack": {
     "server_platform": "SteamCMD (Steam game server management)",
-    "scripting": ["Python", "Bash / PowerShell"],
+    "scripting": [
+      "Python",
+      "Bash / PowerShell"
+    ],
     "api_layer": "FastAPI (REST + WebSocket)",
     "web_dashboard": "React or Blazor (dark mode, ChatGPT palette)",
     "ai_platform": "Arbiter AI (ArbiterEngine + PythonBridge)",
-    "logging": "Python RotatingFileHandler → logs/steam_server_admin/",
+    "logging": "Python RotatingFileHandler \u2192 logs/steam_server_admin/",
     "config": "JSON per-server configs in config/"
   },
   "registered_servers": [],
   "phases": [
     {
       "id": 0,
-      "name": "Phase 0 — Scaffold & Project Setup",
+      "name": "Phase 0 \u2014 Scaffold & Project Setup",
       "status": "active",
       "description": "Initialise the SteamServerAdmin project structure, wire it into Arbiter as a managed project, and create the foundational config and logging infrastructure.",
       "tasks": [
@@ -41,7 +45,7 @@
         },
         {
           "id": "SSA0-3",
-          "title": "Logging setup: write to logs/steam_server_admin/ via Arbiter setup_system_logging('steam_server_admin')",
+          "title": "Logging setup: write to logs/steam_server_admin/ using a RotatingFileHandler; mirror the logger pattern from Arbiter\u2019s core/logger.py",
           "status": "pending"
         },
         {
@@ -51,35 +55,35 @@
         },
         {
           "id": "SSA0-5",
-          "title": "Register SteamServerAdmin in Arbiter workspace — appears in Projects panel and chat context",
+          "title": "Register SteamServerAdmin as an Arbiter-tracked project \u2014 roadmap.json listed in Projects/ so it appears in Arbiter\u2019s Projects panel (read-only tracking only; no runtime API coupling)",
           "status": "pending"
         }
       ]
     },
     {
       "id": 1,
-      "name": "Phase 1 — Core Server Management",
+      "name": "Phase 1 \u2014 Core Server Management",
       "status": "pending",
       "description": "Core start/stop/restart/update operations for any registered Steam game server, with configurable pre-restart player warnings.",
       "tasks": [
         {
           "id": "SSA1-1",
-          "title": "ServerManager: start server process — SteamCMD install + launch via config launch_args",
+          "title": "ServerManager: start server process \u2014 SteamCMD install + launch via config launch_args",
           "status": "pending"
         },
         {
           "id": "SSA1-2",
-          "title": "ServerManager: stop server — graceful RCON shutdown, then SIGTERM fallback with timeout",
+          "title": "ServerManager: stop server \u2014 graceful RCON shutdown, then SIGTERM fallback with timeout",
           "status": "pending"
         },
         {
           "id": "SSA1-3",
-          "title": "ServerManager: restart server — configurable countdown warning messages broadcast to players before shutdown",
+          "title": "ServerManager: restart server \u2014 configurable countdown warning messages broadcast to players before shutdown",
           "status": "pending"
         },
         {
           "id": "SSA1-4",
-          "title": "ServerManager: update server — SteamCMD +app_update <id> validate; broadcast update warning; restart after",
+          "title": "ServerManager: update server \u2014 SteamCMD +app_update <id> validate; broadcast update warning; restart after",
           "status": "pending"
         },
         {
@@ -106,13 +110,13 @@
     },
     {
       "id": 2,
-      "name": "Phase 2 — Role-Based Permissions & Audit",
+      "name": "Phase 2 \u2014 Role-Based Permissions & Audit",
       "status": "pending",
-      "description": "Enforced permission tiers for server operations, with audit logging of all changes visible in the Arbiter Tooling Layer.",
+      "description": "Enforced permission tiers for server operations, with audit logging of all changes visible in the SSA web dashboard.",
       "tasks": [
         {
           "id": "SSA2-1",
-          "title": "Permission model: four tiers — Admin (full control), Moderator (kick/ban/say), Operator (restart/update), Standard Player (read-only status)",
+          "title": "Permission model: four tiers \u2014 Admin (full control), Moderator (kick/ban/say), Operator (restart/update), Standard Player (read-only status)",
           "status": "pending"
         },
         {
@@ -137,19 +141,19 @@
         },
         {
           "id": "SSA2-6",
-          "title": "Audit log visible in Arbiter Tooling Layer status panel and remote web dashboard",
+          "title": "Audit log visible in SSA web dashboard admin panel and accessible via REST API (GET /servers/{id}/audit)",
           "status": "pending"
         },
         {
           "id": "SSA2-7",
-          "title": "Permission change notifications: push alerts to Arbiter chat, Tooling Layer, and remote web UI when roles change",
+          "title": "Permission change notifications: push alerts to SSA web dashboard and optionally to Discord webhook or email",
           "status": "pending"
         }
       ]
     },
     {
       "id": 3,
-      "name": "Phase 3 — REST API & Web Dashboard",
+      "name": "Phase 3 \u2014 REST API & Web Dashboard",
       "status": "pending",
       "description": "Full REST API and dark-mode web dashboard so SteamServerAdmin can be operated remotely from any browser.",
       "tasks": [
@@ -170,7 +174,7 @@
         },
         {
           "id": "SSA3-4",
-          "title": "REST audit endpoints: GET /servers/{id}/audit — paginated JSONL audit log",
+          "title": "REST audit endpoints: GET /servers/{id}/audit \u2014 paginated JSONL audit log",
           "status": "pending"
         },
         {
@@ -185,7 +189,7 @@
         },
         {
           "id": "SSA3-7",
-          "title": "Theme sync: /api/theme endpoint exposes current Arbiter palette as JSON for the browser dashboard",
+          "title": "Theming: web dashboard uses a built-in dark mode (ChatGPT palette); /api/theme endpoint returns current colour scheme for client use",
           "status": "pending"
         },
         {
@@ -197,13 +201,13 @@
     },
     {
       "id": 4,
-      "name": "Phase 4 — AI Health Monitoring & Arbiter Integration",
+      "name": "Phase 4 \u2014 AI Health Monitoring & Arbiter Integration",
       "status": "pending",
-      "description": "ArbiterAI reads live server logs, detects health thresholds, and autonomously triggers admin actions. Full integration with the Arbiter chat engine and self-build loop.",
+      "description": "SSA monitors live server logs, detects health thresholds, and autonomously triggers admin actions. Uses a local AI (configurable LLM backend) for analysis and reporting \u2014 independent of any external AI platform.",
       "tasks": [
         {
           "id": "SSA4-1",
-          "title": "Log ingestion pipeline: tail server logs in real-time; push new lines to Arbiter workspace context",
+          "title": "Log ingestion pipeline: tail server logs in real-time; buffer recent lines for health rule evaluation and AI analysis queries",
           "status": "pending"
         },
         {
@@ -213,22 +217,22 @@
         },
         {
           "id": "SSA4-3",
-          "title": "Autonomous action dispatch: ArbiterAI matches log patterns to rules and calls ServerManager (restart/update/notify) without manual input",
+          "title": "Autonomous action dispatch: SSA AI monitor matches log patterns to rules and calls ServerManager (restart/update/notify) without manual input; all actions written to audit log",
           "status": "pending"
         },
         {
           "id": "SSA4-4",
-          "title": "AI analysis report: after each autonomous action, AI writes a summary to Arbiter issues tracker with log context and action taken",
+          "title": "AI analysis report: after each autonomous action, the local AI writes a summary to SSA\u2019s own audit log and issues file with log context and action taken",
           "status": "pending"
         },
         {
           "id": "SSA4-5",
-          "title": "Arbiter chat integration: ask the AI 'what happened to the server?' and get a natural-language summary from the audit log",
+          "title": "AI chat panel in web dashboard: ask the AI \u201cwhat happened to the server?\u201d and get a natural-language summary from the audit log using the local LLM",
           "status": "pending"
         },
         {
           "id": "SSA4-6",
-          "title": "Self-build loop hooks: SteamServerAdmin can request ArbiterAI to generate new admin scripts or update existing ones based on observed failure patterns",
+          "title": "Admin script generator: the local AI can generate new admin scripts or update existing ones in scripts/ based on observed failure patterns; changes are committed with [ssa-self-build] prefix",
           "status": "pending"
         },
         {
