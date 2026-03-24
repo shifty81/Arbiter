@@ -53,7 +53,7 @@ from core.tool_registry import ToolRegistry
 from llm.factory import create_llm
 from core.self_build import SelfBuildLoop, SelfBuildController
 
-setup_logging(log_file=_BASE / "logs" / "arbiter_engine.log")
+setup_logging()  # writes to <repo_root>/logs/arbiter_engine/arbiter_engine.log
 logger = get_logger(__name__)
 
 # ── Boot the agent stack ──────────────────────────────────────────────────────

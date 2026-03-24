@@ -1,0 +1,406 @@
+{
+  "project": "Novaforge",
+  "description": "Novaforge is a game development project managed inside Arbiter. It integrates a custom Atlas core + ECS game engine, AI-powered procedural content generation, and modular mech suit upgrade systems. Server administration is handled by the standalone SteamServerAdmin project (Projects/SteamServerAdmin) which Novaforge integrates with at runtime. Arbiter acts as the AI development platform for both — planning, generating code, iterating assets, and overseeing servers autonomously.",
+  "version": "0.1.0",
+  "last_updated": "2026-03-24",
+  "arbiter_integration": {
+    "managed_by": "Arbiter",
+    "chat_engine": true,
+    "self_build": true,
+    "vs_extension": true,
+    "remote_web_ui": true,
+    "workspace_profile": "Projects/Novaforge/roadmap.json"
+  },
+  "tech_stack": {
+    "game_engine": "Custom Atlas core + ECS (C++/C#)",
+    "game_targets": ["Unity", "Unreal", "Godot"],
+    "server_admin": "SteamServerAdmin (Projects/SteamServerAdmin — standalone project)",
+    "ai_platform": "Arbiter AI (ArbiterEngine + PythonBridge)",
+    "tooling": "Arbiter Tooling Layer (WPF)",
+    "pcg_libraries": ["open-source dungeon/room generators", "custom modular PCG"],
+    "database": "SQLite (prompt archive + prefab store)"
+  },
+  "phases": [
+    {
+      "id": 0,
+      "name": "Phase 0 — Repo Organisation & Setup",
+      "status": "active",
+      "description": "Consolidate all Novaforge sub-projects under one structure, establish documentation, and wire Arbiter as the AI development environment.",
+      "tasks": [
+        {
+          "id": "NF0-1",
+          "title": "Initialise Novaforge project inside Arbiter Projects/ folder",
+          "status": "done",
+          "notes": "roadmap.json, directory skeleton, .gitkeep markers created."
+        },
+        {
+          "id": "NF0-2",
+          "title": "Create master design bible: docs/design/MASTER_DESIGN_BIBLE.md covering full system architecture, feature specs, and integration points",
+          "status": "pending"
+        },
+        {
+          "id": "NF0-3",
+          "title": "Scaffold Core/ECS: Atlas core + ECS systems directory with stub entry points",
+          "status": "pending"
+        },
+        {
+          "id": "NF0-4",
+          "title": "Scaffold Tooling Layer stubs (WPF panels: Chat, FileExplorer, ToolingLayer, StatusLog)",
+          "status": "pending"
+        },
+        {
+          "id": "NF0-5",
+          "title": "Scaffold Game Systems stubs (Mech, PCG, Interiors/Exteriors)",
+          "status": "pending"
+        },
+        {
+          "id": "NF0-6",
+          "title": "Scaffold ServerAdmin stubs (SteamServerAdmin scripts)",
+          "status": "pending"
+        },
+        {
+          "id": "NF0-7",
+          "title": "Scaffold AI/Automation stubs (ArbiterAI integration hooks)",
+          "status": "pending"
+        },
+        {
+          "id": "NF0-8",
+          "title": "Link Novaforge to Arbiter: register project profile in Arbiter workspace",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "Phase 1 — Tooling Layer & AI Integration",
+      "status": "pending",
+      "description": "Build a unified WPF-based Tooling Layer and connect it to ArbiterAI for automated coding, asset iteration, PCG, and system debugging.",
+      "tasks": [
+        {
+          "id": "NF1-1",
+          "title": "WPF Tooling Layer: MainWindow with Chat, FileExplorer, ToolingLayer, and StatusLog panels",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-2",
+          "title": "GUI Theme System: GUITheme, GUIThemes (Dark/Day/Custom), GUIThemeManager singleton with OnThemeChanged event",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-3",
+          "title": "Dark mode default (ChatGPT palette: #202123 bg, #2A2B2F panel, #00FFAB AI text)",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-4",
+          "title": "Day mode (soft palette: #F5F5F5 bg, #E6E6E6 panel, #007864 AI text)",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-5",
+          "title": "Custom theme: user-defined RGB values persisted in settings; import/export support",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-6",
+          "title": "ArbiterAI singleton (ArbiterAIManager): workspace-aware context, 40-prompt live memory, archive older prompts to SQLite",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-7",
+          "title": "Workspace context manager: tracks all project files, tooling state, and server state for AI context",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-8",
+          "title": "Streaming AI responses: IAsyncEnumerable token stream; ChatPanel displays tokens in real-time",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-9",
+          "title": "AI action generation: GenerateActionsAsync() returns clickable AIAction list (insert_prefab, add_script, tooling_update)",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-10",
+          "title": "AI action execution: ExecuteActionAsync() safely applies actions via PrefabManager / ScriptManager",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-11",
+          "title": "Prompt archive system: tag-based SQLite archive; RetrieveRelevantArchives() feeds context back into AI",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-12",
+          "title": "Visual Studio integration: connect Tooling Layer to Arbiter VSIX for code generation and inline AI suggestions",
+          "status": "pending"
+        },
+        {
+          "id": "NF1-13",
+          "title": "Open-source model integration: Ollama / CodeGeeX for unrestricted free code assistance",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Phase 2 — Remote Web Interface",
+      "status": "pending",
+      "description": "Expose the Arbiter AI backend as a persistent local web server so Novaforge can be accessed, brainstormed, and iterated from any browser or device.",
+      "tasks": [
+        {
+          "id": "NF2-1",
+          "title": "HTTP API server (Kestrel/FastAPI): /ai/query, /ai/stream (SSE), /ai/actions, /ai/execute, /ai/workspace, /ai/theme",
+          "status": "pending"
+        },
+        {
+          "id": "NF2-2",
+          "title": "Remote browser client: React/Blazor frontend connecting to /ai/stream for token-by-token streaming",
+          "status": "pending"
+        },
+        {
+          "id": "NF2-3",
+          "title": "Clickable AI action buttons in browser: same execution pipeline as local GUI",
+          "status": "pending"
+        },
+        {
+          "id": "NF2-4",
+          "title": "Theme sync: /ai/theme endpoint exposes current palette as JSON; frontend applies dynamically",
+          "status": "pending"
+        },
+        {
+          "id": "NF2-5",
+          "title": "Authentication / access control: token-based auth for remote users; restrict destructive actions",
+          "status": "pending"
+        },
+        {
+          "id": "NF2-6",
+          "title": "LAN / ngrok remote access: expose server on LAN or via secure tunnel",
+          "status": "pending"
+        },
+        {
+          "id": "NF2-7",
+          "title": "Resource monitoring: track GPU/CPU/memory usage; prompt throttling to prevent lockups",
+          "status": "pending"
+        },
+        {
+          "id": "NF2-8",
+          "title": "Crash protection: auto-restart AI service on failure; rotating log for crash diagnostics",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Phase 3 — SteamServerAdmin Integration",
+      "status": "pending",
+      "description": "Integrate Novaforge with the standalone SteamServerAdmin project (Projects/SteamServerAdmin). All server management features live there; this phase covers the connection points between the two projects.",
+      "dependency": "Projects/SteamServerAdmin",
+      "tasks": [
+        {
+          "id": "NF3-1",
+          "title": "Wire Novaforge server identifiers into SteamServerAdmin config (app IDs, install paths, branch names)",
+          "status": "pending"
+        },
+        {
+          "id": "NF3-2",
+          "title": "Expose SteamServerAdmin status events to Novaforge Tooling Layer status panel (uptime, player count, restart warnings)",
+          "status": "pending"
+        },
+        {
+          "id": "NF3-3",
+          "title": "ArbiterAI: feed Novaforge server logs into SteamServerAdmin AI monitoring thresholds",
+          "status": "pending"
+        },
+        {
+          "id": "NF3-4",
+          "title": "Novaforge-specific role/whitelist config supplied to SteamServerAdmin permission system",
+          "status": "pending"
+        },
+        {
+          "id": "NF3-5",
+          "title": "End-to-end integration test: Novaforge game server start/stop/update via SteamServerAdmin from Arbiter Tooling Layer",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Phase 4 — Game Systems & Procedural Generation",
+      "status": "pending",
+      "description": "Core game mechanics: modular mech suit systems with tiered upgrades and AI-assisted PCG for rooms, interiors, and exteriors.",
+      "tasks": [
+        {
+          "id": "NF4-1",
+          "title": "Atlas core + ECS: implement foundational entity-component-system; define core entities (Mech, Room, Actor)",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-2",
+          "title": "Mech Reactor system: tiered power output; upgrades affect available weapon/armor tiers",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-3",
+          "title": "Mech Armor system: tiered plating with visual propagation to exterior aesthetics and conduit textures",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-4",
+          "title": "Mech Weapons system: tiered hardpoints; visual changes to exterior weapon mounts and LCD panel overlays",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-5",
+          "title": "Mech Cockpit interiors: tier-driven interior aesthetics — LCD panels, pipe layouts, conduit density, lighting",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-6",
+          "title": "Piloted mech mechanic: player entry/exit; cockpit camera, HUD panels, and controls",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-7",
+          "title": "PCG Room/Interior generation: modular dynamic asset placement; complexity scales with mech upgrade tier",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-8",
+          "title": "PCG Exterior generation: building/base exterior aesthetics react to mech tier and installed modules",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-9",
+          "title": "PCG ↔ Mech integration: upgrade tier drives generation complexity; PCG system auto-adjusts on tier change",
+          "status": "pending"
+        },
+        {
+          "id": "NF4-10",
+          "title": "AI-assisted asset iteration: ArbiterAI generates prefabs and scripts for new PCG modules via Tooling Layer",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Phase 5 — Development Agent Integration",
+      "status": "pending",
+      "description": "ArbiterAI as a full-time autonomous development agent for Novaforge: repo monitoring, PCG coherence, code-test-asset loop, and server automation.",
+      "tasks": [
+        {
+          "id": "NF5-1",
+          "title": "Repo monitoring: ArbiterAI watches Novaforge repo for new commits and proposes or implements follow-up changes",
+          "status": "pending"
+        },
+        {
+          "id": "NF5-2",
+          "title": "PCG coherence checker: AI validates that generated assets remain consistent with mech upgrade tiers after each change",
+          "status": "pending"
+        },
+        {
+          "id": "NF5-3",
+          "title": "Automated dev loop: code generation → test → asset placement → AI feedback → iteration, wired into Tooling Layer",
+          "status": "pending"
+        },
+        {
+          "id": "NF5-4",
+          "title": "Server monitoring automation: AI triggers SteamServerAdmin scripts from log thresholds without manual input",
+          "status": "pending"
+        },
+        {
+          "id": "NF5-5",
+          "title": "Prefab/template learning: AI archives all generated assets tagged by project/feature type for cross-project reuse",
+          "status": "pending"
+        },
+        {
+          "id": "NF5-6",
+          "title": "Versioning / undo for AI actions: track all AI-generated changes; revert any single action safely",
+          "status": "pending"
+        },
+        {
+          "id": "NF5-7",
+          "title": "Conflict detection: AI detects when proposed code/asset changes collide with existing project logic and pauses for review",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Phase 6 — Integration & Testing",
+      "status": "pending",
+      "description": "Cross-system integration tests ensuring all Novaforge subsystems work together: Tooling Layer, AI, game systems, PCG, mech logic, server monitoring, and agent behaviors.",
+      "tasks": [
+        {
+          "id": "NF6-1",
+          "title": "Tooling Layer ↔ ArbiterAI ↔ Visual Studio: integration test suite verifying chat, action generation, and execution paths",
+          "status": "pending"
+        },
+        {
+          "id": "NF6-2",
+          "title": "Game systems ↔ PCG ↔ Mech: validation suite verifying upgrade propagation, visual changes, and asset consistency",
+          "status": "pending"
+        },
+        {
+          "id": "NF6-3",
+          "title": "Server monitoring ↔ SteamServerAdmin ↔ AI: end-to-end automated behavior tests (restart triggers, permission audits)",
+          "status": "pending"
+        },
+        {
+          "id": "NF6-4",
+          "title": "Remote web interface ↔ AI manager: verify token streaming, theme sync, and action execution match local GUI",
+          "status": "pending"
+        },
+        {
+          "id": "NF6-5",
+          "title": "Continuous refinement: AI identifies inefficiencies, suggests layout/asset improvements, and refactors code dynamically",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Phase 7 — Deployment & Scaling",
+      "status": "pending",
+      "description": "Deploy Novaforge's Tooling Layer and Dev Agent across developer machines and live Steam servers. Enable full AI oversight for continuous iteration.",
+      "tasks": [
+        {
+          "id": "NF7-1",
+          "title": "Deploy Tooling Layer and Dev Agent to all developer machines",
+          "status": "pending"
+        },
+        {
+          "id": "NF7-2",
+          "title": "Deploy SteamServerAdmin scripts to live servers",
+          "status": "pending"
+        },
+        {
+          "id": "NF7-3",
+          "title": "Enable full AI oversight: continuous project iteration and feedback loops from AI analytics",
+          "status": "pending"
+        },
+        {
+          "id": "NF7-4",
+          "title": "Analytics dashboard: track AI action success rates, template reuse, server uptime, and PCG iteration velocity",
+          "status": "pending"
+        },
+        {
+          "id": "NF7-5",
+          "title": "Multi-user collaboration: optional real-time multi-user access to remote web interface with role-gated AI actions",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "optional_enhancements": [
+    "Unity / Unreal / Godot integration adapters for testing game systems in target engines",
+    "Open-source PCG library integration (dungeon generators, wave-function collapse)",
+    "Prefab dependency tracking and sandbox testing environment before applying to main project",
+    "Dockable / multi-tab GUI panels in Tooling Layer",
+    "Searchable chat and log history inside Tooling Layer",
+    "Per-user theme persistence (remember last-used theme across sessions)",
+    "AI load balancing for simultaneous heavy requests",
+    "Plugin system for future Novaforge-specific Arbiter modules"
+  ]
+}

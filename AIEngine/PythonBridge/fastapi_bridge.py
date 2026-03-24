@@ -113,6 +113,41 @@ SCRIPT_DIR = Path(__file__).parent
 MEMORY_ROOT = SCRIPT_DIR.parent.parent / "Memory" / "ConversationLogs"
 PROJECTS_ROOT = SCRIPT_DIR.parent.parent / "Projects"
 
+# ── Per-system logging to repo-level logs/python_bridge/ ─────────────────────
+import logging as _logging
+import logging.handlers as _log_handlers
+
+def _setup_bridge_logging() -> _logging.Logger:
+    """Configure rotating file + stdout logging for the PythonBridge subsystem.
+
+    Log files are written to ``<repo_root>/logs/python_bridge/python_bridge.log``
+    so all Arbiter subsystem logs are aggregated under the top-level ``logs/``
+    directory.
+    """
+    _repo_root = SCRIPT_DIR.parent.parent
+    _log_dir = _repo_root / "logs" / "python_bridge"
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_path = _log_dir / "python_bridge.log"
+
+    _fmt = _logging.Formatter(
+        "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    _bridge_logger = _logging.getLogger("arbiter.python_bridge")
+    if not _bridge_logger.handlers:
+        _bridge_logger.setLevel(_logging.INFO)
+        _ch = _logging.StreamHandler()
+        _ch.setFormatter(_fmt)
+        _bridge_logger.addHandler(_ch)
+        _fh = _log_handlers.RotatingFileHandler(
+            _log_path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
+        )
+        _fh.setFormatter(_fmt)
+        _bridge_logger.addHandler(_fh)
+    return _bridge_logger
+
+_bridge_log = _setup_bridge_logging()
+
 # Valid project name pattern: alphanumeric, spaces, dashes, underscores,
 # and parentheses — covers names such as "Arbiter (Self)".
 # Dots and path-separators are intentionally excluded to prevent traversal.
@@ -127,8 +162,10 @@ _RUN_TIMEOUT_SECONDS = 60
 async def lifespan(app: FastAPI):
     """Pre-load the LLM in a background thread so the first chat request is fast."""
     import threading
+    _bridge_log.info("PythonBridge starting up on port 8000")
     threading.Thread(target=preload_model, daemon=True, name="llm-preload").start()
     yield
+    _bridge_log.info("PythonBridge shutting down")
 
 
 app = FastAPI(title="Arbiter AI Bridge", version="0.1.0", lifespan=lifespan)
