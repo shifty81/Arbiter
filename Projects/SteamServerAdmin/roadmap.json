@@ -1,0 +1,256 @@
+{
+  "project": "SteamServerAdmin",
+  "description": "SteamServerAdmin is a standalone autonomous server administration platform managed inside Arbiter. It handles start, stop, restart, and update operations for Steam-based game servers via SteamCMD, enforces role-based permission systems, provides AI-driven health monitoring that reacts to live log thresholds, and exposes a full REST + web dashboard for remote administration. Any Arbiter-managed game project (e.g. Novaforge) can register its servers here to get full autonomous management.",
+  "version": "0.1.0",
+  "last_updated": "2026-03-24",
+  "arbiter_integration": {
+    "managed_by": "Arbiter",
+    "chat_engine": true,
+    "self_build": true,
+    "vs_extension": false,
+    "remote_web_ui": true,
+    "workspace_profile": "Projects/SteamServerAdmin/roadmap.json"
+  },
+  "tech_stack": {
+    "server_platform": "SteamCMD (Steam game server management)",
+    "scripting": ["Python", "Bash / PowerShell"],
+    "api_layer": "FastAPI (REST + WebSocket)",
+    "web_dashboard": "React or Blazor (dark mode, ChatGPT palette)",
+    "ai_platform": "Arbiter AI (ArbiterEngine + PythonBridge)",
+    "logging": "Python RotatingFileHandler → logs/steam_server_admin/",
+    "config": "JSON per-server configs in config/"
+  },
+  "registered_servers": [],
+  "phases": [
+    {
+      "id": 0,
+      "name": "Phase 0 — Scaffold & Project Setup",
+      "status": "active",
+      "description": "Initialise the SteamServerAdmin project structure, wire it into Arbiter as a managed project, and create the foundational config and logging infrastructure.",
+      "tasks": [
+        {
+          "id": "SSA0-1",
+          "title": "Initialise SteamServerAdmin project inside Arbiter Projects/ folder",
+          "status": "done",
+          "notes": "roadmap.json, directory skeleton (scripts/, config/, docs/, logs/, web/), .gitkeep markers created."
+        },
+        {
+          "id": "SSA0-2",
+          "title": "Per-server JSON config schema: app_id, install_path, branch, launch_args, restart_schedule, update_schedule",
+          "status": "pending"
+        },
+        {
+          "id": "SSA0-3",
+          "title": "Logging setup: write to logs/steam_server_admin/ via Arbiter setup_system_logging('steam_server_admin')",
+          "status": "pending"
+        },
+        {
+          "id": "SSA0-4",
+          "title": "SteamCMD wrapper: verify SteamCMD is installed; detect platform (Windows/Linux); expose install/update/validate commands",
+          "status": "pending"
+        },
+        {
+          "id": "SSA0-5",
+          "title": "Register SteamServerAdmin in Arbiter workspace — appears in Projects panel and chat context",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "Phase 1 — Core Server Management",
+      "status": "pending",
+      "description": "Core start/stop/restart/update operations for any registered Steam game server, with configurable pre-restart player warnings.",
+      "tasks": [
+        {
+          "id": "SSA1-1",
+          "title": "ServerManager: start server process — SteamCMD install + launch via config launch_args",
+          "status": "pending"
+        },
+        {
+          "id": "SSA1-2",
+          "title": "ServerManager: stop server — graceful RCON shutdown, then SIGTERM fallback with timeout",
+          "status": "pending"
+        },
+        {
+          "id": "SSA1-3",
+          "title": "ServerManager: restart server — configurable countdown warning messages broadcast to players before shutdown",
+          "status": "pending"
+        },
+        {
+          "id": "SSA1-4",
+          "title": "ServerManager: update server — SteamCMD +app_update <id> validate; broadcast update warning; restart after",
+          "status": "pending"
+        },
+        {
+          "id": "SSA1-5",
+          "title": "Scheduled restarts/updates: cron-style schedule in per-server config; SteamServerAdmin dispatches automatically",
+          "status": "pending"
+        },
+        {
+          "id": "SSA1-6",
+          "title": "Process supervisor: watch server PID; auto-restart on unexpected exit; write crash event to log",
+          "status": "pending"
+        },
+        {
+          "id": "SSA1-7",
+          "title": "Multi-server support: manage any number of registered servers independently from one SteamServerAdmin instance",
+          "status": "pending"
+        },
+        {
+          "id": "SSA1-8",
+          "title": "RCON integration: send console commands to live servers (kick, ban, say, status) via RCON protocol",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Phase 2 — Role-Based Permissions & Audit",
+      "status": "pending",
+      "description": "Enforced permission tiers for server operations, with audit logging of all changes visible in the Arbiter Tooling Layer.",
+      "tasks": [
+        {
+          "id": "SSA2-1",
+          "title": "Permission model: four tiers — Admin (full control), Moderator (kick/ban/say), Operator (restart/update), Standard Player (read-only status)",
+          "status": "pending"
+        },
+        {
+          "id": "SSA2-2",
+          "title": "Per-server role config: map Steam IDs or usernames to roles in config/<server>.json",
+          "status": "pending"
+        },
+        {
+          "id": "SSA2-3",
+          "title": "Dynamic restriction: role changes take effect without server restart; propagate to RCON and API layer immediately",
+          "status": "pending"
+        },
+        {
+          "id": "SSA2-4",
+          "title": "Whitelist management: Admin-only; add/remove players; immediately reflected in server config",
+          "status": "pending"
+        },
+        {
+          "id": "SSA2-5",
+          "title": "Audit log: every permission change, ban, kick, and restart is JSONL-logged with actor, timestamp, and reason",
+          "status": "pending"
+        },
+        {
+          "id": "SSA2-6",
+          "title": "Audit log visible in Arbiter Tooling Layer status panel and remote web dashboard",
+          "status": "pending"
+        },
+        {
+          "id": "SSA2-7",
+          "title": "Permission change notifications: push alerts to Arbiter chat, Tooling Layer, and remote web UI when roles change",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Phase 3 — REST API & Web Dashboard",
+      "status": "pending",
+      "description": "Full REST API and dark-mode web dashboard so SteamServerAdmin can be operated remotely from any browser.",
+      "tasks": [
+        {
+          "id": "SSA3-1",
+          "title": "FastAPI REST endpoints: GET /servers, POST /servers/{id}/start, /stop, /restart, /update, GET /servers/{id}/status, GET /servers/{id}/logs",
+          "status": "pending"
+        },
+        {
+          "id": "SSA3-2",
+          "title": "WebSocket /ws/servers/{id}/logs: live log tail streamed to browser",
+          "status": "pending"
+        },
+        {
+          "id": "SSA3-3",
+          "title": "REST permission endpoints: GET /servers/{id}/roles, POST /servers/{id}/roles, DELETE /servers/{id}/roles/{user}",
+          "status": "pending"
+        },
+        {
+          "id": "SSA3-4",
+          "title": "REST audit endpoints: GET /servers/{id}/audit — paginated JSONL audit log",
+          "status": "pending"
+        },
+        {
+          "id": "SSA3-5",
+          "title": "Token-based authentication: API key per user; role enforced per endpoint",
+          "status": "pending"
+        },
+        {
+          "id": "SSA3-6",
+          "title": "Web dashboard (dark mode, ChatGPT palette): server list, per-server status cards, live log stream, restart/update buttons, role management table",
+          "status": "pending"
+        },
+        {
+          "id": "SSA3-7",
+          "title": "Theme sync: /api/theme endpoint exposes current Arbiter palette as JSON for the browser dashboard",
+          "status": "pending"
+        },
+        {
+          "id": "SSA3-8",
+          "title": "LAN / remote access: expose API on LAN; optional ngrok or VPN tunnel for internet access",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Phase 4 — AI Health Monitoring & Arbiter Integration",
+      "status": "pending",
+      "description": "ArbiterAI reads live server logs, detects health thresholds, and autonomously triggers admin actions. Full integration with the Arbiter chat engine and self-build loop.",
+      "tasks": [
+        {
+          "id": "SSA4-1",
+          "title": "Log ingestion pipeline: tail server logs in real-time; push new lines to Arbiter workspace context",
+          "status": "pending"
+        },
+        {
+          "id": "SSA4-2",
+          "title": "Health threshold rules (JSON config): define patterns (error rate, crash keyword, player count drop) that trigger actions",
+          "status": "pending"
+        },
+        {
+          "id": "SSA4-3",
+          "title": "Autonomous action dispatch: ArbiterAI matches log patterns to rules and calls ServerManager (restart/update/notify) without manual input",
+          "status": "pending"
+        },
+        {
+          "id": "SSA4-4",
+          "title": "AI analysis report: after each autonomous action, AI writes a summary to Arbiter issues tracker with log context and action taken",
+          "status": "pending"
+        },
+        {
+          "id": "SSA4-5",
+          "title": "Arbiter chat integration: ask the AI 'what happened to the server?' and get a natural-language summary from the audit log",
+          "status": "pending"
+        },
+        {
+          "id": "SSA4-6",
+          "title": "Self-build loop hooks: SteamServerAdmin can request ArbiterAI to generate new admin scripts or update existing ones based on observed failure patterns",
+          "status": "pending"
+        },
+        {
+          "id": "SSA4-7",
+          "title": "Resource monitoring: track server CPU/RAM/disk; alert and optionally restart if thresholds exceeded",
+          "status": "pending"
+        },
+        {
+          "id": "SSA4-8",
+          "title": "Deployment: package SteamServerAdmin as a standalone service (Docker or Windows Service) deployable independently of the Arbiter WPF host",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "optional_enhancements": [
+    "Multi-region server support with centralised dashboard",
+    "Player analytics: peak hours, average session, churn tracking",
+    "Discord / webhook notifications for restarts, updates, and permission events",
+    "Backup automation: snapshot server save files before each update",
+    "Mod management: install/update/remove mods via SteamCMD workshop IDs",
+    "Plugin architecture for non-Steam server backends (bare-metal, Pterodactyl)",
+    "AI-generated changelogs from SteamCMD update manifests"
+  ]
+}

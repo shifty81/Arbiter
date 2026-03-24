@@ -1,6 +1,6 @@
 {
   "project": "Novaforge",
-  "description": "Novaforge is a game-server-tooling project managed inside Arbiter. It integrates a custom Atlas core + ECS game engine, AI-powered procedural content generation, modular mech suit upgrade systems, and Steam-based server administration. Arbiter acts as its AI development platform — planning, generating code, iterating assets, and monitoring servers autonomously.",
+  "description": "Novaforge is a game development project managed inside Arbiter. It integrates a custom Atlas core + ECS game engine, AI-powered procedural content generation, and modular mech suit upgrade systems. Server administration is handled by the standalone SteamServerAdmin project (Projects/SteamServerAdmin) which Novaforge integrates with at runtime. Arbiter acts as the AI development platform for both — planning, generating code, iterating assets, and overseeing servers autonomously.",
   "version": "0.1.0",
   "last_updated": "2026-03-24",
   "arbiter_integration": {
@@ -14,7 +14,7 @@
   "tech_stack": {
     "game_engine": "Custom Atlas core + ECS (C++/C#)",
     "game_targets": ["Unity", "Unreal", "Godot"],
-    "server_platform": "Steam (SteamCMD)",
+    "server_admin": "SteamServerAdmin (Projects/SteamServerAdmin — standalone project)",
     "ai_platform": "Arbiter AI (ArbiterEngine + PythonBridge)",
     "tooling": "Arbiter Tooling Layer (WPF)",
     "pcg_libraries": ["open-source dungeon/room generators", "custom modular PCG"],
@@ -193,48 +193,34 @@
     },
     {
       "id": 3,
-      "name": "Phase 3 — Server Management System",
+      "name": "Phase 3 — SteamServerAdmin Integration",
       "status": "pending",
-      "description": "SteamServerAdmin with role-based permissions, autonomous AI health monitoring, and full Tooling Layer integration.",
+      "description": "Integrate Novaforge with the standalone SteamServerAdmin project (Projects/SteamServerAdmin). All server management features live there; this phase covers the connection points between the two projects.",
+      "dependency": "Projects/SteamServerAdmin",
       "tasks": [
         {
           "id": "NF3-1",
-          "title": "SteamServerAdmin: start/stop/restart/update servers automatically via SteamCMD",
+          "title": "Wire Novaforge server identifiers into SteamServerAdmin config (app IDs, install paths, branch names)",
           "status": "pending"
         },
         {
           "id": "NF3-2",
-          "title": "Pre-restart warnings: broadcast configurable countdown messages to players before automatic restarts",
+          "title": "Expose SteamServerAdmin status events to Novaforge Tooling Layer status panel (uptime, player count, restart warnings)",
           "status": "pending"
         },
         {
           "id": "NF3-3",
-          "title": "Autonomous server updates: monitor SteamCMD for new builds and apply without manual intervention",
+          "title": "ArbiterAI: feed Novaforge server logs into SteamServerAdmin AI monitoring thresholds",
           "status": "pending"
         },
         {
           "id": "NF3-4",
-          "title": "Role-based permissions: Admin, Moderator, Operator, Standard Player — dynamic restriction and whitelist management",
+          "title": "Novaforge-specific role/whitelist config supplied to SteamServerAdmin permission system",
           "status": "pending"
         },
         {
           "id": "NF3-5",
-          "title": "Permission audit logging: all changes logged, visible in Tooling Layer, and pushed to Arbiter issues tracker",
-          "status": "pending"
-        },
-        {
-          "id": "NF3-6",
-          "title": "AI health monitoring: ArbiterAI reads server logs and triggers admin scripts automatically on threshold breach",
-          "status": "pending"
-        },
-        {
-          "id": "NF3-7",
-          "title": "Server dashboard: status panel in Tooling Layer showing uptime, player count, CPU/RAM, and recent events",
-          "status": "pending"
-        },
-        {
-          "id": "NF3-8",
-          "title": "Notification system: in-app and remote-web alerts for AI-triggered restarts, updates, or permission changes",
+          "title": "End-to-end integration test: Novaforge game server start/stop/update via SteamServerAdmin from Arbiter Tooling Layer",
           "status": "pending"
         }
       ]

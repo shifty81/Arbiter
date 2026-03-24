@@ -63,6 +63,9 @@ into one cohesive platform.
 
 ### Phase 3 — Server Management System *(Planned)*
 
+> **Standalone project:** [`Projects/SteamServerAdmin`](Projects/SteamServerAdmin/roadmap.json)  
+> SteamServerAdmin is its own independent project managed by Arbiter. Any Arbiter-managed game project (e.g. Novaforge) registers its servers there. The tasks below are the Arbiter platform-level integration points.
+
 | Task | Description | Status |
 |------|-------------|--------|
 | P3-1 | SteamServerAdmin — start/stop/restart/update servers autonomously | 🔜 Planned |
@@ -72,6 +75,9 @@ into one cohesive platform.
 | P3-5 | Server dashboard in Tooling Layer / Monaco IDE | 🔜 Planned |
 
 ### Phase 4 — Game Systems & Procedural Generation *(Planned)*
+
+> **Standalone project:** [`Projects/Novaforge`](Projects/Novaforge/roadmap.json)  
+> Novaforge is its own independent game project managed by Arbiter. The tasks below are the Arbiter platform-level features that make game system development possible.
 
 | Task | Description | Status |
 |------|-------------|--------|
@@ -105,6 +111,21 @@ into one cohesive platform.
 | P7-2 | Deploy server admin scripts to live servers | 🔜 Planned |
 | P7-3 | Full AI oversight for continuous project iteration | 🔜 Planned |
 | P7-4 | Analytics dashboards for AI-driven optimisation | 🔜 Planned |
+
+---
+
+## Managed Projects
+
+Arbiter manages the following external projects as first-class workspaces. Each has its own
+`roadmap.json` inside `Projects/` and is driven by the same chat engine, self-build loop,
+and Tooling Layer as Arbiter itself.
+
+| Project | Type | Summary | Roadmap |
+|---------|------|---------|---------|
+| **Novaforge** | Game Development | Atlas Core+ECS engine, modular mech suit systems, AI-driven PCG | [`Projects/Novaforge/roadmap.json`](Projects/Novaforge/roadmap.json) |
+| **SteamServerAdmin** | Server Administration | Autonomous Steam game server lifecycle management, role permissions, AI health monitoring | [`Projects/SteamServerAdmin/roadmap.json`](Projects/SteamServerAdmin/roadmap.json) |
+
+> To register a new project, add a `roadmap.json` to `Projects/<YourProject>/` following the schema in [`Projects/ExampleProject/roadmap.json`](Projects/ExampleProject/roadmap.json).
 
 ---
 

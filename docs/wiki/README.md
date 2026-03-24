@@ -25,6 +25,17 @@ mirrored to the in-application Wiki panel and to the GitHub repository wiki page
 
 ---
 
+## Managed Projects
+
+Arbiter manages external projects as first-class workspaces. Each project has its own `roadmap.json` inside `Projects/` and is fully visible in the chat engine, self-build loop, and Tooling Layer.
+
+| Project | Description | Wiki |
+|---------|-------------|------|
+| [Novaforge](NOVAFORGE.md) | Game project — Atlas Core+ECS, mech suit systems, PCG | [NOVAFORGE.md](NOVAFORGE.md) |
+| [SteamServerAdmin](STEAM_SERVER_ADMIN.md) | Standalone autonomous Steam game server administration | [STEAM_SERVER_ADMIN.md](STEAM_SERVER_ADMIN.md) |
+
+---
+
 ## Quick Navigation
 
 ### For New Users

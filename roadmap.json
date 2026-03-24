@@ -1219,8 +1219,9 @@
     {
       "id": "Phase3",
       "title": "Server Management System",
-      "description": "Autonomous server administration for game and application servers. SteamServerAdmin with role-based permissions, AI health monitoring, and full Tooling Layer integration.",
+      "description": "Autonomous server administration for game servers via the standalone SteamServerAdmin project (Projects/SteamServerAdmin). SteamServerAdmin has its own full roadmap and is independently developed, tested, and deployed. These tasks track the Arbiter platform-level integration.",
       "status": "pending",
+      "standalone_project": "Projects/SteamServerAdmin/roadmap.json",
       "tasks": [
         {
           "id": "P3-1",
@@ -1252,8 +1253,9 @@
     {
       "id": "Phase4",
       "title": "Game Systems & Procedural Generation",
-      "description": "AI-assisted procedural content generation for rooms/interiors and mech suit upgrade systems with reactive visual propagation.",
+      "description": "AI-assisted procedural content generation for rooms/interiors and mech suit upgrade systems with reactive visual propagation. Developed as part of the Novaforge standalone project (Projects/Novaforge). These tasks track the Arbiter platform-level features that support game system development.",
       "status": "pending",
+      "standalone_project": "Projects/Novaforge/roadmap.json",
       "tasks": [
         {
           "id": "P4-1",

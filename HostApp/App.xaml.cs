@@ -33,7 +33,8 @@ namespace ArbiterHost
                 sb.AppendLine("Shut them down now, or leave them running so you can");
                 sb.AppendLine("access Arbiter chat remotely via the web UI?");
                 sb.AppendLine();
-                sb.Append("  Yes = Shut down all servers\n  No = Leave servers running");
+                sb.AppendLine("  Yes = Shut down all servers");
+                sb.Append("  No  = Leave servers running");
 
                 var answer = MessageBox.Show(
                     sb.ToString(),

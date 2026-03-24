@@ -42,9 +42,11 @@ ACTIVE ━━━━━━━━━━━━━━━━━━━━━━━━�
 
 PLANNED ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Phase 2 🔜 Tooling Layer & AI       Phase 3 🔜 Server Management
-  Phase 4 🔜 Game Systems & PCG       Phase 5 🔜 Development Agent
+  Phase 2 🔜 Tooling Layer & AI       Phase 3 🔜 SteamServerAdmin ⬡
+  Phase 4 🔜 Game Systems & PCG ⬡     Phase 5 🔜 Development Agent
   Phase 6 🔜 Integration & Testing    Phase 7 🔜 Deployment & Scaling
+
+  ⬡ = standalone managed project (Novaforge / SteamServerAdmin)
 ```
 
 ---
@@ -84,6 +86,24 @@ Arbiter ships with dedicated AI-powered tools, each with its own icon inside the
 ```
 
 > **Everything runs locally. No cloud required. Your code never leaves your machine.**
+
+---
+
+## Managed Projects
+
+Arbiter manages the following standalone projects as first-class AI-driven workspaces.
+Each project lives in `Projects/` with its own `roadmap.json`, wiki documentation, and
+is fully accessible from the Chat Engine, self-build loop, and Tooling Layer.
+
+```
+  🎮 Novaforge          — Game dev: Atlas Core+ECS · Mech suits · PCG
+  🖥️ SteamServerAdmin   — Server admin: autonomous start/stop/update · role permissions · AI monitoring
+```
+
+| Project | Wiki | Project Roadmap |
+|---------|------|----------------|
+| [Novaforge](docs/wiki/NOVAFORGE.md) | Game development — Atlas Core+ECS, mech suit systems, AI-powered PCG | [`Projects/Novaforge/roadmap.json`](Projects/Novaforge/roadmap.json) |
+| [SteamServerAdmin](docs/wiki/STEAM_SERVER_ADMIN.md) | Standalone autonomous Steam game server administration | [`Projects/SteamServerAdmin/roadmap.json`](Projects/SteamServerAdmin/roadmap.json) |
 
 ---
 

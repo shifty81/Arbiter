@@ -4,11 +4,12 @@ Each Arbiter subsystem writes its rotating log file into a dedicated subfolder
 under the repository-level ``logs/`` directory so all system logs are
 aggregated in one place.  The subfolder mapping is:
 
-    logs/arbiter_engine/   – Arbiter Engine (server.py, port 8001)
-    logs/python_bridge/    – FastAPI PythonBridge (fastapi_bridge.py, port 8000)
-    logs/host_app/         – WPF HostApp events forwarded via the bridge
-    logs/vs_extension/     – Visual Studio extension events
-    logs/self_build/       – Autonomous self-build loop
+    logs/arbiter_engine/      – Arbiter Engine (server.py, port 8001)
+    logs/python_bridge/       – FastAPI PythonBridge (fastapi_bridge.py, port 8000)
+    logs/host_app/            – WPF HostApp events forwarded via the bridge
+    logs/vs_extension/        – Visual Studio extension events
+    logs/self_build/          – Autonomous self-build loop
+    logs/steam_server_admin/  – SteamServerAdmin standalone project
 
 Per-project structured logs (JSONL) continue to live in the workspace at
 ``.arbiter/logs/workspace.jsonl`` and are managed by :func:`write_workspace_log`.
@@ -30,6 +31,10 @@ _initialized = False
 _LOG_MAX_BYTES = 5 * 1024 * 1024
 _LOG_BACKUP_COUNT = 5
 
+# How many parent directories to walk when searching for the repo root.
+# See _find_repo_root() for the rationale behind this value.
+_MAX_REPO_TRAVERSAL_DEPTH = 8
+
 # Mapping from subsystem name to subfolder name under the repo-level logs/ dir
 _SYSTEM_LOG_DIRS: dict[str, str] = {
     "arbiter_engine": "arbiter_engine",
@@ -37,6 +42,7 @@ _SYSTEM_LOG_DIRS: dict[str, str] = {
     "host_app": "host_app",
     "vs_extension": "vs_extension",
     "self_build": "self_build",
+    "steam_server_admin": "steam_server_admin",
 }
 
 
@@ -53,7 +59,7 @@ def _find_repo_root(start: Path | None = None) -> Path:
     Falls back to a directory two levels above this file if not found.
     """
     candidate = (start or Path(__file__).resolve().parent)
-    for _ in range(8):
+    for _ in range(_MAX_REPO_TRAVERSAL_DEPTH):
         if (candidate / "roadmap.json").exists():
             return candidate
         parent = candidate.parent
