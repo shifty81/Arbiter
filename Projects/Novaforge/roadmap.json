@@ -13,18 +13,25 @@
   },
   "tech_stack": {
     "game_engine": "Custom Atlas core + ECS (C++/C#)",
-    "game_targets": ["Unity", "Unreal", "Godot"],
+    "game_targets": [
+      "Unity",
+      "Unreal",
+      "Godot"
+    ],
     "server_admin": "SteamServerAdmin (Projects/SteamServerAdmin — standalone project)",
     "ai_platform": "Arbiter AI (ArbiterEngine + PythonBridge)",
     "tooling": "Arbiter Tooling Layer (WPF)",
-    "pcg_libraries": ["open-source dungeon/room generators", "custom modular PCG"],
+    "pcg_libraries": [
+      "open-source dungeon/room generators",
+      "custom modular PCG"
+    ],
     "database": "SQLite (prompt archive + prefab store)"
   },
   "phases": [
     {
       "id": 0,
       "name": "Phase 0 — Repo Organisation & Setup",
-      "status": "active",
+      "status": "done",
       "description": "Consolidate all Novaforge sub-projects under one structure, establish documentation, and wire Arbiter as the AI development environment.",
       "tasks": [
         {
@@ -36,37 +43,44 @@
         {
           "id": "NF0-2",
           "title": "Create master design bible: docs/design/MASTER_DESIGN_BIBLE.md covering full system architecture, feature specs, and integration points",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created docs/design/MASTER_DESIGN_BIBLE.md covering full system architecture, all panels, theme system, Atlas ECS, Mech upgrade system, PCG pipeline, SSA integration points, remote web interface, AI agent capabilities, tech stack reference, and directory structure."
         },
         {
           "id": "NF0-3",
           "title": "Scaffold Core/ECS: Atlas core + ECS systems directory with stub entry points",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created Core/ECS/ecs.py — World, EntityManager, System, SystemScheduler, EventBus; core components Transform, PCGTier (with normalised complexity), RenderMesh. Full ECS with entity query iterator."
         },
         {
           "id": "NF0-4",
           "title": "Scaffold Tooling Layer stubs (WPF panels: Chat, FileExplorer, ToolingLayer, StatusLog)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created ToolingLayer/: MainWindow.xaml (4-panel WPF layout — FileExplorer, Chat, Tooling, StatusLog), MainWindow.xaml.cs, ChatPanel.xaml.cs, FileExplorerPanel.xaml.cs, ToolingPanel.xaml.cs, StatusLogPanel.xaml.cs with TODOs wired to specific roadmap task IDs."
         },
         {
           "id": "NF0-5",
           "title": "Scaffold Game Systems stubs (Mech, PCG, Interiors/Exteriors)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created GameSystems/Mech/mech.py (Reactor, Armor, Weapons, Cockpit, PilotedState components + create_mech()) and GameSystems/PCG/pcg.py (PCGEngine, ModuleSelector, LayoutSolver, PropPlacer, PCGRequest/PCGResult; on_tier_change() wired to PCGTier.complexity)."
         },
         {
           "id": "NF0-6",
           "title": "Scaffold ServerAdmin stubs (SteamServerAdmin scripts)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created ServerAdmin/ssa_client.py — SSAClient thin HTTP client for SteamServerAdmin REST API; get_servers(), get_server_status(), get_server_logs() stubs; NOVAFORGE_SERVERS dict for NF3-1 wiring."
         },
         {
           "id": "NF0-7",
           "title": "Scaffold AI/Automation stubs (ArbiterAI integration hooks)",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created AI/arbiter_ai.py — ArbiterAIManager singleton (40-prompt live memory, archive hook, query(), generate_actions(), execute_action()); WorkspaceContext; AIAction dataclass."
         },
         {
           "id": "NF0-8",
           "title": "Link Novaforge to Arbiter: register project profile in Arbiter workspace",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created workspace_profile.json registering Novaforge as an Arbiter-tracked workspace (ai_settings, ssa_integration stub, tech_stack). Discoverable via /projects/list endpoint in ArbiterEngine."
         }
       ]
     },

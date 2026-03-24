@@ -2329,6 +2329,86 @@ def roadmap_next() -> dict:
         return {"task": None, "milestone": None}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SSA0-5 / P1 — Projects panel: list all Arbiter-tracked projects
+# Scans Projects/ for sub-directories that contain a roadmap.json and returns
+# a summary entry for each one.  This is the data source for the Projects panel
+# in the WPF IDE and the remote web UI.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PROJECTS_DIR = _BASE.parent.parent / "Projects"
+
+
+@app.get("/projects/list")
+def projects_list() -> dict:
+    """Return all Arbiter-tracked projects found under the repo-root Projects/ directory.
+
+    Each project is identified by the presence of a ``roadmap.json`` file inside
+    its sub-folder.  Returns summary metadata so the WPF Projects panel and
+    remote web UI can render a project list without reading every roadmap in full.
+    """
+    if not _PROJECTS_DIR.is_dir():
+        return {"projects": []}
+
+    projects = []
+    for proj_dir in sorted(_PROJECTS_DIR.iterdir()):
+        if not proj_dir.is_dir():
+            continue
+        roadmap_path = proj_dir / "roadmap.json"
+        if not roadmap_path.exists():
+            continue
+        try:
+            data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+
+        # Tally phase/milestone progress
+        phases = data.get("phases", data.get("milestones", []))
+        total_tasks = sum(len(p.get("tasks", [])) for p in phases)
+        done_tasks = sum(
+            sum(1 for t in p.get("tasks", []) if t.get("status") == "done")
+            for p in phases
+        )
+        active_phase = next(
+            (p.get("name") or p.get("title") or p.get("id")
+             for p in phases if p.get("status") in ("active", "in_progress")),
+            None,
+        )
+
+        projects.append({
+            "id":            proj_dir.name,
+            "name":          data.get("project", proj_dir.name),
+            "description":   data.get("description", ""),
+            "version":       data.get("version", ""),
+            "last_updated":  data.get("last_updated", ""),
+            "tech_stack":    data.get("tech_stack", {}),
+            "active_phase":  active_phase,
+            "tasks_done":    done_tasks,
+            "tasks_total":   total_tasks,
+            "roadmap_path":  str(roadmap_path.relative_to(_BASE.parent.parent)),
+        })
+
+    return {"projects": projects, "total": len(projects)}
+
+
+@app.get("/projects/{project_id}/roadmap")
+def project_roadmap(project_id: str) -> dict:
+    """Return the full roadmap.json for a specific tracked project."""
+    # Prevent path traversal
+    if "/" in project_id or "\\" in project_id or ".." in project_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid project id")
+    roadmap_path = _PROJECTS_DIR / project_id / "roadmap.json"
+    if not roadmap_path.exists():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    try:
+        return json.loads(roadmap_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Could not read roadmap: {exc}")
+
+
 @app.get("/knowledge/fetch")
 def knowledge_fetch(q: str = "") -> dict:
     return {"results": []}
@@ -7987,8 +8067,6 @@ async def wiki_page(page: str):
 # Parses git log for [arbiter-self-build] commits and returns structured
 # CHANGELOG entries.  Also writes docs/wiki/CHANGELOG.md.
 # ─────────────────────────────────────────────────────────────────────────────
-
-import re as _re_cl  # noqa: F811 – already imported above; alias for clarity
 
 _SELF_BUILD_COMMIT_RE = _re.compile(
     r"\[arbiter-self-build\]\s*(?P<task_id>[\w-]+)?:?\s*(?P<title>.+)",

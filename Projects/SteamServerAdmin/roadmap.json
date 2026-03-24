@@ -21,15 +21,15 @@
     "api_layer": "FastAPI (REST + WebSocket)",
     "web_dashboard": "React or Blazor (dark mode, ChatGPT palette)",
     "ai_platform": "Arbiter AI (ArbiterEngine + PythonBridge)",
-    "logging": "Python RotatingFileHandler \u2192 logs/steam_server_admin/",
+    "logging": "Python RotatingFileHandler → logs/steam_server_admin/",
     "config": "JSON per-server configs in config/"
   },
   "registered_servers": [],
   "phases": [
     {
       "id": 0,
-      "name": "Phase 0 \u2014 Scaffold & Project Setup",
-      "status": "active",
+      "name": "Phase 0 — Scaffold & Project Setup",
+      "status": "done",
       "description": "Initialise the SteamServerAdmin project structure, wire it into Arbiter as a managed project, and create the foundational config and logging infrastructure.",
       "tasks": [
         {
@@ -41,49 +41,53 @@
         {
           "id": "SSA0-2",
           "title": "Per-server JSON config schema: app_id, install_path, branch, launch_args, restart_schedule, update_schedule",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created config/server_schema.json (JSON Schema for per-server configs) and config/example_server.json (annotated example). Schema covers app_id, install_path, branch, launch_args, rcon, restart_schedule, update_schedule, health_rules, permissions, whitelist, notifications."
         },
         {
           "id": "SSA0-3",
-          "title": "Logging setup: write to logs/steam_server_admin/ using a RotatingFileHandler; mirror the logger pattern from Arbiter\u2019s core/logger.py",
-          "status": "pending"
+          "title": "Logging setup: write to logs/steam_server_admin/ using a RotatingFileHandler; mirror the logger pattern from Arbiter’s core/logger.py",
+          "status": "done",
+          "notes": "Created src/logger.py — setup_ssa_logging() and get_ssa_logger() mirroring Arbiter core/logger.py. RotatingFileHandler (5 MB, 5 backups) writes to logs/steam_server_admin/<name>.log."
         },
         {
           "id": "SSA0-4",
           "title": "SteamCMD wrapper: verify SteamCMD is installed; detect platform (Windows/Linux); expose install/update/validate commands",
-          "status": "pending"
+          "status": "done",
+          "notes": "Created src/steamcmd.py — SteamCMD class with find_steamcmd() (platform detection, Windows/Linux paths, shutil.which fallback), update_app(), validate_app(), download_workshop_item(), run_script(). SteamCMDError raised on non-zero exit."
         },
         {
           "id": "SSA0-5",
-          "title": "Register SteamServerAdmin as an Arbiter-tracked project \u2014 roadmap.json listed in Projects/ so it appears in Arbiter\u2019s Projects panel (read-only tracking only; no runtime API coupling)",
-          "status": "pending"
+          "title": "Register SteamServerAdmin as an Arbiter-tracked project — roadmap.json listed in Projects/ so it appears in Arbiter’s Projects panel (read-only tracking only; no runtime API coupling)",
+          "status": "done",
+          "notes": "SteamServerAdmin is already under Projects/SteamServerAdmin/ with roadmap.json. Added /projects/list and /projects/{id}/roadmap endpoints to ArbiterEngine server.py so the WPF Projects panel can enumerate all tracked projects automatically."
         }
       ]
     },
     {
       "id": 1,
-      "name": "Phase 1 \u2014 Core Server Management",
+      "name": "Phase 1 — Core Server Management",
       "status": "pending",
       "description": "Core start/stop/restart/update operations for any registered Steam game server, with configurable pre-restart player warnings.",
       "tasks": [
         {
           "id": "SSA1-1",
-          "title": "ServerManager: start server process \u2014 SteamCMD install + launch via config launch_args",
+          "title": "ServerManager: start server process — SteamCMD install + launch via config launch_args",
           "status": "pending"
         },
         {
           "id": "SSA1-2",
-          "title": "ServerManager: stop server \u2014 graceful RCON shutdown, then SIGTERM fallback with timeout",
+          "title": "ServerManager: stop server — graceful RCON shutdown, then SIGTERM fallback with timeout",
           "status": "pending"
         },
         {
           "id": "SSA1-3",
-          "title": "ServerManager: restart server \u2014 configurable countdown warning messages broadcast to players before shutdown",
+          "title": "ServerManager: restart server — configurable countdown warning messages broadcast to players before shutdown",
           "status": "pending"
         },
         {
           "id": "SSA1-4",
-          "title": "ServerManager: update server \u2014 SteamCMD +app_update <id> validate; broadcast update warning; restart after",
+          "title": "ServerManager: update server — SteamCMD +app_update <id> validate; broadcast update warning; restart after",
           "status": "pending"
         },
         {
@@ -110,13 +114,13 @@
     },
     {
       "id": 2,
-      "name": "Phase 2 \u2014 Role-Based Permissions & Audit",
+      "name": "Phase 2 — Role-Based Permissions & Audit",
       "status": "pending",
       "description": "Enforced permission tiers for server operations, with audit logging of all changes visible in the SSA web dashboard.",
       "tasks": [
         {
           "id": "SSA2-1",
-          "title": "Permission model: four tiers \u2014 Admin (full control), Moderator (kick/ban/say), Operator (restart/update), Standard Player (read-only status)",
+          "title": "Permission model: four tiers — Admin (full control), Moderator (kick/ban/say), Operator (restart/update), Standard Player (read-only status)",
           "status": "pending"
         },
         {
@@ -153,7 +157,7 @@
     },
     {
       "id": 3,
-      "name": "Phase 3 \u2014 REST API & Web Dashboard",
+      "name": "Phase 3 — REST API & Web Dashboard",
       "status": "pending",
       "description": "Full REST API and dark-mode web dashboard so SteamServerAdmin can be operated remotely from any browser.",
       "tasks": [
@@ -174,7 +178,7 @@
         },
         {
           "id": "SSA3-4",
-          "title": "REST audit endpoints: GET /servers/{id}/audit \u2014 paginated JSONL audit log",
+          "title": "REST audit endpoints: GET /servers/{id}/audit — paginated JSONL audit log",
           "status": "pending"
         },
         {
@@ -201,9 +205,9 @@
     },
     {
       "id": 4,
-      "name": "Phase 4 \u2014 AI Health Monitoring & Arbiter Integration",
+      "name": "Phase 4 — AI Health Monitoring & Arbiter Integration",
       "status": "pending",
-      "description": "SSA monitors live server logs, detects health thresholds, and autonomously triggers admin actions. Uses a local AI (configurable LLM backend) for analysis and reporting \u2014 independent of any external AI platform.",
+      "description": "SSA monitors live server logs, detects health thresholds, and autonomously triggers admin actions. Uses a local AI (configurable LLM backend) for analysis and reporting — independent of any external AI platform.",
       "tasks": [
         {
           "id": "SSA4-1",
@@ -222,12 +226,12 @@
         },
         {
           "id": "SSA4-4",
-          "title": "AI analysis report: after each autonomous action, the local AI writes a summary to SSA\u2019s own audit log and issues file with log context and action taken",
+          "title": "AI analysis report: after each autonomous action, the local AI writes a summary to SSA’s own audit log and issues file with log context and action taken",
           "status": "pending"
         },
         {
           "id": "SSA4-5",
-          "title": "AI chat panel in web dashboard: ask the AI \u201cwhat happened to the server?\u201d and get a natural-language summary from the audit log using the local LLM",
+          "title": "AI chat panel in web dashboard: ask the AI “what happened to the server?” and get a natural-language summary from the audit log using the local LLM",
           "status": "pending"
         },
         {
