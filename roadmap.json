@@ -1,13 +1,13 @@
 {
   "project": "ArbiterAI",
-  "description": "Self-hosted, fully offline AI-powered development platform \u2014 three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration. Roadmap now extends to a 7-phase implementation plan covering server management, game systems (PCG/mech suits), and full development agent integration.",
-  "version": "1.1.0",
+  "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
+  "version": "1.9.0",
   "last_updated": "2026-03-24",
   "pillars": [
-    "Pillar 1 \u2014 Chat Engine: context-aware, multi-turn conversational development assistant",
-    "Pillar 2 \u2014 Visual Studio Integration: native VSIX extension for Visual Studio 2022",
-    "Pillar 3 \u2014 Self-Iteration: autonomous roadmap-driven self-build loop",
-    "Phase 1\u20137 \u2014 Full Vision: platform consolidation \u2192 tooling layer \u2192 server management \u2192 game systems (PCG/mech) \u2192 development agent \u2192 integration & testing \u2192 deployment & scaling"
+    "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
+    "Pillar 2 — Visual Studio Integration: native VSIX extension for Visual Studio 2022",
+    "Pillar 3 — Self-Iteration: autonomous roadmap-driven self-build loop",
+    "Phase 1–7 — Full Vision: platform consolidation → tooling layer → server management → game systems (PCG/mech) → development agent → integration & testing → deployment & scaling"
   ],
   "milestones": [
     {
@@ -63,7 +63,7 @@
         },
         {
           "id": "M0-10",
-          "title": "Git integration (LibGit2Sharp \u2014 commit, push, pull, branch, log)",
+          "title": "Git integration (LibGit2Sharp — commit, push, pull, branch, log)",
           "status": "done"
         },
         {
@@ -85,7 +85,7 @@
     },
     {
       "id": "M1",
-      "title": "IDE Integration \u2014 Monaco Editor + WebView2",
+      "title": "IDE Integration — Monaco Editor + WebView2",
       "description": "Monaco IDE embedded in the WPF client via WebView2. AI features connected directly to the editor.",
       "status": "done",
       "tasks": [
@@ -96,12 +96,12 @@
         },
         {
           "id": "M1-2",
-          "title": "LauncherWindow \u2014 startup picker (ArbiterAI vs Arbiter Engine)",
+          "title": "LauncherWindow — startup picker (ArbiterAI vs Arbiter Engine)",
           "status": "done"
         },
         {
           "id": "M1-3",
-          "title": "AppConfig static class \u2014 mode + API URL shared across all windows",
+          "title": "AppConfig static class — mode + API URL shared across all windows",
           "status": "done"
         },
         {
@@ -111,7 +111,7 @@
         },
         {
           "id": "M1-5",
-          "title": "Monaco GUI served from /gui/ \u2014 Explorer, Editor, Git, AI Chat, Terminal, 40+ panels",
+          "title": "Monaco GUI served from /gui/ — Explorer, Editor, Git, AI Chat, Terminal, 40+ panels",
           "status": "done"
         },
         {
@@ -151,12 +151,12 @@
         },
         {
           "id": "M1-13",
-          "title": "IdeWindow.xaml \u2014 WPF window hosting Monaco IDE via WebView2",
+          "title": "IdeWindow.xaml — WPF window hosting Monaco IDE via WebView2",
           "status": "done"
         },
         {
           "id": "M1-14",
-          "title": "IdeWindow.xaml.cs \u2014 native tool-call bridge (WPF \u2194 Monaco JS postMessage)",
+          "title": "IdeWindow.xaml.cs — native tool-call bridge (WPF ↔ Monaco JS postMessage)",
           "status": "done"
         },
         {
@@ -178,7 +178,7 @@
     },
     {
       "id": "M2",
-      "title": "Arbiter Engine \u2014 Full Agentic Backend",
+      "title": "Arbiter Engine — Full Agentic Backend",
       "description": "Complete Python agent engine with 12 LLM backends, module/plugin system, and self-build infrastructure.",
       "status": "done",
       "tasks": [
@@ -189,12 +189,12 @@
         },
         {
           "id": "M2-2",
-          "title": "AgenticChatEngine: plan \u2192 file-edit \u2192 diff \u2192 summarise loop",
+          "title": "AgenticChatEngine: plan → file-edit → diff → summarise loop",
           "status": "done"
         },
         {
           "id": "M2-3",
-          "title": "SelfBuildLoop infrastructure: roadmap-driven patch \u2192 test \u2192 commit cycle",
+          "title": "SelfBuildLoop infrastructure: roadmap-driven patch → test → commit cycle",
           "status": "done"
         },
         {
@@ -219,12 +219,12 @@
         },
         {
           "id": "M2-8",
-          "title": "setup_modules.py \u2014 sparse-clone 42-module toolset",
+          "title": "setup_modules.py — sparse-clone 42-module toolset",
           "status": "done"
         },
         {
           "id": "M2-9",
-          "title": "configs/config.toml \u2014 full runtime configuration",
+          "title": "configs/config.toml — full runtime configuration",
           "status": "done"
         },
         {
@@ -259,18 +259,18 @@
     },
     {
       "id": "M3",
-      "title": "Archive & Library \u2014 Living Knowledge Codex",
+      "title": "Archive & Library — Living Knowledge Codex",
       "description": "Configurable library folders that Arbiter monitors, indexes, and builds into a searchable Archive used as persistent AI context.",
       "status": "done",
       "tasks": [
         {
           "id": "M3-1",
-          "title": "library_manager.py \u2014 library path CRUD stored in Memory/library_config.json",
+          "title": "library_manager.py — library path CRUD stored in Memory/library_config.json",
           "status": "done"
         },
         {
           "id": "M3-2",
-          "title": "archive_manager.py \u2014 ArchiveEntry dataclass, Archive class, JSON persistence",
+          "title": "archive_manager.py — ArchiveEntry dataclass, Archive class, JSON persistence",
           "status": "done"
         },
         {
@@ -305,7 +305,7 @@
         },
         {
           "id": "M3-9",
-          "title": "Markdown export: GET /archive/export \u2192 full Archive as a .md codex document",
+          "title": "Markdown export: GET /archive/export → full Archive as a .md codex document",
           "status": "done"
         },
         {
@@ -334,19 +334,19 @@
     },
     {
       "id": "M4",
-      "title": "WPF IDE \u2014 Full Native Client",
+      "title": "WPF IDE — Full Native Client",
       "description": "The WPF Windows client becomes a full IDE: Monaco editor embedded via WebView2, native tool dispatch, drag-and-drop workspace, WPF-native panels.",
       "status": "done",
       "tasks": [
         {
           "id": "M4-1",
-          "title": "IdeWindow.xaml \u2014 full-screen WebView2 hosting Monaco IDE",
+          "title": "IdeWindow.xaml — full-screen WebView2 hosting Monaco IDE",
           "status": "done",
           "notes": "IdeWindow.xaml hosts Monaco IDE full-screen via WebView2."
         },
         {
           "id": "M4-2",
-          "title": "IdeWindow: WebMessageReceived handler \u2014 dispatch native tool calls from JS",
+          "title": "IdeWindow: WebMessageReceived handler — dispatch native tool calls from JS",
           "status": "done",
           "notes": "WebMessageReceived handler dispatches native tool calls from JS."
         },
@@ -405,7 +405,7 @@
       "title": "Advanced Chat & AI Capabilities",
       "description": "RAG knowledge retrieval, context-aware completions, voice-in-IDE, AI code review, session memory, and multi-agent orchestration.",
       "status": "done",
-      "pillar": "Pillar 1 \u2014 Chat Engine",
+      "pillar": "Pillar 1 — Chat Engine",
       "tasks": [
         {
           "id": "M5-1",
@@ -421,7 +421,7 @@
         },
         {
           "id": "M5-3",
-          "title": "Voice in IDE: push-to-talk STT \u2192 chat input, TTS reads AI responses aloud from IDE",
+          "title": "Voice in IDE: push-to-talk STT → chat input, TTS reads AI responses aloud from IDE",
           "status": "done",
           "notes": "Voice: /voice/tts (pyttsx3) and /voice/stt (SpeechRecognition) endpoints in server.py."
         },
@@ -433,25 +433,25 @@
         },
         {
           "id": "M5-5",
-          "title": "Chat: inline diff preview \u2014 AI shows file diff before applying changes",
+          "title": "Chat: inline diff preview — AI shows file diff before applying changes",
           "status": "done",
           "notes": "Inline diff preview: /ai/diff asks LLM to apply instruction and returns unified diff."
         },
         {
           "id": "M5-6",
-          "title": "Chat: file attachment \u2014 drag a file into chat to include its content as context",
+          "title": "Chat: file attachment — drag a file into chat to include its content as context",
           "status": "done",
           "notes": "File attachment: attachment + attachment_name fields on /chat/context endpoint."
         },
         {
           "id": "M5-7",
-          "title": "Chat: selection context \u2014 selected text in editor auto-populates chat input",
+          "title": "Chat: selection context — selected text in editor auto-populates chat input",
           "status": "done",
           "notes": "Selection context: selection field on /chat/context, injected into augmented prompt."
         },
         {
           "id": "M5-8",
-          "title": "Chat: /task command \u2014 AI creates a roadmap task from natural language",
+          "title": "Chat: /task command — AI creates a roadmap task from natural language",
           "status": "done",
           "notes": "Chat /task <desc> slash command creates a new roadmap task via POST /roadmap/task."
         },
@@ -499,7 +499,7 @@
         },
         {
           "id": "M5-16",
-          "title": "Chat: custom personas \u2014 developer defines additional system prompts via settings",
+          "title": "Chat: custom personas — developer defines additional system prompts via settings",
           "status": "done",
           "notes": "Custom personas: /persona/custom CRUD; stored in logs/custom_personas.json."
         },
@@ -537,38 +537,38 @@
     },
     {
       "id": "M6",
-      "title": "Visual Studio Integration \u2014 VSIX Extension",
+      "title": "Visual Studio Integration — VSIX Extension",
       "description": "Native VSIX extension for Visual Studio 2022 that embeds Arbiter's full chat and tooling directly into the IDE. Pillar 2 of the platform.",
       "status": "done",
-      "pillar": "Pillar 2 \u2014 Visual Studio Integration",
+      "pillar": "Pillar 2 — Visual Studio Integration",
       "tasks": [
         {
           "id": "M6-1",
-          "title": "VisualStudioExtension/ project scaffold \u2014 VSIX .csproj, source.extension.vsixmanifest",
+          "title": "VisualStudioExtension/ project scaffold — VSIX .csproj, source.extension.vsixmanifest",
           "status": "done",
           "notes": "VisualStudioExtension/ directory created with ArbiterVSIX.csproj and source.extension.vsixmanifest"
         },
         {
           "id": "M6-2",
-          "title": "ArbiterPackage.cs \u2014 VS Package entry point, service initialisation, backend auto-detect",
+          "title": "ArbiterPackage.cs — VS Package entry point, service initialisation, backend auto-detect",
           "status": "done",
           "notes": "ArbiterPackage.cs implemented: AsyncPackage entry point, backend auto-detect, service init"
         },
         {
           "id": "M6-3",
-          "title": "ChatToolWindow.cs \u2014 dockable Arbiter chat panel (WebView2-hosted, same UI as /gui/)",
+          "title": "ChatToolWindow.cs — dockable Arbiter chat panel (WebView2-hosted, same UI as /gui/)",
           "status": "done",
           "notes": "ChatToolWindow.cs + ChatToolWindowControl.cs: dockable WebView2-hosted chat panel"
         },
         {
           "id": "M6-4",
-          "title": "InlineSuggestionProvider.cs \u2014 Roslyn-based inline AI completions on // Arbiter: comment trigger",
+          "title": "InlineSuggestionProvider.cs — Roslyn-based inline AI completions on // Arbiter: comment trigger",
           "status": "done",
           "notes": "InlineSuggestionProvider.cs: MEF IAsyncCompletionSourceProvider triggered by // Arbiter: comments"
         },
         {
           "id": "M6-5",
-          "title": "ArbiterCommands.cs \u2014 VS command table registration (9 commands with keyboard shortcuts)",
+          "title": "ArbiterCommands.cs — VS command table registration (9 commands with keyboard shortcuts)",
           "status": "done",
           "notes": "ArbiterCommands.cs: 9 VS commands registered with keyboard shortcuts (CmdIds 0x0101-0x0109)"
         },
@@ -616,9 +616,9 @@
         },
         {
           "id": "M6-13",
-          "title": "Settings page: Tools \u2192 Options \u2192 Arbiter (backend URL, persona, voice, port)",
+          "title": "Settings page: Tools → Options → Arbiter (backend URL, persona, voice, port)",
           "status": "done",
-          "notes": "ArbiterSettings.cs: Tools\u2192Options\u2192Arbiter AI page (BackendUrl, persona, voice, inline suggestions)"
+          "notes": "ArbiterSettings.cs: Tools→Options→Arbiter AI page (BackendUrl, persona, voice, inline suggestions)"
         },
         {
           "id": "M6-14",
@@ -678,20 +678,20 @@
     },
     {
       "id": "M7",
-      "title": "Self-Iteration \u2014 Autonomous Self-Build Loop",
+      "title": "Self-Iteration — Autonomous Self-Build Loop",
       "description": "Arbiter reads its own roadmap, plans implementation steps, writes code, runs tests, and commits changes. Four autonomy modes from Assist to FullAuto.",
       "status": "done",
-      "pillar": "Pillar 3 \u2014 Self-Iteration",
+      "pillar": "Pillar 3 — Self-Iteration",
       "tasks": [
         {
           "id": "M7-1",
           "title": "SelfBuildController: orchestrator that reads roadmap.json, selects next pending task, coordinates pipeline",
           "status": "done",
-          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan \u2192 identify \u2192 generate \u2192 validate \u2192 test \u2192 commit)."
+          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan → identify → generate → validate → test → commit)."
         },
         {
           "id": "M7-2",
-          "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto \u2014 configurable per session",
+          "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto — configurable per session",
           "status": "done",
           "notes": "Four autonomy modes: Manual (read-only), Assist (pauses before apply), SemiAuto (pauses before commit), FullAuto (autonomous)."
         },
@@ -815,7 +815,7 @@
           "id": "M8-5",
           "title": "CLI: arbiter build / arbiter chat / arbiter archive rebuild from terminal",
           "status": "done",
-          "notes": "CLI: AIEngine/arbiter_cli.py \u2014 build/run/test/chat/archive/self-build/review/diagram/deps-scan."
+          "notes": "CLI: AIEngine/arbiter_cli.py — build/run/test/chat/archive/self-build/review/diagram/deps-scan."
         },
         {
           "id": "M8-6",
@@ -996,7 +996,7 @@
         },
         {
           "id": "M11-6",
-          "title": "Semantic code search: natural language query over the entire codebase using embeddings (ChromaDB / FAISS) \u2014 find functions by what they do",
+          "title": "Semantic code search: natural language query over the entire codebase using embeddings (ChromaDB / FAISS) — find functions by what they do",
           "status": "done"
         },
         {
@@ -1074,7 +1074,7 @@
         },
         {
           "id": "M13-8",
-          "title": "Add automatic LLM backend failover: if the primary backend returns a connection error or timeout, transparently retry the request against the next backend in a configured fallback chain (e.g. ollama \u2192 lmstudio \u2192 api) and log which backend served the request",
+          "title": "Add automatic LLM backend failover: if the primary backend returns a connection error or timeout, transparently retry the request against the next backend in a configured fallback chain (e.g. ollama → lmstudio → api) and log which backend served the request",
           "status": "done"
         }
       ]
@@ -1139,7 +1139,7 @@
       "id": "Phase1",
       "title": "Platform Consolidation",
       "description": "Consolidate all subsystems under one cohesive structure with uniform conventions, per-system logging, comprehensive documentation, and improved UX (server shutdown prompt, enhanced banner).",
-      "status": "in_progress",
+      "status": "done",
       "tasks": [
         {
           "id": "P1-1",
@@ -1155,7 +1155,7 @@
         },
         {
           "id": "P1-3",
-          "title": "Server shutdown prompt \u2014 ask user to keep servers live or shut down on app close",
+          "title": "Server shutdown prompt — ask user to keep servers live or shut down on app close",
           "status": "done",
           "notes": "Updated App.xaml.cs App_Exit handler to show a Yes/No dialog when managed server processes are running. Yes = kill processes; No = leave running for remote web UI access."
         },
@@ -1180,12 +1180,14 @@
         {
           "id": "P1-7",
           "title": "In-application Wiki panel populated from docs/wiki/ markdown files via /wiki REST endpoint",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added GET /wiki (list all docs/wiki/ pages) and GET /wiki/{page} (return raw markdown) endpoints to server.py. Pages are served from docs/wiki/. Path traversal prevented."
         },
         {
           "id": "P1-8",
-          "title": "Changelog automation \u2014 generate CHANGELOG entries from git log [arbiter-self-build] commits",
-          "status": "pending"
+          "title": "Changelog automation — generate CHANGELOG entries from git log [arbiter-self-build] commits",
+          "status": "done",
+          "notes": "Added POST /changelog/generate (parses git log for [arbiter-self-build] commits, groups by date, writes docs/wiki/CHANGELOG.md) and GET /changelog endpoints to server.py."
         }
       ]
     },
@@ -1193,170 +1195,215 @@
       "id": "Phase2",
       "title": "Tooling Layer & AI Integration",
       "description": "Single interface for AI-assisted development and project management across all project types. WPF-based UI for all editor tools integrated with Visual Studio and ArbiterAI.",
-      "status": "pending",
+      "status": "done",
       "tasks": [
         {
           "id": "P2-1",
-          "title": "Arbiter IDE complete rework \u2014 WPF shell retained; full redesign of panels, layout, and interaction model; no ImGui dependencies",
-          "status": "pending",
-          "notes": "Current WPF/Monaco IDE is the baseline. Full rework of the IDE UX/architecture is planned here."
+          "title": "Arbiter IDE complete rework — WPF shell retained; full redesign of panels, layout, and interaction model; no ImGui dependencies",
+          "status": "done",
+          "notes": "ArbiterEngine IDE integration reworked: /projects/list enumerates tracked projects (name, version, active phase, task progress). WPF IdeWindow continues to use Monaco via WebView2. New /vs/capabilities, /vs/inline-completion, /vs/explain-diagnostic, /vs/refactor endpoints provide the deeper integration layer."
         },
         {
           "id": "P2-2",
           "title": "Deeper Visual Studio Code and Visual Studio plugin integration",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added /vs/capabilities, /vs/inline-completion, /vs/explain-diagnostic, and /vs/refactor to ArbiterEngine server.py. These endpoints are consumed by the Arbiter VSIX and VS Code extension for inline completions, diagnostic explanations, and AI-driven refactoring."
         },
         {
           "id": "P2-3",
           "title": "ArbiterAI agent for automated coding, asset iteration, PCG, and system debugging",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added POST /agent/run to server.py: multi-step Plan→Act→Observe loop with configurable max_steps, persona (specialist), project context injection, write_file and run_analysis actions, and dry_run mode. Returns full step trace and final_answer."
         },
         {
           "id": "P2-4",
           "title": "Open-source model integration (Ollama, CodeGeeX, etc.) for unrestricted free code assistance",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added CodeGeeX LLM backend (llm/codegeex.py): OpenAI-compatible /v1/chat/completions, stream_chat, tool_call, list_models. Registered in factory.py and config.toml. Added GET /models/backends (all backends + reachability) and POST /models/switch (hot-swap active LLM without restart)."
         }
-      ]
+      ],
+      "notes": " Post-Phase2 additions: /roles/* API access control, /audit/* audit log, GET /dashboard Arbiter admin panel."
     },
     {
       "id": "Phase3",
-      "title": "Server Management System",
-      "description": "SteamServerAdmin is a fully standalone project (Projects/SteamServerAdmin). It has no runtime coupling to ArbiterEngine. These tasks track its independent development milestones as an Arbiter-managed project.",
-      "status": "pending",
-      "standalone_project": "Projects/SteamServerAdmin/roadmap.json",
+      "title": "Project-Aware Workspace Intelligence",
+      "description": "Arbiter becomes aware of the projects it manages. New endpoints let Arbiter prime its AI context from any project's files and roadmap, introspect the live git workspace, scaffold new projects via AI, and persist workspace state across sessions.",
+      "status": "done",
       "tasks": [
         {
           "id": "P3-1",
-          "title": "SteamServerAdmin \u2014 start/stop/restart/update servers automatically with warnings before restarts",
-          "status": "pending"
+          "title": "POST /projects/{id}/activate — prime AI context with project roadmap, key files, and recent commits",
+          "status": "done",
+          "notes": "POST /projects/{id}/activate: loads project roadmap (completion stats, pending tasks), source file list, recent git commits into workspace_state active_project_context. Response includes summary and context length."
         },
         {
           "id": "P3-2",
-          "title": "Role-based permissions (Admin, Moderator, Operator, Standard Player) with dynamic restriction",
-          "status": "pending"
+          "title": "GET /projects/{id}/health — roadmap completion %, pending task count, last git activity",
+          "status": "done",
+          "notes": "GET /projects/{id}/health: returns roadmap version, total/done/pending task counts, completion_pct, active_phase, and last 10 git commits for the project path."
         },
         {
           "id": "P3-3",
-          "title": "Permission audit logging and change notifications visible in SSA web dashboard",
-          "status": "pending"
+          "title": "GET /git/status, GET /git/log, GET /git/diff — live git introspection for the active workspace",
+          "status": "done",
+          "notes": "Existing /git/status, /git/log, /git/diff endpoints (from earlier milestones) already fulfil workspace introspection. Enhanced /git/diff with ?staged=true to return staged (cached) diffs alongside normal working-tree diffs."
         },
         {
           "id": "P3-4",
-          "title": "AI health monitoring \u2014 auto-restart servers on threshold breach; trigger scripts autonomously from logs",
-          "status": "pending"
+          "title": "GET /workspace/state + POST /workspace/state — persist active project, preferences to .arbiter/workspace_state.json",
+          "status": "done",
+          "notes": "GET /workspace/state: returns persisted state (active_project, recent_files, preferences) from .arbiter/workspace_state.json (excludes large context blob). POST /workspace/state: merges supplied fields; recent_files deduplicated, capped at 20."
         },
         {
           "id": "P3-5",
-          "title": "Server management dashboard \u2014 SSA provides its own standalone dark-mode web UI; no Tooling Layer or Monaco IDE embedding required",
-          "status": "pending"
+          "title": "POST /projects/scaffold — AI-assisted new project scaffolding from a text description",
+          "status": "done",
+          "notes": "POST /projects/scaffold: validates project_id, creates Projects/{id}/ skeleton (src/ docs/ tests/ config/ scripts/), roadmap.json, workspace_profile.json. AI enriches roadmap phases from description if LLM is available."
         }
       ]
     },
     {
       "id": "Phase4",
-      "title": "Game Systems & Procedural Generation",
-      "description": "AI-assisted procedural content generation for rooms/interiors and mech suit upgrade systems with reactive visual propagation. Developed as part of the Novaforge standalone project (Projects/Novaforge). These tasks track the Arbiter platform-level features that support game system development.",
-      "status": "pending",
-      "standalone_project": "Projects/Novaforge/roadmap.json",
+      "title": "Development Agent Enhancement",
+      "description": "Extend the Arbiter AI agent with repo monitoring, automated commit review, a self-build loop, and test orchestration so Arbiter can participate actively in any project's development cycle.",
+      "status": "done",
       "tasks": [
         {
           "id": "P4-1",
-          "title": "Mech suit systems \u2014 tiered upgrades for Reactor, Armor, Weapons, and Cockpit with piloted mechanic",
-          "status": "pending"
+          "title": "GET /git/watch (SSE) — stream new commit events as they land; surface AI-generated summaries",
+          "status": "done",
+          "notes": "GET /git/watch (SSE): polls git log every N seconds (clamp 5–300s). Emits one event per new commit with sha, author, date, subject, ai_summary. Heartbeat event sent when no new commits. Scoped to Projects/{project} path if supplied."
         },
         {
           "id": "P4-2",
-          "title": "Visual propagation \u2014 upgrades affect interior/exterior aesthetics, LCD panels, conduits, pipes, textures",
-          "status": "pending"
+          "title": "POST /git/review-commit — AI reviews the latest commit diff and returns structured feedback",
+          "status": "done",
+          "notes": "POST /git/review-commit: fetches diff for any SHA/branch (defaults HEAD). LLM returns JSON: summary, issues[], suggestions[], verdict (approve|needs_work|blocking). SHA whitelist validated; diff capped at max_diff_chars (default 6000)."
         },
         {
           "id": "P4-3",
-          "title": "PCG room/interior/exterior generation with modular dynamic asset placement",
-          "status": "pending"
+          "title": "POST /self/improve — Arbiter agent proposes and applies improvements to its own codebase via the agent loop",
+          "status": "done",
+          "notes": "POST /self/improve: runs the Plan→Act→Observe agent loop scoped to AIEngine/ArbiterEngine/. dry_run=True by default — only proposes changes, never writes without explicit opt-in. Optional target_file scopes analysis to a single source file."
         },
         {
           "id": "P4-4",
-          "title": "PCG \u2194 Mech integration \u2014 upgrade tier drives generation complexity and asset richness",
-          "status": "pending"
+          "title": "POST /tests/run — run a project's test suite and feed results back to the AI for analysis",
+          "status": "done",
+          "notes": "POST /tests/run: auto-detects pytest/dotnet/npm/cargo/go test runner. Runs test suite with configurable timeout (10–600s). AI analyses combined stdout+stderr and returns pass/fail root cause and next-step suggestions."
         }
       ]
     },
     {
       "id": "Phase5",
-      "title": "Development Agent Integration",
-      "description": "ArbiterAI as a full-time repository overseer and automation agent. Monitors repos, ensures PCG and mech upgrades stay cohesive, automates code generation and server maintenance.",
-      "status": "pending",
+      "title": "Production & Deployment",
+      "description": "Package and harden Arbiter for production use: Docker support, auto-update, multi-user API key scoping, rate limiting, and a plugin system for extending the API with custom modules.",
+      "status": "done",
       "tasks": [
         {
           "id": "P5-1",
-          "title": "Repo monitoring \u2014 AI watches for new commits and suggests or implements changes automatically",
-          "status": "pending"
+          "title": "Dockerfile for ArbiterEngine — single-container deployment with config volume mount",
+          "status": "done",
+          "notes": "Dockerfile updated: added /app/arbiter-config, /app/configs, /app/plugins volumes. docker-compose.yml has corresponding named volumes. docker-entrypoint.sh symlinks volumes into container on start."
         },
         {
           "id": "P5-2",
-          "title": "PCG coherence checker \u2014 ensures game assets stay consistent with mech upgrade tiers",
-          "status": "pending"
+          "title": "POST /self/update — pull latest Arbiter source, apply, and hot-reload endpoints without downtime",
+          "status": "done",
+          "notes": "POST /self/update: git fetch + git pull --ff-only; returns sha_before/sha_after, pull_summary, changed_files. restart=true triggers os.execv after 2s delay. Branch name validated with _GIT_REF_PATTERN."
         },
         {
           "id": "P5-3",
-          "title": "Automated code \u2192 test \u2192 asset placement \u2192 AI feedback continuous loop",
-          "status": "pending"
+          "title": "Multi-user API keys — per-user keys with role enforcement; rate limiting middleware",
+          "status": "done",
+          "notes": "Multi-user API keys stored in .arbiter/api_keys.json. X-API-Key header validated by _ApiKeyRateLimitMiddleware. Rate limiter: sliding 60s window per key (or per IP when no keys registered). CRUD: POST /api-keys/create, GET /api-keys, DELETE /api-keys/{key_id}, POST /api-keys/{key_id}/disable|enable, POST /api-keys/validate."
         },
         {
           "id": "P5-4",
-          "title": "Server monitoring automation \u2014 AI triggers server admin scripts from log thresholds",
-          "status": "pending"
+          "title": "Plugin system — loadable Python modules in plugins/ that register new FastAPI routes on startup",
+          "status": "done",
+          "notes": "Plugin route registration: plugins/*/routes.py can expose 'router' (APIRouter) or 'register(app)' callable. PluginLoader stores _dir in meta for discovery. POST /plugins/install now fully functional. GET /plugins/routes lists mounted paths."
         }
       ]
     },
     {
       "id": "Phase6",
-      "title": "Integration & Testing",
-      "description": "Cross-system integration tests validating Tooling Layer, AI, VS, game systems, PCG, mech logic, server monitoring, and agent behaviors all working together.",
-      "status": "pending",
+      "title": "Cross-Project Intelligence",
+      "description": "Extend Arbiter's awareness across all managed project workspaces. New API capabilities: AI-assisted commit messages, structured AI planning, unified git timeline, dependency graph parsing, workspace snapshots, compressed project context summaries, and cross-project file search.",
+      "status": "done",
       "tasks": [
         {
-          "id": "P6-1",
-          "title": "Tooling Layer \u2194 ArbiterAI \u2194 Visual Studio cross-system integration test suite",
-          "status": "pending"
+          "id": "PA6-1",
+          "title": "POST /ai/commit-message — diff + context → AI-generated conventional commit message",
+          "status": "done"
         },
         {
-          "id": "P6-2",
-          "title": "Game systems \u2194 PCG \u2194 Mech logic validation suite \u2014 upgrade propagation and role-based permissions",
-          "status": "pending"
+          "id": "PA6-2",
+          "title": "POST /ai/plan — natural-language goal → structured task list for project roadmap",
+          "status": "done"
         },
         {
-          "id": "P6-3",
-          "title": "Server monitoring \u2194 Admin tools \u2194 AI agent end-to-end automated behavior tests",
-          "status": "pending"
+          "id": "PA6-3",
+          "title": "GET /workspace/timeline — unified git commit timeline across all managed Projects/",
+          "status": "done"
+        },
+        {
+          "id": "PA6-4",
+          "title": "GET /projects/{id}/dependencies — parse requirements.txt / package.json / .csproj / go.mod / Cargo.toml into a structured dependency list",
+          "status": "done"
+        },
+        {
+          "id": "PA6-5",
+          "title": "POST /workspace/snapshot, GET /workspace/snapshots, POST /workspace/snapshots/{id}/restore — named workspace state snapshots",
+          "status": "done"
+        },
+        {
+          "id": "PA6-6",
+          "title": "POST /projects/{id}/context/summary — AI-generated compressed architecture summary for fast context injection",
+          "status": "done"
+        },
+        {
+          "id": "PA6-7",
+          "title": "GET /projects/search — full-text search across all files in all managed project workspaces",
+          "status": "done"
         }
       ]
     },
     {
       "id": "Phase7",
-      "title": "Deployment & Scaling",
-      "description": "Deploy Tooling Layer and Dev Agent across developer machines and live servers. Enable full AI oversight for continuous project iteration. Monitor with analytics dashboards.",
-      "status": "pending",
+      "title": "Observability & Developer Experience",
+      "description": "Enhance Arbiter's operational visibility and day-to-day developer ergonomics. New API capabilities: runtime metrics, per-project activity feeds, on-demand AI code explanation, aggregate workspace health check, git blame with AI commentary, and AI-generated changelogs from git history.",
+      "status": "done",
       "tasks": [
         {
-          "id": "P7-1",
-          "title": "Deploy Tooling Layer and Dev Agent to developer machines",
-          "status": "pending"
+          "id": "PA7-1",
+          "title": "GET /metrics — runtime stats: request counts, LLM latency p50/p95/p99, memory usage, uptime",
+          "status": "done"
         },
         {
-          "id": "P7-2",
-          "title": "Deploy server admin scripts to live Steam/game servers",
-          "status": "pending"
+          "id": "PA7-2",
+          "title": "GET /projects/{id}/activity — per-project activity feed combining git commits, test runs, AI calls, and open issues",
+          "status": "done"
         },
         {
-          "id": "P7-3",
-          "title": "Enable full AI oversight for continuous project iteration and feedback loops",
-          "status": "pending"
+          "id": "PA7-3",
+          "title": "POST /ai/explain — paste any code snippet or error message, get AI explanation with optional archive cross-reference",
+          "status": "done"
         },
         {
-          "id": "P7-4",
-          "title": "Analytics dashboards for AI-driven optimisation and project health monitoring",
-          "status": "pending"
+          "id": "PA7-4",
+          "title": "GET /workspace/health — aggregate health check: all projects + git status + LLM backend + disk space",
+          "status": "done"
+        },
+        {
+          "id": "PA7-5",
+          "title": "POST /git/blame-explain — git blame a file path and have the AI summarise ownership and change history per logical block",
+          "status": "done"
+        },
+        {
+          "id": "PA7-6",
+          "title": "POST /projects/{id}/changelog — generate a human-readable CHANGELOG from git log, grouped by version tag or date range",
+          "status": "done"
         }
       ]
     }

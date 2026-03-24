@@ -1,6 +1,7 @@
-# ─── Arbiter Engine — Docker image (M8-6) ────────────────────────────────────
+# ─── Arbiter Engine — Docker image (Phase 5 / P5-1) ──────────────────────────
 #
-# One-command self-hosted Arbiter server (backend only).
+# Single-container deployment for the ArbiterEngine FastAPI backend.
+# PythonBridge runs in the same container for simplicity.
 #
 # Usage:
 #   docker build -t arbiter-engine .
@@ -14,17 +15,21 @@
 #   • PythonBridge FastAPI server  (port 8000)  — optional
 #   • All Python dependencies
 #
-# Data volumes:
-#   /app/workspace   — projects & workspace files
-#   /app/Memory      — archive, library config, conversation logs
-#   /app/logs        — session snapshot, self-build telemetry
+# Data volumes (mount these for persistence):
+#   /app/arbiter-config  — .arbiter/ state (api_keys, roles, audit log, workspace state)
+#   /app/configs         — user-editable TOML configuration files
+#   /app/plugins         — user-installed Arbiter plugins (plugin.json + routes.py)
+#   /app/workspace       — projects & workspace files
+#   /app/Memory          — archive, library config, conversation logs
+#   /app/logs            — session snapshot, self-build telemetry
 #
 # Environment variables:
-#   ARBITER_ENGINE_PORT   Port for ArbiterEngine  (default 8001)
-#   ARBITER_BRIDGE_PORT   Port for PythonBridge   (default 8000)
-#   OLLAMA_HOST           Ollama server URL        (default http://host.docker.internal:11434)
-#   ARBITER_LLM_BACKEND   LLM backend name         (default ollama)
-#   ARBITER_LOG_LEVEL     Logging level            (default info)
+#   ARBITER_ENGINE_PORT      Port for ArbiterEngine  (default 8001)
+#   ARBITER_BRIDGE_PORT      Port for PythonBridge   (default 8000)
+#   OLLAMA_HOST              Ollama server URL        (default http://host.docker.internal:11434)
+#   ARBITER_LLM_BACKEND      LLM backend name         (default ollama)
+#   ARBITER_LOG_LEVEL        Logging level            (default info)
+#   ARBITER_REQUIRE_API_KEY  Set to "true" to enforce API key auth even with no keys registered
 # ─────────────────────────────────────────────────────────────────────────────
 
 FROM python:3.12-slim AS base
@@ -62,6 +67,9 @@ COPY roadmap.json             ./roadmap.json
 
 # ── Persistent data directories ───────────────────────────────────────────────
 RUN mkdir -p \
+        /app/arbiter-config \
+        /app/configs \
+        /app/plugins \
         /app/workspace \
         /app/Memory/ConversationLogs \
         /app/Memory/archive \
@@ -70,7 +78,7 @@ RUN mkdir -p \
         /app/ArbiterEngine/workspace \
     && chown -R arbiter:arbiter /app
 
-VOLUME ["/app/workspace", "/app/Memory", "/app/logs"]
+VOLUME ["/app/arbiter-config", "/app/configs", "/app/plugins", "/app/workspace", "/app/Memory", "/app/logs"]
 
 # ── Switch to unprivileged user ────────────────────────────────────────────────
 USER arbiter
@@ -85,6 +93,7 @@ ENV ARBITER_ENGINE_PORT=8001 \
     OLLAMA_HOST=http://host.docker.internal:11434 \
     ARBITER_LLM_BACKEND=ollama \
     ARBITER_LOG_LEVEL=info \
+    ARBITER_REQUIRE_API_KEY=false \
     PYTHONUNBUFFERED=1
 # Note: OLLAMA_HOST=http://host.docker.internal:11434 is the default for Docker Desktop
 # (Windows/macOS). On Linux hosts, override with:

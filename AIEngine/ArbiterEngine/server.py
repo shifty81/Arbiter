@@ -35,7 +35,7 @@ import functools
 import threading
 import time
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -1595,16 +1595,22 @@ def git_log(path: str = "workspace", limit: int = 20) -> dict:
 
 
 @app.get("/git/diff")
-def git_diff(path: str = "workspace", file: str = "") -> dict:
+def git_diff(path: str = "workspace", file: str = "", staged: bool = False) -> dict:
+    """Return the current diff for a workspace path.
+
+    Pass ``?staged=true`` to see the staged (cached) diff.  P3-3
+    """
     root = _ALLOWED_ROOTS.get(
         Path(path).parts[0].lower() if Path(path).parts else "workspace",
         _ALLOWED_ROOTS["workspace"],
     )
     git_args = ["diff"]
+    if staged:
+        git_args.append("--cached")
     if file:
         git_args += ["--", file]
     r = _run_git_cmd(git_args, root, timeout=10)
-    return {"diff": r.get("stdout", "")}
+    return {"diff": r.get("stdout", ""), "staged": staged}
 
 
 # ─── Project health / init ────────────────────────────────────────────────────
@@ -2327,6 +2333,86 @@ def roadmap_next() -> dict:
         }
     except Exception:
         return {"task": None, "milestone": None}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SSA0-5 / P1 — Projects panel: list all Arbiter-tracked projects
+# Scans Projects/ for sub-directories that contain a roadmap.json and returns
+# a summary entry for each one.  This is the data source for the Projects panel
+# in the WPF IDE and the remote web UI.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PROJECTS_DIR = _BASE.parent.parent / "Projects"
+
+
+@app.get("/projects/list")
+def projects_list() -> dict:
+    """Return all Arbiter-tracked projects found under the repo-root Projects/ directory.
+
+    Each project is identified by the presence of a ``roadmap.json`` file inside
+    its sub-folder.  Returns summary metadata so the WPF Projects panel and
+    remote web UI can render a project list without reading every roadmap in full.
+    """
+    if not _PROJECTS_DIR.is_dir():
+        return {"projects": []}
+
+    projects = []
+    for proj_dir in sorted(_PROJECTS_DIR.iterdir()):
+        if not proj_dir.is_dir():
+            continue
+        roadmap_path = proj_dir / "roadmap.json"
+        if not roadmap_path.exists():
+            continue
+        try:
+            data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+
+        # Tally phase/milestone progress
+        phases = data.get("phases", data.get("milestones", []))
+        total_tasks = sum(len(p.get("tasks", [])) for p in phases)
+        done_tasks = sum(
+            sum(1 for t in p.get("tasks", []) if t.get("status") == "done")
+            for p in phases
+        )
+        active_phase = next(
+            (p.get("name") or p.get("title") or p.get("id")
+             for p in phases if p.get("status") in ("active", "in_progress")),
+            None,
+        )
+
+        projects.append({
+            "id":            proj_dir.name,
+            "name":          data.get("project", proj_dir.name),
+            "description":   data.get("description", ""),
+            "version":       data.get("version", ""),
+            "last_updated":  data.get("last_updated", ""),
+            "tech_stack":    data.get("tech_stack", {}),
+            "active_phase":  active_phase,
+            "tasks_done":    done_tasks,
+            "tasks_total":   total_tasks,
+            "roadmap_path":  str(roadmap_path.relative_to(_BASE.parent.parent)),
+        })
+
+    return {"projects": projects, "total": len(projects)}
+
+
+@app.get("/projects/{project_id}/roadmap")
+def project_roadmap(project_id: str) -> dict:
+    """Return the full roadmap.json for a specific tracked project."""
+    # Prevent path traversal
+    if "/" in project_id or "\\" in project_id or ".." in project_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid project id")
+    roadmap_path = _PROJECTS_DIR / project_id / "roadmap.json"
+    if not roadmap_path.exists():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    try:
+        return json.loads(roadmap_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Could not read roadmap: {exc}")
 
 
 @app.get("/knowledge/fetch")
@@ -7934,6 +8020,3971 @@ async def review_workflow(req: _ReviewWorkflowReq) -> dict:
         "lint":        lint_result,
         "complexity":  complexity_result,
         "review":      review_data,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1-7 — In-application Wiki panel: /wiki REST endpoints
+# Serves markdown files from docs/wiki/ so the WPF IDE can display them.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WIKI_DIR = _BASE.parent.parent / "docs" / "wiki"
+
+
+@app.get("/wiki")
+async def wiki_list():
+    """Return a list of all wiki documents (name + title extracted from first heading)."""
+    if not _WIKI_DIR.is_dir():
+        return {"pages": []}
+    pages = []
+    for md_file in sorted(_WIKI_DIR.glob("*.md")):
+        title = md_file.stem.replace("_", " ").replace("-", " ").title()
+        try:
+            first_line = md_file.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+            if first_line.startswith("#"):
+                title = first_line.lstrip("#").strip()
+        except Exception:
+            pass
+        pages.append({"name": md_file.stem, "filename": md_file.name, "title": title})
+    return {"pages": pages}
+
+
+@app.get("/wiki/{page}")
+async def wiki_page(page: str):
+    """Return the raw markdown content of a single wiki page.
+
+    *page* is the filename stem (without ``.md``).  The endpoint also accepts
+    the full filename with extension for convenience.
+    """
+    # Strip .md extension if passed
+    stem = page.removesuffix(".md")
+    # Prevent path traversal
+    if "/" in stem or "\\" in stem or ".." in stem:
+        raise HTTPException(status_code=400, detail="invalid page name")
+    md_path = _WIKI_DIR / f"{stem}.md"
+    if not md_path.exists():
+        raise HTTPException(status_code=404, detail=f"page '{stem}' not found")
+    content = md_path.read_text(encoding="utf-8", errors="replace")
+    return {"name": stem, "filename": md_path.name, "content": content}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1-8 — Changelog automation: /changelog/generate
+# Parses git log for [arbiter-self-build] commits and returns structured
+# CHANGELOG entries.  Also writes docs/wiki/CHANGELOG.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SELF_BUILD_COMMIT_RE = _re.compile(
+    r"\[arbiter-self-build\]\s*(?P<task_id>[\w-]+)?:?\s*(?P<title>.+)",
+    _re.IGNORECASE,
+)
+_CHANGELOG_WIKI_PATH = _BASE.parent.parent / "docs" / "wiki" / "CHANGELOG.md"
+
+
+def _git_log_self_build(repo_root: Path, max_commits: int = 500) -> list[dict]:
+    """Return parsed [arbiter-self-build] commit metadata from the git log."""
+    try:
+        result = subprocess.run(
+            [
+                "git", "-C", str(repo_root), "log",
+                f"--max-count={max_commits}",
+                "--pretty=format:%H%x1f%as%x1f%s",  # hash, date (YYYY-MM-DD), subject
+                "--grep=[arbiter-self-build]",
+                "--regexp-ignore-case",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+    except Exception:
+        return []
+
+    entries: list[dict] = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\x1f", 2)
+        if len(parts) != 3:
+            continue
+        sha, date, subject = parts
+        m = _SELF_BUILD_COMMIT_RE.search(subject)
+        task_id = m.group("task_id") if m else None
+        title = m.group("title").strip() if m else subject.strip()
+        entries.append({"sha": sha[:12], "date": date, "task_id": task_id, "title": title})
+    return entries
+
+
+def _build_changelog_markdown(entries: list[dict]) -> str:
+    """Convert parsed git entries into a CHANGELOG.md-style markdown string."""
+    if not entries:
+        return "# Changelog\n\nNo `[arbiter-self-build]` commits found.\n"
+
+    # Group by date (YYYY-MM-DD)
+    by_date: dict[str, list[dict]] = {}
+    for e in entries:
+        by_date.setdefault(e["date"], []).append(e)
+
+    lines = ["# Changelog", "", "_Auto-generated from `[arbiter-self-build]` git commits._", ""]
+    for date in sorted(by_date, reverse=True):
+        lines.append(f"## {date}")
+        lines.append("")
+        for e in by_date[date]:
+            prefix = f"[{e['task_id']}] " if e["task_id"] else ""
+            lines.append(f"- {prefix}{e['title']} (`{e['sha']}`)")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@app.post("/changelog/generate")
+async def changelog_generate(max_commits: int = 500, write_file: bool = True):
+    """Generate CHANGELOG entries from ``[arbiter-self-build]`` git commits.
+
+    Optionally writes the result to ``docs/wiki/CHANGELOG.md``.
+
+    Returns the generated markdown and the list of parsed entries.
+    """
+    repo_root = _BASE.parent.parent
+    entries = await _asyncio.to_thread(_git_log_self_build, repo_root, max_commits)
+    markdown = _build_changelog_markdown(entries)
+
+    written = False
+    if write_file:
+        try:
+            _CHANGELOG_WIKI_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _CHANGELOG_WIKI_PATH.write_text(markdown, encoding="utf-8")
+            written = True
+        except Exception as exc:
+            logger.warning("Could not write CHANGELOG.md: %s", exc)
+
+    return {
+        "entries": entries,
+        "total": len(entries),
+        "markdown": markdown,
+        "written_to": str(_CHANGELOG_WIKI_PATH) if written else None,
+    }
+
+
+@app.get("/changelog")
+async def changelog_get():
+    """Return the existing CHANGELOG.md content from docs/wiki/ (if present)."""
+    if not _CHANGELOG_WIKI_PATH.exists():
+        return {"content": None, "message": "No changelog found. POST /changelog/generate to create one."}
+    content = _CHANGELOG_WIKI_PATH.read_text(encoding="utf-8", errors="replace")
+    return {"content": content}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P2-3 — ArbiterAI Automation Agent
+# Runs a multi-step AI agent loop that reads project context, generates a
+# plan, and executes coding/asset/debug actions autonomously.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _AgentRunReq(BaseModel):
+    project: str = "default"
+    goal: str                          # natural-language task description
+    max_steps: int = 5                 # hard cap on agent iterations
+    persona: str = "senior_developer"  # which persona to adopt
+    dry_run: bool = False              # if True, plan only — no file writes
+
+
+class _AgentStep(BaseModel):
+    step: int
+    action: str
+    result: str
+    status: str  # success | error | skipped
+
+
+@app.post("/agent/run")
+async def agent_run(req: _AgentRunReq) -> dict:
+    """Run the ArbiterAI automation agent for a natural-language goal.
+
+    The agent executes up to *max_steps* iterations of a Plan → Act → Observe
+    loop.  Each iteration:
+
+    1. Reads current project context (files, recent chat history, workspace profile).
+    2. Asks the LLM what to do next toward *goal* (returns JSON action).
+    3. Executes the action (write file, call tool, run analysis).
+    4. Feeds the observation back into the next iteration.
+
+    P2-3
+    """
+    base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+    p = Path(req.project)
+    project_dir = p if (p.is_absolute() and p.exists()) else base / req.project
+
+    persona_system = _SPECIALIST_PROMPTS.get(
+        req.persona,
+        _SPECIALIST_PROMPTS.get("backend", "You are a senior developer."),
+    )
+
+    system_prompt = (
+        f"{persona_system}\n\n"
+        "You are an autonomous coding agent. For each step return a JSON object:\n"
+        '{"action": "write_file|run_analysis|answer|done", '
+        '"path": "<relative path if write_file>", '
+        '"content": "<file content or analysis request>", '
+        '"reasoning": "<why this step>"}\n'
+        "Output ONLY the JSON object, nothing else."
+    )
+
+    # Seed context: list top-level files in project dir
+    try:
+        if project_dir.is_dir():
+            file_list = "\n".join(
+                str(f.relative_to(project_dir))
+                for f in sorted(project_dir.rglob("*"))
+                if f.is_file() and not any(p in f.parts for p in (".git", "__pycache__", "node_modules"))
+            )[:2000]
+        else:
+            file_list = "(project directory not found)"
+    except Exception:
+        file_list = "(could not list files)"
+
+    messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content":
+            f"Project: {req.project}\n"
+            f"Goal: {req.goal}\n\n"
+            f"Current project files:\n{file_list}\n\n"
+            "Begin planning. Return your first action JSON."},
+    ]
+
+    steps: list[_AgentStep] = []
+    final_answer: str = ""
+
+    for step_num in range(1, req.max_steps + 1):
+        try:
+            raw = await _asyncio.to_thread(
+                _llm.chat,
+                messages,
+            )
+        except Exception as exc:
+            steps.append(_AgentStep(step=step_num, action="error", result=str(exc), status="error"))
+            break
+
+        # Parse the JSON action
+        json_match = _re.search(r"\{[\s\S]+?\}", raw)
+        if not json_match:
+            steps.append(_AgentStep(step=step_num, action="parse_error", result=raw[:200], status="error"))
+            break
+
+        try:
+            action_data = json.loads(json_match.group())
+        except Exception:
+            steps.append(_AgentStep(step=step_num, action="parse_error", result=raw[:200], status="error"))
+            break
+
+        action_type = action_data.get("action", "answer")
+        reasoning   = action_data.get("reasoning", "")
+
+        # ── Execute the action ────────────────────────────────────────────────
+        if action_type == "done" or action_type == "answer":
+            final_answer = action_data.get("content", reasoning)
+            steps.append(_AgentStep(step=step_num, action="done", result=final_answer[:500], status="success"))
+            break
+
+        elif action_type == "write_file":
+            rel_path = action_data.get("path", "")
+            content  = action_data.get("content", "")
+            observation = "skipped (dry_run=True)"
+            if not req.dry_run and rel_path and project_dir.is_dir():
+                try:
+                    target = (project_dir / rel_path).resolve()
+                    # Guard: must stay inside project_dir
+                    try:
+                        target.relative_to(project_dir.resolve())
+                    except ValueError:
+                        observation = f"Write rejected: path '{rel_path}' escapes project directory"
+                        steps.append(_AgentStep(step=step_num, action=f"write_file:{rel_path}", result=observation, status="error"))
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content, encoding="utf-8")
+                    observation = f"Written {len(content)} chars to {rel_path}"
+                except Exception as exc:
+                    observation = f"Write failed: {exc}"
+            steps.append(_AgentStep(step=step_num, action=f"write_file:{rel_path}", result=observation, status="success"))
+
+        elif action_type == "run_analysis":
+            # Delegate to the lint endpoint for a quick static check
+            analysis_target = action_data.get("path", "")
+            try:
+                lint_r = analysis_lint(_LintReq(project=req.project, file_path=analysis_target))
+                issue_count = len(lint_r.get("issues", []))
+                observation = f"Lint: {issue_count} issue(s) in {analysis_target}"
+            except Exception as exc:
+                observation = f"Analysis error: {exc}"
+            steps.append(_AgentStep(step=step_num, action=f"run_analysis:{analysis_target}", result=observation, status="success"))
+
+        else:
+            observation = f"Unknown action type '{action_type}' — skipped."
+            steps.append(_AgentStep(step=step_num, action=action_type, result=observation, status="skipped"))
+
+        # Feed observation back
+        messages.append({"role": "assistant", "content": raw})
+        messages.append({"role": "user", "content":
+            f"Observation from step {step_num}: {observation}\n"
+            "Continue toward the goal. Return your next action JSON, or {{\"action\": \"done\", \"content\": \"<summary>\"}} when finished."
+        })
+
+    return {
+        "project": req.project,
+        "goal":    req.goal,
+        "steps":   [s.model_dump() for s in steps],
+        "total_steps": len(steps),
+        "final_answer": final_answer,
+        "dry_run": req.dry_run,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P2-2 — Visual Studio / VS Code deeper integration helpers
+# These endpoints are consumed by the Arbiter VSIX and VS Code extension to
+# provide richer in-editor AI features beyond the basic chat/completion flow.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _InlineCompletionReq(BaseModel):
+    project: str = "default"
+    file_path: str = ""
+    prefix: str              # code before the cursor
+    suffix: str = ""         # code after the cursor (for FIM models)
+    language: str = ""       # e.g. "csharp", "python"
+    max_tokens: int = 256
+
+
+@app.post("/vs/inline-completion")
+async def vs_inline_completion(req: _InlineCompletionReq) -> dict:
+    """Generate an inline code completion for the VS / VS Code cursor position.
+
+    Designed for low-latency fill-in-the-middle (FIM) style requests from
+    the VSIX / VS Code extension.  Returns a single best-completion string.
+
+    P2-2
+    """
+    lang_hint = f" ({req.language})" if req.language else ""
+    prompt = (
+        f"Complete the following{lang_hint} code at the cursor position (marked <CURSOR>).\n"
+        "Return ONLY the completion text — no markdown, no explanation.\n\n"
+        f"```\n{req.prefix}<CURSOR>{req.suffix}\n```"
+    )
+    try:
+        completion = await _asyncio.to_thread(
+            _llm.chat,
+            [{"role": "user", "content": prompt}],
+        )
+        # Trim common artefacts
+        completion = completion.strip().removeprefix("```").removesuffix("```").strip()
+    except Exception as exc:
+        return {"completion": "", "error": str(exc)}
+
+    return {
+        "project":    req.project,
+        "file":       req.file_path,
+        "completion": completion,
+    }
+
+
+class _DiagnosticsReq(BaseModel):
+    project: str = "default"
+    file_path: str = ""
+    content: str             # full file content
+    language: str = ""
+    diagnostics: list[dict] = []   # raw IDE diagnostics (errors/warnings)
+
+
+@app.post("/vs/explain-diagnostic")
+async def vs_explain_diagnostic(req: _DiagnosticsReq) -> dict:
+    """Return AI explanations and fix suggestions for IDE diagnostics.
+
+    Accepts the list of compiler/linter diagnostic objects that the IDE has
+    already surfaced and returns a human-readable explanation + suggested fix
+    for each one.
+
+    P2-2
+    """
+    if not req.diagnostics:
+        return {"project": req.project, "explanations": []}
+
+    diag_text = "\n".join(
+        f"  [{d.get('severity','?')}] Line {d.get('line','?')}: {d.get('message','')}"
+        for d in req.diagnostics[:20]   # cap at 20 to stay within context window
+    )
+    snippet = req.content[:2000]
+    prompt = (
+        f"You are an expert {req.language or 'code'} debugger.\n"
+        "Explain each diagnostic below and suggest the minimal fix. "
+        "Return a JSON array:\n"
+        '[{"line": <n>, "message": "<original msg>", "explanation": "...", "fix": "..."}]\n'
+        "Output ONLY the JSON array.\n\n"
+        f"Diagnostics:\n{diag_text}\n\n"
+        f"File excerpt:\n```\n{snippet}\n```"
+    )
+    try:
+        raw = await _asyncio.to_thread(
+            _llm.chat,
+            [{"role": "user", "content": prompt}],
+        )
+        arr_match = _re.search(r"\[[\s\S]+\]", raw)
+        explanations = json.loads(arr_match.group()) if arr_match else []
+    except Exception as exc:
+        explanations = [{"error": str(exc)}]
+
+    return {"project": req.project, "file": req.file_path, "explanations": explanations}
+
+
+class _RefactorReq(BaseModel):
+    project: str = "default"
+    file_path: str = ""
+    content: str              # full file content
+    selection: str = ""       # selected code block (optional)
+    instruction: str          # e.g. "extract method", "rename variable X to Y", "add null checks"
+    language: str = ""
+
+
+@app.post("/vs/refactor")
+async def vs_refactor(req: _RefactorReq) -> dict:
+    """Apply an AI refactoring instruction to a file or selection.
+
+    Returns the rewritten code.  The caller (VSIX / VS Code extension)
+    replaces the current selection or full file with the returned content.
+
+    P2-2
+    """
+    target = req.selection or req.content
+    lang_hint = f" {req.language}" if req.language else ""
+    prompt = (
+        f"Apply the following refactoring to this{lang_hint} code:\n"
+        f"Instruction: {req.instruction}\n\n"
+        "Return ONLY the refactored code with no explanation or markdown fences.\n\n"
+        f"```\n{target[:4000]}\n```"
+    )
+    try:
+        refactored = await _asyncio.to_thread(
+            _llm.chat,
+            [{"role": "user", "content": prompt}],
+        )
+        refactored = refactored.strip().removeprefix("```").removesuffix("```").strip()
+        # Strip a leading language tag like "python" or "csharp" if present
+        lines = refactored.splitlines()
+        if lines and not lines[0].strip().startswith((" ", "\t")) and len(lines[0].strip()) < 20:
+            refactored = "\n".join(lines[1:]).strip()
+    except Exception as exc:
+        return {"refactored": "", "error": str(exc)}
+
+    return {
+        "project":    req.project,
+        "file":       req.file_path,
+        "instruction": req.instruction,
+        "refactored": refactored,
+    }
+
+
+@app.get("/vs/capabilities")
+def vs_capabilities() -> dict:
+    """Return the set of VS / VS Code integration features supported by this engine.
+
+    The VSIX / VS Code extension queries this on startup to enable/disable
+    feature flags.
+
+    P2-2
+    """
+    return {
+        "inline_completion":   True,
+        "explain_diagnostic":  True,
+        "refactor":            True,
+        "chat":                True,
+        "review":              True,
+        "diff":                True,
+        "diagram":             True,
+        "test_generate":       True,
+        "coverage_hints":      True,
+        "lint":                True,
+        "complexity":          True,
+        "docs_generate":       True,
+        "agent_run":           True,
+        "version":             "2.0.0",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P2-4 — Open-source model integration: list available backends + models
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/models/backends")
+def models_backends() -> dict:
+    """Return all configured LLM backends and their availability status.
+
+    Allows the IDE and remote web UI to present a model-switcher with live
+    status (reachable / not reachable) for each configured backend.
+
+    P2-4
+    """
+    import importlib
+
+    backends_config = {
+        "ollama":    {"label": "Ollama",    "url": _config.get("llm.ollama.base_url",    "http://localhost:11434"), "model": _config.get("llm.ollama.model", "llama3")},
+        "lmstudio":  {"label": "LM Studio", "url": _config.get("llm.lmstudio.base_url",  "http://localhost:1234"),  "model": _config.get("llm.lmstudio.model", "")},
+        "localai":   {"label": "LocalAI",   "url": _config.get("llm.localai.base_url",   "http://localhost:8080"),  "model": _config.get("llm.localai.model", "codestral")},
+        "llamacpp":  {"label": "llama.cpp", "url": _config.get("llm.llamacpp.base_url",  "http://localhost:8080"),  "model": _config.get("llm.llamacpp.model", "")},
+        "tabby":     {"label": "Tabby",     "url": _config.get("llm.tabby.base_url",     "http://localhost:8080"),  "model": _config.get("llm.tabby.model", "")},
+        "openwebui": {"label": "OpenWebUI", "url": _config.get("llm.openwebui.base_url", "http://localhost:3000"),  "model": _config.get("llm.openwebui.model", "")},
+        "codegeex":  {"label": "CodeGeeX",  "url": _config.get("llm.codegeex.base_url",  "http://localhost:8082"),  "model": _config.get("llm.codegeex.model", "codegeex-4-all-9b")},
+        "api":       {"label": "OpenAI API","url": _config.get("llm.api.base_url",       "https://api.openai.com"), "model": _config.get("llm.api.model", "gpt-4o")},
+        "anthropic": {"label": "Anthropic", "url": "https://api.anthropic.com",                                     "model": _config.get("llm.anthropic.model", "claude-3-5-sonnet-20241022")},
+        "gemini":    {"label": "Gemini",    "url": "https://generativelanguage.googleapis.com",                     "model": _config.get("llm.gemini.model", "gemini-2.0-flash")},
+    }
+
+    import requests as _req_mod
+    result = []
+    for key, info in backends_config.items():
+        url = info["url"]
+        reachable = False
+        if url.startswith("http"):
+            try:
+                _req_mod.get(url, timeout=2)
+                reachable = True
+            except Exception:
+                reachable = False
+        result.append({
+            "id":       key,
+            "label":    info["label"],
+            "url":      url,
+            "model":    info["model"],
+            "reachable": reachable,
+            "active":   key == _config.get("agent.default_llm_backend", "ollama"),
+        })
+
+    return {"backends": result, "active_backend": _config.get("agent.default_llm_backend", "ollama")}
+
+
+@app.post("/models/switch")
+async def models_switch(backend: str, model: str = "") -> dict:
+    """Hot-switch the active LLM backend without restarting the server.
+
+    Updates the in-memory config and replaces the global ``_llm`` instance.
+    The change is not persisted to disk — restart the server to make it permanent.
+
+    P2-4
+    """
+    global _llm
+    try:
+        from llm.factory import create_llm as _create_llm
+        # Temporarily override config keys for the new backend
+        if model:
+            _config._data[f"llm.{backend}.model"] = model
+        _config._data["agent.default_llm_backend"] = backend
+        new_llm = await _asyncio.to_thread(_create_llm, backend, _config)
+        _llm = new_llm
+        logger.info("Switched LLM backend to %s (model=%s)", backend, model or "default")
+        return {"status": "ok", "backend": backend, "model": model or "default"}
+    except Exception as exc:
+        logger.error("Failed to switch LLM backend: %s", exc)
+        return {"status": "error", "error": str(exc)}
+
+
+# =============================================================================
+# Arbiter Admin Infrastructure — Roles, Audit Log, Notifications, Dashboard
+# =============================================================================
+# /roles/*   — Arbiter API access control (Admin/Moderator/Operator/Player)
+# /audit/*   — Arbiter operation audit log + change notifications
+# /dashboard — Arbiter admin dashboard (health, AI backends, roles, audit)
+# =============================================================================
+
+import hashlib as _hashlib
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared state
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Audit log file — records all Arbiter role changes and notable API operations
+_AUDIT_LOG_PATH = _BASE / ".arbiter" / "logs" / "audit.jsonl"
+_AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# Role definitions (ordered by privilege, highest first)
+_ROLE_HIERARCHY: list[str] = ["admin", "moderator", "operator", "player"]
+
+# User → role mapping (in-memory + persisted to JSON)
+_ROLES_FILE = _BASE / ".arbiter" / "roles.json"
+_user_roles: dict[str, str] = {}  # username → role
+
+# Pending notifications queue (polled by /audit/notifications)
+_pending_notifications: list[dict] = []
+_notif_lock = threading.Lock()
+
+
+def _load_roles() -> None:
+    global _user_roles
+    if _ROLES_FILE.exists():
+        try:
+            _user_roles = json.loads(_ROLES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _user_roles = {}
+
+
+def _save_roles() -> None:
+    _ROLES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _ROLES_FILE.write_text(json.dumps(_user_roles, indent=2), encoding="utf-8")
+
+
+_load_roles()
+
+
+def _write_audit(event: str, actor: str, target: str, detail: dict) -> None:
+    """Append a single audit event to the JSONL audit log."""
+    entry = {
+        "ts":     datetime.datetime.utcnow().isoformat(),
+        "event":  event,
+        "actor":  actor,
+        "target": target,
+        **detail,
+    }
+    try:
+        with open(_AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+    with _notif_lock:
+        _pending_notifications.append(entry)
+        if len(_pending_notifications) > 500:
+            _pending_notifications.pop(0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Role-Based Access Control for the Arbiter API
+# ─────────────────────────────────────────────────────────────────────────────
+# Roles (highest → lowest privilege):
+#   admin      — full access (all operations, role management, audit log)
+#   moderator  — can issue project/chat operations; cannot manage roles
+#   operator   — read-only status + metrics access
+#   player     — read-only status
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ROLE_ACTIONS: dict[str, set[str]] = {
+    "admin":     {"all", "roles.manage", "audit.read", "status", "metrics", "projects", "chat", "analysis"},
+    "moderator": {"projects", "chat", "analysis", "audit.read", "status", "metrics"},
+    "operator":  {"status", "metrics"},
+    "player":    {"status"},
+}
+
+
+class _RoleAssignReq(BaseModel):
+    username: str
+    role: str
+    actor: str = "admin"
+
+
+class _RoleCheckReq(BaseModel):
+    username: str
+    action: str
+
+
+@app.post("/roles/assign")
+def roles_assign(req: _RoleAssignReq) -> dict:
+    """Assign an Arbiter API role to a user.
+
+    Roles: ``admin``, ``moderator``, ``operator``, ``player``.
+    Every assignment is written to the audit log.
+    """
+    role = req.role.lower()
+    if role not in _ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Unknown role '{role}'. Valid: {_ROLE_HIERARCHY}")
+
+    previous = _user_roles.get(req.username, "none")
+    _user_roles[req.username] = role
+    _save_roles()
+    _write_audit("role.assign", req.actor, req.username, {"role": role, "previous_role": previous})
+    logger.info("[Roles] %s → %s (actor: %s)", req.username, role, req.actor)
+    return {"status": "ok", "username": req.username, "role": role, "previous_role": previous}
+
+
+@app.delete("/roles/{username}")
+def roles_revoke(username: str, actor: str = "admin") -> dict:
+    """Remove a user's role assignment."""
+    if username not in _user_roles:
+        raise HTTPException(status_code=404, detail=f"User '{username}' has no role assigned")
+    removed_role = _user_roles.pop(username)
+    _save_roles()
+    _write_audit("role.revoke", actor, username, {"removed_role": removed_role})
+    return {"status": "ok", "username": username, "removed_role": removed_role}
+
+
+@app.get("/roles/{username}")
+def roles_get(username: str) -> dict:
+    """Return the role and permitted actions for a user."""
+    role = _user_roles.get(username)
+    if role is None:
+        return {"username": username, "role": None, "actions": []}
+    return {
+        "username": username,
+        "role":     role,
+        "actions":  sorted(_ROLE_ACTIONS.get(role, set())),
+    }
+
+
+@app.get("/roles")
+def roles_list() -> dict:
+    """Return all role assignments and the role hierarchy."""
+    return {
+        "assignments": [{"username": u, "role": r} for u, r in _user_roles.items()],
+        "hierarchy":   _ROLE_HIERARCHY,
+        "actions_map": {r: sorted(a) for r, a in _ROLE_ACTIONS.items()},
+    }
+
+
+@app.post("/roles/check")
+def roles_check(req: _RoleCheckReq) -> dict:
+    """Check whether a user is permitted to perform a given action."""
+    role = _user_roles.get(req.username)
+    if role is None:
+        return {"username": req.username, "action": req.action, "allowed": False, "reason": "no role assigned"}
+
+    role_idx = _ROLE_HIERARCHY.index(role) if role in _ROLE_HIERARCHY else len(_ROLE_HIERARCHY)
+    allowed_actions: set[str] = set()
+    for r in _ROLE_HIERARCHY[:role_idx + 1]:
+        allowed_actions |= _ROLE_ACTIONS.get(r, set())
+
+    allowed = "all" in allowed_actions or req.action in allowed_actions
+    return {"username": req.username, "role": role, "action": req.action, "allowed": allowed}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Arbiter Audit Log
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/audit/log")
+def audit_log(limit: int = 100, event_type: str = "") -> dict:
+    """Return the last *limit* entries from the Arbiter audit log.
+
+    Filter by ``event_type`` prefix (e.g. ``role.assign``, ``chat``).
+    """
+    if not _AUDIT_LOG_PATH.exists():
+        return {"entries": [], "total": 0}
+    try:
+        lines = _AUDIT_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return {"entries": [], "total": 0}
+
+    entries: list[dict] = []
+    for line in lines:
+        if line.strip():
+            try:
+                entry = json.loads(line)
+                if not event_type or entry.get("event", "").startswith(event_type):
+                    entries.append(entry)
+            except Exception:
+                pass
+    return {"entries": entries[-limit:], "total": len(entries)}
+
+
+@app.get("/audit/notifications")
+def audit_notifications(clear: bool = True) -> dict:
+    """Return pending audit change notifications (long-poll style).
+
+    The Arbiter dashboard polls this endpoint to display real-time
+    role/operation change notifications.  Set ``clear=true`` (default)
+    to consume and remove the notifications from the queue.
+    """
+    with _notif_lock:
+        notifs = list(_pending_notifications)
+        if clear:
+            _pending_notifications.clear()
+    return {"notifications": notifs, "count": len(notifs)}
+
+
+@app.get("/audit/stats")
+def audit_stats() -> dict:
+    """Return aggregate statistics from the Arbiter audit log."""
+    if not _AUDIT_LOG_PATH.exists():
+        return {"total": 0, "by_event": {}, "by_actor": {}}
+    by_event: dict[str, int] = {}
+    by_actor: dict[str, int] = {}
+    total = 0
+    try:
+        for line in _AUDIT_LOG_PATH.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                e = json.loads(line)
+                total += 1
+                by_event[e.get("event", "?")] = by_event.get(e.get("event", "?"), 0) + 1
+                by_actor[e.get("actor", "?")] = by_actor.get(e.get("actor", "?"), 0) + 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return {"total": total, "by_event": by_event, "by_actor": by_actor}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Arbiter Admin Dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ARBITER_DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arbiter Admin Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #0d0f11;
+    --panel:   #161a1e;
+    --card:    #1f2429;
+    --border:  #2c3540;
+    --accent:  #00c896;
+    --accent2: #007acc;
+    --fg:      #dde3ec;
+    --fg-dim:  #8b96a5;
+    --danger:  #e05c5c;
+    --warn:    #e0a84d;
+    --ok:      #4dc98a;
+    --font:    "Segoe UI", system-ui, sans-serif;
+    --radius:  8px;
+    --shadow:  0 2px 12px rgba(0,0,0,.45);
+  }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font); min-height: 100vh; }
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 14px 24px; display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow);
+  }
+  header h1 { font-size: 1.15rem; font-weight: 600; letter-spacing: .03em; }
+  .badge { font-size: .7rem; background: var(--accent); color: #000; border-radius: 4px; padding: 2px 7px; font-weight: 700; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--fg-dim); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--danger); }
+  main { max-width: 1280px; margin: 0 auto; padding: 24px 20px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+  .card-title { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-dim); margin-bottom: 12px; }
+  .stat { font-size: 2rem; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: .75rem; color: var(--fg-dim); margin-top: 2px; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: .85rem; }
+  .row:last-child { border-bottom: none; }
+  .row .name { flex: 1; font-weight: 500; }
+  .row .meta { font-size: .72rem; color: var(--fg-dim); }
+  .btn { background: var(--card); border: 1px solid var(--border); color: var(--fg); border-radius: 5px; padding: 5px 12px; font-size: .78rem; cursor: pointer; transition: background .15s; }
+  .btn:hover { background: var(--border); }
+  .btn.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  .btn.primary:hover { background: #0069b3; }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  input, select { background: var(--bg); border: 1px solid var(--border); color: var(--fg); border-radius: 5px; padding: 6px 10px; font-size: .85rem; }
+  input:focus, select:focus { outline: none; border-color: var(--accent2); }
+  .form-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .section-hdr { font-size: 1rem; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin: 24px 0 14px; }
+  .audit-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  .audit-table th, .audit-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  .audit-table th { color: var(--fg-dim); font-weight: 600; }
+  .role-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 3px 11px; font-size: .75rem; margin: 3px; }
+  .role-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-dim); }
+  [data-role="admin"]     .role-dot { background: var(--danger); }
+  [data-role="moderator"] .role-dot { background: var(--warn); }
+  [data-role="operator"]  .role-dot { background: var(--accent2); }
+  [data-role="player"]    .role-dot { background: var(--ok); }
+  .backend-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 5px 12px; font-size: .78rem; margin: 3px; }
+  #log-panel { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px; font-size: .72rem; font-family: monospace; height: 140px; overflow-y: auto; color: var(--accent); white-space: pre-wrap; margin-top: 10px; }
+  #notif-bar { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; max-width: 340px; }
+  .notif { background: var(--card); border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px 14px; font-size: .8rem; box-shadow: var(--shadow); animation: slideIn .2s ease; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:none; } }
+  #clock { font-size: .8rem; color: var(--fg-dim); }
+  .tag { font-size: .68rem; background: var(--border); border-radius: 3px; padding: 1px 5px; color: var(--fg-dim); }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot ok" id="engine-dot"></span>
+  <h1>Arbiter Admin Dashboard</h1>
+  <span class="badge">v1.5</span>
+  <span style="flex:1"></span>
+  <span id="clock"></span>
+</header>
+<main>
+
+  <!-- ── Status cards ──────────────────────────────────────────────────────── -->
+  <div class="grid2" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+    <div class="card">
+      <div class="card-title">Engine Status</div>
+      <div class="stat" id="engine-status">—</div>
+      <div class="stat-label">Arbiter AI Engine</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Active LLM Backend</div>
+      <div class="stat" id="active-backend" style="font-size:1.2rem">—</div>
+      <div class="stat-label" id="active-model">—</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Audit Events</div>
+      <div class="stat" id="audit-total">—</div>
+      <div class="stat-label">Total logged</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Role Assignments</div>
+      <div class="stat" id="roles-total">—</div>
+      <div class="stat-label">Users with roles</div>
+    </div>
+  </div>
+
+  <!-- ── LLM Backends ──────────────────────────────────────────────────────── -->
+  <div class="section-hdr">LLM Backends</div>
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Configured Backends</div>
+    <div id="backends-list"><em style="color:var(--fg-dim)">Loading…</em></div>
+    <div class="form-row" style="margin-top:14px">
+      <select id="switch-backend">
+        <option value="ollama">ollama</option>
+        <option value="openai">openai</option>
+        <option value="codegeex">codegeex</option>
+        <option value="lmstudio">lmstudio</option>
+      </select>
+      <input id="switch-model" placeholder="model (optional)" style="width:180px">
+      <button class="btn primary" onclick="switchBackend()">Switch Backend</button>
+    </div>
+  </div>
+
+  <!-- ── Roles ──────────────────────────────────────────────────────────────── -->
+  <div class="section-hdr">API Role Assignments</div>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">Current Assignments</div>
+      <div id="roles-chips"><em style="color:var(--fg-dim)">Loading…</em></div>
+      <div class="form-row">
+        <input id="role-user"  placeholder="username"  style="width:130px">
+        <select id="role-sel">
+          <option value="admin">admin</option>
+          <option value="moderator">moderator</option>
+          <option value="operator" selected>operator</option>
+          <option value="player">player</option>
+        </select>
+        <button class="btn primary" onclick="assignRole()">Assign</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Role Permissions</div>
+      <div id="role-perms" style="font-size:.78rem; line-height:1.6"></div>
+    </div>
+  </div>
+
+  <!-- ── Audit Log ─────────────────────────────────────────────────────────── -->
+  <div class="section-hdr">Audit Log</div>
+  <div class="card" style="margin-bottom:24px; overflow-x:auto">
+    <div class="card-title">Recent Events
+      <span id="audit-stats-inline" style="font-weight:400; color:var(--fg-dim); margin-left:8px"></span>
+    </div>
+    <table class="audit-table">
+      <thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Target</th></tr></thead>
+      <tbody id="audit-tbody"><tr><td colspan="4" style="color:var(--fg-dim)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ── Engine Log ────────────────────────────────────────────────────────── -->
+  <div class="section-hdr">Engine Activity</div>
+  <div id="log-panel">Waiting for notifications…</div>
+
+</main>
+<div id="notif-bar"></div>
+<script>
+const API = '';
+
+async function api(method, path, body) {
+  const opts = {method, headers: {'Content-Type':'application/json'}};
+  if (body) opts.body = JSON.stringify(body);
+  try { const r = await fetch(API + path, opts); return await r.json(); }
+  catch(e) { return {error: e.toString()}; }
+}
+
+function log(msg) {
+  const el = document.getElementById('log-panel');
+  el.textContent += new Date().toISOString().slice(11,19) + '  ' + msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function notify(msg) {
+  const bar = document.getElementById('notif-bar');
+  const n = document.createElement('div');
+  n.className = 'notif'; n.textContent = msg; bar.appendChild(n);
+  setTimeout(() => n.remove(), 5000);
+}
+
+function ts(s) { return s ? s.replace('T',' ').slice(0,19) : ''; }
+
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toUTCString().slice(5,25) + ' UTC';
+}
+setInterval(updateClock, 1000); updateClock();
+
+// Health check
+async function loadHealth() {
+  const d = await api('GET', '/health');
+  document.getElementById('engine-status').textContent = d.status === 'ok' ? 'Online' : 'Degraded';
+  const dot = document.getElementById('engine-dot');
+  dot.className = 'dot ' + (d.status === 'ok' ? 'ok' : 'err');
+  const backends = d.backends || {};
+  const primary = Object.entries(backends).find(([,v]) => v.reachable);
+  document.getElementById('active-backend').textContent = primary ? primary[0] : (Object.keys(backends)[0] || '—');
+  document.getElementById('active-model').textContent   = primary ? ((primary[1].models||[])[0]||'no model info') : 'unreachable';
+
+  const el = document.getElementById('backends-list');
+  el.innerHTML = Object.entries(backends).map(([name, info]) =>
+    `<span class="backend-chip">
+       <span class="dot ${info.reachable ? 'ok' : 'err'}"></span>
+       <b>${name}</b>
+       <span class="tag">${info.reachable ? info.latency_ms + 'ms' : 'unreachable'}</span>
+       ${info.models && info.models.length ? '<span class="tag">' + info.models.slice(0,2).join(', ') + '</span>' : ''}
+     </span>`
+  ).join('');
+}
+
+// Switch backend
+async function switchBackend() {
+  const backend = document.getElementById('switch-backend').value;
+  const model   = document.getElementById('switch-model').value.trim() || undefined;
+  const d = await api('POST', '/models/switch', {backend, model});
+  log('Switch backend: ' + JSON.stringify(d));
+  notify('Backend → ' + (d.backend||'?'));
+  loadHealth();
+}
+
+// Roles
+async function loadRoles() {
+  const d = await api('GET', '/roles');
+  document.getElementById('roles-total').textContent = (d.assignments||[]).length;
+  const chips = document.getElementById('roles-chips');
+  chips.innerHTML = (d.assignments||[]).length === 0
+    ? '<em style="color:var(--fg-dim)">No assignments.</em>'
+    : (d.assignments||[]).map(a =>
+        `<span class="role-chip" data-role="${a.role}"><span class="role-dot"></span>${a.username} <em style="color:var(--fg-dim)">(${a.role})</em></span>`
+      ).join('');
+  const permsEl = document.getElementById('role-perms');
+  permsEl.innerHTML = Object.entries(d.actions_map||{}).map(([r, acts]) =>
+    `<div style="margin-bottom:4px"><b>${r}</b>: <span style="color:var(--fg-dim)">${acts.join(', ')}</span></div>`
+  ).join('');
+}
+
+async function assignRole() {
+  const user = document.getElementById('role-user').value.trim();
+  const role = document.getElementById('role-sel').value;
+  if (!user) { notify('Enter a username'); return; }
+  const d = await api('POST', '/roles/assign', {username:user, role, actor:'dashboard'});
+  log('Assign role: ' + JSON.stringify(d));
+  notify(user + ' → ' + role);
+  loadRoles();
+}
+
+// Audit log
+async function loadAudit() {
+  const d = await api('GET', '/audit/log?limit=20');
+  document.getElementById('audit-total').textContent = d.total || 0;
+  const tbody = document.getElementById('audit-tbody');
+  if (!d.entries || d.entries.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--fg-dim)">No events yet.</td></tr>'; return;
+  }
+  tbody.innerHTML = [...d.entries].reverse().map(e =>
+    `<tr><td>${ts(e.ts)}</td><td>${e.event}</td><td>${e.actor}</td><td>${e.target||''}</td></tr>`
+  ).join('');
+  const stats = await api('GET', '/audit/stats');
+  document.getElementById('audit-stats-inline').textContent =
+    'Total: ' + stats.total + '  |  By event: ' + Object.entries(stats.by_event||{}).map(([k,v])=>k+'='+v).join(', ');
+}
+
+// Notification polling
+async function pollNotifications() {
+  const d = await api('GET', '/audit/notifications?clear=true');
+  if (d.notifications && d.notifications.length > 0) {
+    d.notifications.forEach(n => {
+      notify('[' + n.event + '] ' + (n.target||''));
+      log('Notification: ' + JSON.stringify(n).slice(0,120));
+    });
+    loadAudit();
+  }
+}
+
+async function refresh() {
+  await Promise.all([loadHealth(), loadRoles(), loadAudit()]);
+}
+
+refresh();
+setInterval(pollNotifications, 5000);
+setInterval(refresh, 20000);
+</script>
+</body>
+</html>"""
+
+
+@app.get("/dashboard", response_class=_HTMLResponse)
+def arbiter_dashboard() -> _HTMLResponse:
+    """Serve the Arbiter Admin Dashboard.
+
+    A self-contained dark-mode HTML page (no CDN dependencies) showing:
+    - Arbiter Engine health and LLM backend status
+    - Backend switcher (live hot-swap)
+    - API role assignments and permissions reference
+    - Audit log table with real-time notification polling
+    - Engine activity panel
+
+    This is an Arbiter-native admin tool.  Game server management
+    (SSA) and game-engine tooling (Novaforge) are worked on as
+    independent projects from within Arbiter, not integrated here.
+    """
+    return _HTMLResponse(content=_ARBITER_DASHBOARD_HTML, status_code=200)
+
+
+# =============================================================================
+# Phase 3 — Project-Aware Workspace Intelligence
+# =============================================================================
+# P3-1  POST /projects/{id}/activate   — prime AI context with project data
+# P3-2  GET  /projects/{id}/health     — roadmap completion + git activity
+# P3-3  GET  /git/status|log|diff      — live git introspection
+# P3-4  GET/POST /workspace/state      — persist workspace preferences
+# P3-5  POST /projects/scaffold        — AI-assisted new project scaffolding
+# =============================================================================
+
+import subprocess as _subprocess
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Workspace state (P3-4) — in-memory + persisted to .arbiter/workspace_state.json
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WORKSPACE_STATE_PATH = _BASE / ".arbiter" / "workspace_state.json"
+_workspace_state: dict = {}
+_workspace_state_lock = threading.Lock()
+
+
+def _load_workspace_state() -> None:
+    global _workspace_state
+    if _WORKSPACE_STATE_PATH.exists():
+        try:
+            _workspace_state = json.loads(
+                _WORKSPACE_STATE_PATH.read_text(encoding="utf-8")
+            )
+        except Exception:
+            _workspace_state = {}
+
+
+def _save_workspace_state() -> None:
+    _WORKSPACE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _WORKSPACE_STATE_PATH.write_text(
+        json.dumps(_workspace_state, indent=2), encoding="utf-8"
+    )
+
+
+_load_workspace_state()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-1 — Activate project: prime AI context
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/projects/{project_id}/activate")
+async def project_activate(project_id: str) -> dict:
+    """Prime the AI context with a project's roadmap, key files, and recent commits.
+
+    Loads the project's ``roadmap.json``, lists top-level source files, and
+    fetches the five most recent git commits.  All of this is injected as a
+    system-level context message so subsequent ``/chat`` requests are
+    automatically project-aware.
+
+    P3-1
+    """
+    project_dir = _BASE.parent.parent / "Projects" / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    context_parts: list[str] = [f"# Arbiter project context: {project_id}\n"]
+
+    # Roadmap
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.exists():
+        try:
+            roadmap_data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            pending_tasks = [
+                f"{ph.get('id','?')} / {t['id']}: {t['title']}"
+                for ph in roadmap_data.get("phases", [])
+                for t in ph.get("tasks", [])
+                if t.get("status") == "pending"
+            ]
+            total_tasks = sum(
+                len(ph.get("tasks", []))
+                for ph in roadmap_data.get("phases", [])
+            )
+            done_tasks = total_tasks - len(pending_tasks)
+            context_parts.append(
+                f"## Roadmap: {roadmap_data.get('project', project_id)} "
+                f"v{roadmap_data.get('version', '?')}\n"
+                f"Progress: {done_tasks}/{total_tasks} tasks done.\n"
+                "Pending tasks:\n" +
+                "\n".join(f"  - {t}" for t in pending_tasks[:20])
+            )
+        except Exception as exc:
+            context_parts.append(f"## Roadmap: (parse error: {exc})")
+
+    # Key source files
+    src_files: list[str] = []
+    for ext in ("*.py", "*.cs", "*.json"):
+        src_files.extend(
+            str(p.relative_to(project_dir))
+            for p in project_dir.rglob(ext)
+            if ".git" not in p.parts and len(src_files) < 30
+        )
+    if src_files:
+        context_parts.append("## Key files\n" + "\n".join(f"  {f}" for f in src_files[:30]))
+
+    # Recent git commits
+    try:
+        git_log = _subprocess.check_output(
+            ["git", "log", "--oneline", "-5",
+             "--", str(project_dir)],
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=5,
+        ).decode(errors="replace").strip()
+        if git_log:
+            context_parts.append("## Recent commits\n" + git_log)
+    except Exception:
+        pass
+
+    context_msg = "\n\n".join(context_parts)
+
+    # Inject into conversation history cache under a reserved key
+    with _workspace_state_lock:
+        _workspace_state["active_project"] = project_id
+        _workspace_state["active_project_context"] = context_msg
+        _save_workspace_state()
+
+    logger.info("[P3-1] Activated project context: %s (%d chars)", project_id, len(context_msg))
+    return {
+        "status":     "activated",
+        "project_id": project_id,
+        "context_length": len(context_msg),
+        "summary":    context_parts[1][:200] if len(context_parts) > 1 else "",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-2 — Project health
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/projects/{project_id}/health")
+async def project_health(project_id: str) -> dict:
+    """Return a health summary for a project: roadmap progress and git activity.
+
+    P3-2
+    """
+    project_dir = _BASE.parent.parent / "Projects" / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    result: dict = {"project_id": project_id}
+
+    # Roadmap stats
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.exists():
+        try:
+            rd = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            phases = rd.get("phases", [])
+            total = sum(len(ph.get("tasks", [])) for ph in phases)
+            done  = sum(
+                1 for ph in phases
+                for t in ph.get("tasks", [])
+                if t.get("status") == "done"
+            )
+            active_phase = next(
+                (ph for ph in phases if ph.get("status") == "active"), None
+            )
+            result["roadmap"] = {
+                "version":       rd.get("version", "?"),
+                "total_tasks":   total,
+                "done_tasks":    done,
+                "pending_tasks": total - done,
+                "completion_pct": round(done / total * 100, 1) if total else 0,
+                "active_phase":  active_phase.get("id") if active_phase else None,
+                "active_phase_title": active_phase.get("name", "") if active_phase else "",
+            }
+        except Exception as exc:
+            result["roadmap"] = {"error": str(exc)}
+
+    # Recent git activity for this project path
+    try:
+        git_log = _subprocess.check_output(
+            ["git", "log", "--oneline", "--format=%h %ad %s",
+             "--date=short", "-10", "--", str(project_dir)],
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=5,
+        ).decode(errors="replace").strip()
+        commits = [ln for ln in git_log.splitlines() if ln.strip()]
+        result["git"] = {
+            "recent_commits": commits,
+            "last_commit": commits[0] if commits else None,
+        }
+    except Exception:
+        result["git"] = {"error": "git unavailable"}
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-3 — Git introspection
+# The existing /git/status, /git/log, /git/diff endpoints (defined earlier in
+# this file) already fulfil the workspace introspection requirement.  Phase 3
+# adds the ``staged`` query parameter to /git/diff (patched at its definition)
+# and documents these endpoints as P3-3 features.
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-4 — Workspace state
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _WorkspaceStateReq(BaseModel):
+    active_project: str = ""
+    recent_files: list[str] = []
+    preferences: dict = {}
+
+
+@app.get("/workspace/state")
+def workspace_state_get() -> dict:
+    """Return the persisted workspace state.
+
+    P3-4
+    """
+    with _workspace_state_lock:
+        # Omit the large context blob from the public response
+        public = {k: v for k, v in _workspace_state.items()
+                  if k != "active_project_context"}
+    return {"state": public}
+
+
+@app.post("/workspace/state")
+def workspace_state_set(req: _WorkspaceStateReq) -> dict:
+    """Update and persist workspace state.
+
+    Merges the supplied fields into the existing state; unset fields are
+    preserved.
+
+    P3-4
+    """
+    with _workspace_state_lock:
+        if req.active_project:
+            _workspace_state["active_project"] = req.active_project
+        if req.recent_files:
+            existing = _workspace_state.get("recent_files", [])
+            # Prepend new files, deduplicate, keep latest 20
+            merged = req.recent_files + [f for f in existing if f not in req.recent_files]
+            _workspace_state["recent_files"] = merged[:20]
+        if req.preferences:
+            _workspace_state.setdefault("preferences", {}).update(req.preferences)
+        _save_workspace_state()
+    return {"status": "ok", "state": {k: v for k, v in _workspace_state.items()
+                                       if k != "active_project_context"}}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-5 — AI-assisted project scaffolding
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ScaffoldReq(BaseModel):
+    project_id: str
+    description: str
+    tech_stack: list[str] = []
+    phases: list[str] = []
+
+
+@app.post("/projects/scaffold")
+async def project_scaffold(req: _ScaffoldReq) -> dict:
+    """Scaffold a new Arbiter-managed project via AI.
+
+    Creates ``Projects/{project_id}/`` with a directory skeleton,
+    ``roadmap.json``, and ``docs/.gitkeep``.  The AI generates an initial
+    roadmap based on *description*.
+
+    P3-5
+    """
+    project_id = req.project_id.strip()
+    # Strict whitelist: alphanumeric, underscores, and hyphens only.
+    # This prevents path traversal (e.g. '../', encoded variants) by construction.
+    import re as _re
+    if not project_id or not _re.fullmatch(r"[A-Za-z0-9_-]{1,64}", project_id):
+        raise HTTPException(
+            status_code=422,
+            detail="project_id must be 1–64 characters: letters, digits, _ or - only",
+        )
+
+    project_dir = _BASE.parent.parent / "Projects" / project_id
+    # Belt-and-suspenders: resolve and confirm it stays inside Projects/
+    projects_root = (_BASE.parent.parent / "Projects").resolve()
+    if not project_dir.resolve().parent == projects_root:
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if project_dir.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{project_id}' already exists at {project_dir}",
+        )
+
+    # ── Ask AI to draft an initial roadmap ───────────────────────────────────
+    ai_prompt = (
+        f"Draft a JSON roadmap for a software project called '{project_id}'.\n"
+        f"Description: {req.description}\n"
+        f"Tech stack: {', '.join(req.tech_stack) if req.tech_stack else 'not specified'}\n"
+        f"Requested phases: {', '.join(req.phases) if req.phases else 'derive from description'}\n\n"
+        "Return ONLY valid JSON matching this structure:\n"
+        '{"project":"<id>","description":"<desc>","version":"0.1.0",'
+        '"phases":[{"id":0,"name":"Phase 0 — Scaffold","status":"done","tasks":[]}]}'
+    )
+
+    roadmap_data: dict = {
+        "project":     project_id,
+        "description": req.description,
+        "version":     "0.1.0",
+        "last_updated": datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+        "tech_stack":  req.tech_stack,
+        "phases": [
+            {
+                "id": 0,
+                "name": "Phase 0 — Scaffold & Setup",
+                "status": "done",
+                "description": "Initial project scaffold created by Arbiter.",
+                "tasks": [
+                    {"id": "S0-1", "title": "Project directory scaffold", "status": "done",
+                     "notes": "Created by Arbiter /projects/scaffold"},
+                ],
+            },
+            {
+                "id": 1,
+                "name": "Phase 1 — Core Implementation",
+                "status": "pending",
+                "description": "Core features as defined in the project description.",
+                "tasks": [],
+            },
+        ],
+    }
+
+    # Try to enrich with AI if available
+    if _llm is not None:
+        try:
+            ai_msgs = [
+                {"role": "system", "content": "You are a technical project planner. Output only valid JSON."},
+                {"role": "user",   "content": ai_prompt},
+            ]
+            ai_raw = await _asyncio.to_thread(_llm.chat, ai_msgs, max_tokens=1024)
+            start = ai_raw.find("{")
+            end   = ai_raw.rfind("}") + 1
+            if start != -1 and end > start:
+                parsed = json.loads(ai_raw[start:end])
+                if "phases" in parsed:
+                    roadmap_data.update(parsed)
+        except Exception as exc:
+            logger.warning("[P3-5] AI roadmap generation failed: %s", exc)
+
+    # ── Create directory skeleton ─────────────────────────────────────────────
+    dirs = ["src", "docs", "tests", "config", "scripts"]
+    for d in dirs:
+        (project_dir / d).mkdir(parents=True, exist_ok=True)
+        (project_dir / d / ".gitkeep").touch()
+
+    # roadmap.json
+    (project_dir / "roadmap.json").write_text(
+        json.dumps(roadmap_data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # workspace_profile.json
+    (project_dir / "workspace_profile.json").write_text(
+        json.dumps({
+            "project":     project_id,
+            "description": req.description,
+            "arbiter_managed": True,
+        }, indent=2),
+        encoding="utf-8",
+    )
+
+    logger.info("[P3-5] Scaffolded project '%s' at %s", project_id, project_dir)
+    return {
+        "status":      "created",
+        "project_id":  project_id,
+        "path":        str(project_dir),
+        "files_created": [
+            f"Projects/{project_id}/roadmap.json",
+            f"Projects/{project_id}/workspace_profile.json",
+        ] + [f"Projects/{project_id}/{d}/.gitkeep" for d in dirs],
+    }
+
+
+# =============================================================================
+# Phase 4 — Development Agent Enhancement
+# =============================================================================
+# P4-1  GET  /git/watch          — SSE stream of new commit events + AI summaries
+# P4-2  POST /git/review-commit  — AI structured review of a commit diff
+# P4-3  POST /self/improve       — Arbiter agent improves its own source
+# P4-4  POST /tests/run          — detect + run test suite, AI analyses results
+# =============================================================================
+
+# Shared validation constants used across Phase 4 endpoints
+_PROJECT_ID_PATTERN = _re.compile(r"[A-Za-z0-9_-]{1,64}")
+_GIT_REF_PATTERN    = _re.compile(r"[A-Za-z0-9_.^~/-]{1,80}")
+_FILE_PATH_PATTERN  = _re.compile(r"[A-Za-z0-9_./-]{1,128}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-1 — GET /git/watch  (SSE)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/git/watch")
+async def git_watch(
+    project: str = "",
+    interval: int = 15,
+) -> StreamingResponse:
+    """Stream new git commit events as Server-Sent Events.
+
+    Polls the repository (or a specific project sub-path) for new commits
+    every *interval* seconds.  When new commits are detected the endpoint
+    emits one SSE event per commit containing the SHA, author, date, subject,
+    and an AI-generated one-line summary.
+
+    Event format::
+
+        data: {"sha":"abc123","author":"Alice","date":"2026-03-24",
+               "subject":"Fix crash","ai_summary":"…"}
+
+    A heartbeat ``data: {"heartbeat":true}`` is sent on every poll cycle
+    that finds no new commits, so the browser can detect a stalled connection.
+
+    P4-1
+    """
+    interval = max(5, min(interval, 300))  # clamp 5s–5min
+
+    # Resolve path scope
+    watch_path: str = ""
+    if project:
+        if not _PROJECT_ID_PATTERN.fullmatch(project):
+            async def _bad():
+                yield "data: {\"error\": \"invalid project\"}\n\n"
+            return StreamingResponse(_bad(), media_type="text/event-stream")
+        watch_path = str(_BASE.parent.parent / "Projects" / project)
+
+    async def _generate():
+        # Seed: remember the SHA of the most recent commit at watch start
+        try:
+            seed_args = ["log", "--format=%H", "-1"]
+            if watch_path:
+                seed_args += ["--", watch_path]
+            last_sha = _subprocess.check_output(
+                ["git"] + seed_args,
+                cwd=str(_BASE.parent.parent),
+                stderr=_subprocess.DEVNULL,
+                timeout=5,
+            ).decode().strip()
+        except Exception:
+            last_sha = ""
+
+        while True:
+            await _asyncio.sleep(interval)
+
+            # Fetch new commits since last_sha
+            try:
+                log_args = [
+                    "log",
+                    "--format=%H|%ad|%an|%s",
+                    "--date=short",
+                ]
+                if last_sha:
+                    log_args.append(f"{last_sha}..HEAD")
+                else:
+                    log_args.append("-5")
+                if watch_path:
+                    log_args += ["--", watch_path]
+
+                raw = _subprocess.check_output(
+                    ["git"] + log_args,
+                    cwd=str(_BASE.parent.parent),
+                    stderr=_subprocess.DEVNULL,
+                    timeout=5,
+                ).decode(errors="replace").strip()
+            except Exception:
+                yield "data: {\"heartbeat\": true}\n\n"
+                continue
+
+            new_commits = [ln for ln in raw.splitlines() if "|" in ln]
+
+            if not new_commits:
+                yield "data: {\"heartbeat\": true}\n\n"
+                continue
+
+            # Emit newest last so client sees them in chronological order
+            for line in reversed(new_commits):
+                sha, date, author, subject = line.split("|", 3)
+
+                # Ask AI for a one-line summary (best-effort; skip if LLM down)
+                ai_summary = ""
+                if _llm is not None:
+                    try:
+                        prompt = (
+                            f"Commit {sha[:8]} by {author}: \"{subject}\"\n"
+                            "Write ONE sentence (max 120 chars) summarising the impact of this commit."
+                        )
+                        ai_summary = await _asyncio.to_thread(
+                            _llm.chat,
+                            [{"role": "user", "content": prompt}],
+                            max_tokens=80,
+                        )
+                        ai_summary = ai_summary.strip().replace('"', "'")
+                    except Exception:
+                        ai_summary = ""
+
+                event = json.dumps({
+                    "sha":        sha[:12],
+                    "date":       date,
+                    "author":     author,
+                    "subject":    subject,
+                    "ai_summary": ai_summary,
+                }, ensure_ascii=False)
+                yield f"data: {event}\n\n"
+
+            # Advance pointer
+            last_sha = new_commits[0].split("|")[0]
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-2 — POST /git/review-commit
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ReviewCommitReq(BaseModel):
+    sha: str = "HEAD"          # commit to review (SHA, branch, or "HEAD")
+    project: str = ""          # optional: restrict diff to this Projects/ sub-path
+    max_diff_chars: int = 6000 # cap diff sent to LLM
+
+
+@app.post("/git/review-commit")
+async def git_review_commit(req: _ReviewCommitReq) -> dict:
+    """AI-powered structured review of a git commit diff.
+
+    Retrieves the diff for *sha* (defaults to HEAD), sends it to the LLM,
+    and returns a structured review with:
+
+    - ``summary``     — one-paragraph plain-English description of the change
+    - ``issues``      — list of potential bugs, style violations, or risks
+    - ``suggestions`` — concrete improvement suggestions
+    - ``verdict``     — ``approve`` | ``needs_work`` | ``blocking``
+
+    P4-2
+    """
+    # Resolve optional project path scope
+    path_scope: list[str] = []
+    if req.project:
+        if not _PROJECT_ID_PATTERN.fullmatch(req.project):
+            raise HTTPException(status_code=422, detail="Invalid project name")
+        path_scope = ["--", f"Projects/{req.project}"]
+
+    # Safety: only allow safe SHA-like values
+    if not _GIT_REF_PATTERN.fullmatch(req.sha):
+        raise HTTPException(status_code=422, detail="Invalid sha value")
+
+    # Get the diff
+    try:
+        diff_raw = _subprocess.check_output(
+            ["git", "diff", f"{req.sha}^", req.sha, "--"] + path_scope,
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=15,
+        ).decode(errors="replace")
+    except _subprocess.CalledProcessError:
+        # Might be the first commit — try without parent
+        try:
+            diff_raw = _subprocess.check_output(
+                ["git", "show", "--format=", req.sha, "--"] + path_scope,
+                cwd=str(_BASE.parent.parent),
+                stderr=_subprocess.DEVNULL,
+                timeout=15,
+            ).decode(errors="replace")
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"git diff failed: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"git diff failed: {exc}") from exc
+
+    # Get commit metadata
+    try:
+        meta_raw = _subprocess.check_output(
+            ["git", "log", "-1", "--format=%H|%ad|%an|%s", "--date=short", req.sha],
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=5,
+        ).decode(errors="replace").strip()
+        sha_full, date, author, subject = meta_raw.split("|", 3) if "|" in meta_raw else (req.sha, "", "", "")
+    except Exception:
+        sha_full, date, author, subject = req.sha, "", "", ""
+
+    # Truncate diff if too large
+    diff_truncated = len(diff_raw) > req.max_diff_chars
+    diff_for_llm   = diff_raw[:req.max_diff_chars]
+
+    if _llm is None:
+        return {
+            "sha": sha_full[:12], "date": date, "author": author, "subject": subject,
+            "diff_lines": len(diff_raw.splitlines()),
+            "diff_truncated": diff_truncated,
+            "review": None,
+            "error": "LLM not available",
+        }
+
+    review_prompt = (
+        f"Review the following git commit.\n\n"
+        f"Commit: {sha_full[:12]}  Author: {author}  Date: {date}\n"
+        f"Subject: {subject}\n\n"
+        f"Diff ({len(diff_raw.splitlines())} lines"
+        + (" — truncated" if diff_truncated else "") + "):\n"
+        "```diff\n" + diff_for_llm + "\n```\n\n"
+        "Return a JSON object with exactly these keys:\n"
+        '{"summary": "<1-paragraph description>", '
+        '"issues": ["<issue1>", ...], '
+        '"suggestions": ["<suggestion1>", ...], '
+        '"verdict": "approve|needs_work|blocking"}'
+        "\nOutput ONLY the JSON object."
+    )
+
+    try:
+        raw_review = await _asyncio.to_thread(
+            _llm.chat,
+            [
+                {"role": "system", "content": "You are an expert code reviewer. Be concise and constructive."},
+                {"role": "user",   "content": review_prompt},
+            ],
+            max_tokens=600,
+        )
+        # Parse JSON from response
+        brace_start = raw_review.find("{")
+        brace_end   = raw_review.rfind("}") + 1
+        review_data = json.loads(raw_review[brace_start:brace_end]) if brace_start != -1 else {}
+    except Exception as exc:
+        review_data = {"error": f"LLM parse failed: {exc}", "raw": raw_review[:400] if 'raw_review' in dir() else ""}
+
+    return {
+        "sha":            sha_full[:12],
+        "date":           date,
+        "author":         author,
+        "subject":        subject,
+        "diff_lines":     len(diff_raw.splitlines()),
+        "diff_truncated": diff_truncated,
+        "review":         review_data,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-3 — POST /self/improve
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _SelfImproveReq(BaseModel):
+    goal: str = (
+        "Review the ArbiterEngine source code and propose specific improvements "
+        "to code quality, error handling, or performance. Focus on small, safe changes."
+    )
+    max_steps: int = 5
+    dry_run: bool = True       # default True — never write without explicit opt-in
+    target_file: str = ""      # optional: scope to one file (e.g. "core/logger.py")
+
+
+@app.post("/self/improve")
+async def self_improve(req: _SelfImproveReq) -> dict:
+    """Run the Arbiter agent against its own source code to propose improvements.
+
+    By default ``dry_run=True`` so no files are written — the agent only
+    *proposes* changes.  Set ``dry_run=false`` with caution: the agent will
+    write directly to the ArbiterEngine source tree.
+
+    The agent is scoped to ``AIEngine/ArbiterEngine/`` so it cannot wander
+    outside the engine directory.
+
+    P4-3
+    """
+    engine_dir = _BASE  # AIEngine/ArbiterEngine/
+
+    # Build context: list relevant source files
+    scope_path = engine_dir
+    if req.target_file:
+        if not _FILE_PATH_PATTERN.fullmatch(req.target_file):
+            raise HTTPException(status_code=422, detail="Invalid target_file")
+        candidate = (engine_dir / req.target_file).resolve()
+        try:
+            candidate.relative_to(engine_dir.resolve())
+            if candidate.is_file():
+                scope_path = candidate.parent
+        except ValueError:
+            raise HTTPException(status_code=422, detail="target_file escapes engine directory")
+
+    try:
+        file_list = "\n".join(
+            str(f.relative_to(engine_dir))
+            for f in sorted(scope_path.rglob("*.py"))
+            if ".git" not in f.parts and "__pycache__" not in f.parts
+        )[:3000]
+    except Exception:
+        file_list = "(could not list files)"
+
+    # Optionally read the target file as extra context
+    target_content = ""
+    if req.target_file:
+        try:
+            target_path = (engine_dir / req.target_file).resolve()
+            target_path.relative_to(engine_dir.resolve())   # security check
+            target_content = target_path.read_text(encoding="utf-8", errors="replace")[:4000]
+        except Exception:
+            target_content = ""
+
+    system_prompt = (
+        "You are an expert Python developer reviewing the Arbiter AI Engine source code.\n"
+        "For each step return a JSON object:\n"
+        '{"action": "write_file|answer|done", '
+        '"path": "<relative path from engine root if write_file>", '
+        '"content": "<new full file content if write_file, or explanation if answer>", '
+        '"reasoning": "<why this improvement>"}\n'
+        "Output ONLY the JSON object."
+    )
+
+    messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content":
+            f"Goal: {req.goal}\n\n"
+            f"Engine directory: AIEngine/ArbiterEngine/\n"
+            f"Source files in scope:\n{file_list}\n\n"
+            + (f"Target file content ({req.target_file}):\n```python\n{target_content}\n```\n\n" if target_content else "")
+            + "Begin your analysis. Return your first action JSON."},
+    ]
+
+    steps: list[_AgentStep] = []
+    final_answer = ""
+
+    for step_num in range(1, req.max_steps + 1):
+        if _llm is None:
+            steps.append(_AgentStep(step=step_num, action="error",
+                                    result="LLM not available", status="error"))
+            break
+        try:
+            raw = await _asyncio.to_thread(_llm.chat, messages)
+        except Exception as exc:
+            steps.append(_AgentStep(step=step_num, action="error", result=str(exc), status="error"))
+            break
+
+        json_match = _re.search(r"\{[\s\S]+?\}", raw)
+        if not json_match:
+            steps.append(_AgentStep(step=step_num, action="parse_error",
+                                    result=raw[:200], status="error"))
+            break
+
+        try:
+            action_data = json.loads(json_match.group())
+        except Exception:
+            steps.append(_AgentStep(step=step_num, action="parse_error",
+                                    result=raw[:200], status="error"))
+            break
+
+        action_type = action_data.get("action", "answer")
+        reasoning   = action_data.get("reasoning", "")
+
+        if action_type in ("done", "answer"):
+            final_answer = action_data.get("content", reasoning)
+            steps.append(_AgentStep(step=step_num, action="done",
+                                    result=final_answer[:500], status="success"))
+            break
+
+        elif action_type == "write_file":
+            rel_path = action_data.get("path", "")
+            content  = action_data.get("content", "")
+            observation = "skipped (dry_run=True)"
+
+            if not req.dry_run and rel_path:
+                try:
+                    target = (engine_dir / rel_path).resolve()
+                    # Must stay inside engine_dir
+                    target.relative_to(engine_dir.resolve())
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content, encoding="utf-8")
+                    observation = f"Written {len(content)} chars to {rel_path}"
+                    logger.info("[P4-3/self/improve] Wrote %s (%d chars)", rel_path, len(content))
+                except ValueError:
+                    observation = f"Write rejected: path '{rel_path}' escapes engine directory"
+                except Exception as exc:
+                    observation = f"Write failed: {exc}"
+
+            steps.append(_AgentStep(step=step_num,
+                                    action=f"write_file:{rel_path}",
+                                    result=observation,
+                                    status="success" if "Written" in observation else "skipped"))
+        else:
+            observation = f"Unknown action '{action_type}' — skipped."
+            steps.append(_AgentStep(step=step_num, action=action_type,
+                                    result=observation, status="skipped"))
+
+        messages.append({"role": "assistant", "content": raw})
+        messages.append({"role": "user", "content":
+            f"Observation from step {step_num}: {observation}\n"
+            "Continue. Return next action JSON, or {\"action\":\"done\",\"content\":\"<summary>\"} when finished."
+        })
+
+    return {
+        "goal":         req.goal,
+        "target_file":  req.target_file,
+        "steps":        [s.model_dump() for s in steps],
+        "total_steps":  len(steps),
+        "final_answer": final_answer,
+        "dry_run":      req.dry_run,
+        "engine_dir":   str(engine_dir),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P4-4 — POST /tests/run
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _TestsRunReq(BaseModel):
+    project: str              # project name under Projects/ or absolute path
+    command: str = ""         # override auto-detected test command
+    timeout: int = 120        # seconds before the test run is killed
+    ai_analysis: bool = True  # feed results to AI for analysis after run
+
+
+@app.post("/tests/run")
+async def tests_run(req: _TestsRunReq) -> dict:
+    """Detect and run a project's test suite, then feed results to the AI.
+
+    Auto-detects the test runner based on project files:
+
+    - ``pytest`` if ``pytest.ini``, ``pyproject.toml``, or ``tests/`` exists
+    - ``dotnet test`` for C# projects
+    - ``npm test`` for Node.js projects
+    - ``cargo test`` for Rust projects
+    - ``go test ./...`` for Go projects
+
+    After the run completes, the combined stdout/stderr is summarised by the
+    AI and returned as ``ai_analysis`` in the response.
+
+    P4-4
+    """
+    timeout = max(10, min(req.timeout, 600))
+
+    # Resolve project directory
+    p = Path(req.project)
+    if p.is_absolute() and p.exists():
+        project_dir = p
+    else:
+        project_dir = _BASE.parent.parent / "Projects" / req.project
+        if not project_dir.exists():
+            # Fall back to engine root (allows running Arbiter's own tests)
+            project_dir = _BASE.parent.parent / req.project
+        if not project_dir.exists():
+            raise HTTPException(status_code=404,
+                                detail=f"Project directory not found: {req.project}")
+
+    # Auto-detect test command
+    def _detect_test_cmd(d: Path) -> str:
+        if (d / "pytest.ini").exists() or (d / "pyproject.toml").exists() or (d / "tests").is_dir():
+            return "python -m pytest -v --tb=short"
+        if list(d.glob("*.csproj")) or list(d.glob("*.sln")):
+            return "dotnet test"
+        if (d / "package.json").exists():
+            return "npm test"
+        if (d / "Cargo.toml").exists():
+            return "cargo test"
+        if (d / "go.mod").exists():
+            return "go test ./..."
+        return ""
+
+    cmd = req.command.strip() or _detect_test_cmd(project_dir)
+    if not cmd:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot auto-detect test command for '{req.project}'. Pass 'command' explicitly.",
+        )
+
+    # Run tests in a subprocess, capture output
+    start_ts = datetime.datetime.utcnow()
+    try:
+        result = await _asyncio.to_thread(
+            _subprocess.run,
+            cmd,
+            shell=True,
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        exit_code = result.returncode
+        stdout    = result.stdout
+        stderr    = result.stderr
+        timed_out = False
+    except _subprocess.TimeoutExpired:
+        exit_code = -1
+        stdout    = ""
+        stderr    = f"Test run killed after {timeout}s timeout"
+        timed_out = True
+    except Exception as exc:
+        exit_code = -1
+        stdout    = ""
+        stderr    = str(exc)
+        timed_out = False
+
+    end_ts    = datetime.datetime.utcnow()
+    duration  = round((end_ts - start_ts).total_seconds(), 2)
+    passed    = exit_code == 0
+
+    # Combine output for AI (cap to avoid huge prompts)
+    combined_output = (stdout + "\n" + stderr).strip()
+    output_for_ai   = combined_output[:5000]
+    output_truncated = len(combined_output) > 5000
+
+    # AI analysis
+    ai_analysis: str = ""
+    if req.ai_analysis and _llm is not None:
+        status_word = "PASSED" if passed else ("TIMED OUT" if timed_out else "FAILED")
+        analysis_prompt = (
+            f"The test suite for project '{req.project}' {status_word} "
+            f"(exit code {exit_code}, {duration}s).\n\n"
+            f"Test output ({len(combined_output.splitlines())} lines"
+            + (" — truncated" if output_truncated else "") + "):\n"
+            "```\n" + output_for_ai + "\n```\n\n"
+            "Provide a concise analysis:\n"
+            "1. What passed / failed?\n"
+            "2. Root cause of any failures (if applicable).\n"
+            "3. Suggested next steps to fix failures or improve coverage."
+        )
+        try:
+            ai_analysis = await _asyncio.to_thread(
+                _llm.chat,
+                [
+                    {"role": "system", "content": "You are a senior QA engineer. Be concise and actionable."},
+                    {"role": "user",   "content": analysis_prompt},
+                ],
+                max_tokens=500,
+            )
+        except Exception as exc:
+            ai_analysis = f"(AI analysis failed: {exc})"
+
+    return {
+        "project":          req.project,
+        "command":          cmd,
+        "exit_code":        exit_code,
+        "passed":           passed,
+        "timed_out":        timed_out,
+        "duration_seconds": duration,
+        "output_lines":     len(combined_output.splitlines()),
+        "output_truncated": output_truncated,
+        "stdout":           stdout[:4000],
+        "stderr":           stderr[:2000],
+        "ai_analysis":      ai_analysis,
+    }
+
+
+# =============================================================================
+# Phase 5 — Production & Deployment
+# =============================================================================
+# P5-1  Dockerfile                — config volume, plugins volume (.arbiter/)
+# P5-2  POST /self/update         — git pull + hot-reload notification
+# P5-3  POST /api-keys/*          — per-user API keys + rate-limiting middleware
+# P5-4  Plugin route registration — plugins/*/routes.py registers FastAPI routers
+# =============================================================================
+
+import secrets as _secrets
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5-3 — Multi-user API keys + rate-limiting middleware
+# ─────────────────────────────────────────────────────────────────────────────
+
+_API_KEYS_FILE = _BASE / ".arbiter" / "api_keys.json"
+
+# key_id → {key, username, role, created_at, enabled, rate_limit (req/min)}
+_api_keys: dict[str, dict] = {}
+
+# Sliding-window rate limiter: identifier → deque of request timestamps
+_rate_windows: dict[str, collections.deque] = {}
+_rate_lock = threading.Lock()
+
+
+def _load_api_keys() -> None:
+    global _api_keys
+    if _API_KEYS_FILE.exists():
+        try:
+            _api_keys = json.loads(_API_KEYS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _api_keys = {}
+
+
+def _save_api_keys() -> None:
+    _API_KEYS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _API_KEYS_FILE.write_text(json.dumps(_api_keys, indent=2), encoding="utf-8")
+
+
+_load_api_keys()
+
+
+def _key_index() -> dict[str, str]:
+    """Return a reverse map: key_string → key_id (enabled keys only)."""
+    return {v["key"]: k for k, v in _api_keys.items() if v.get("enabled", True)}
+
+
+# Paths that always bypass auth and rate-limiting
+_PUBLIC_PATHS = frozenset({"/", "/health", "/status"})
+
+
+class _ApiKeyRateLimitMiddleware(BaseHTTPMiddleware):
+    """Validate the ``X-API-Key`` header and enforce per-key rate limits.
+
+    Behaviour:
+
+    * If **no** API keys have been configured (default fresh install) every
+      request is allowed — no auth needed.
+    * Once at least one key has been registered via ``POST /api-keys/create``,
+      all non-public endpoints require a valid, enabled key.
+    * A sliding-window rate limiter is applied per key (when auth is on) or
+      per client IP (when auth is off).  The default limit is 120 req/min.
+
+    P5-3
+    """
+
+    async def dispatch(self, request: _StarletteRequest, call_next: Any) -> Any:
+        path = request.url.path
+
+        # Public endpoints and CORS preflight are never gated
+        if path in _PUBLIC_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+
+        key_str = request.headers.get("X-API-Key", "")
+        idx = _key_index()
+
+        if idx:  # At least one key registered → enforce authentication
+            if not key_str or key_str not in idx:
+                return _StarletteJSONResponse(
+                    {"detail": "Invalid or missing API key. Pass X-API-Key header."},
+                    status_code=401,
+                )
+            key_id = idx[key_str]
+            meta   = _api_keys[key_id]
+            if not meta.get("enabled", True):
+                return _StarletteJSONResponse(
+                    {"detail": "API key is disabled."},
+                    status_code=403,
+                )
+            # Attach identity to request state for downstream handlers
+            request.state.api_key_id = key_id
+            request.state.api_user   = meta["username"]
+            request.state.api_role   = meta.get("role", "player")
+            rate_id = key_id
+            rate_limit = int(meta.get("rate_limit", 120))
+        else:
+            # No keys configured — rate-limit by IP
+            rate_id    = request.client.host if request.client else "unknown"
+            rate_limit = 120
+
+        # Sliding-window rate limit (per 60 s)
+        now = time.time()
+        with _rate_lock:
+            if rate_id not in _rate_windows:
+                _rate_windows[rate_id] = collections.deque()
+            window = _rate_windows[rate_id]
+            while window and now - window[0] > 60.0:
+                window.popleft()
+            if len(window) >= rate_limit:
+                retry_after = int(60.0 - (now - window[0])) + 1
+                return _StarletteJSONResponse(
+                    {"detail": f"Rate limit exceeded ({rate_limit} req/min). Retry after {retry_after}s."},
+                    status_code=429,
+                    headers={"Retry-After": str(retry_after)},
+                )
+            window.append(now)
+
+        return await call_next(request)
+
+
+app.add_middleware(_ApiKeyRateLimitMiddleware)
+
+
+# ── CRUD endpoints ────────────────────────────────────────────────────────────
+
+class _ApiKeyCreateReq(BaseModel):
+    username:   str
+    role:       str = "operator"
+    rate_limit: int = 120          # requests per minute
+    actor:      str = "admin"
+
+
+class _ApiKeyValidateReq(BaseModel):
+    key: str
+
+
+@app.post("/api-keys/create")
+def api_key_create(req: _ApiKeyCreateReq) -> dict:
+    """Create a new per-user API key.
+
+    Returns the generated key string — store it securely as it is shown only
+    once.  The key is stored as a SHA-256 hash; only the plain-text value
+    returned here can be used with ``X-API-Key``.
+
+    P5-3
+    """
+    role = req.role.lower()
+    if role not in _ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Unknown role '{role}'")
+
+    # Generate a URL-safe token
+    raw_key = "arbiter_" + _secrets.token_urlsafe(32)
+    key_id  = "kid_" + _secrets.token_hex(8)
+
+    _api_keys[key_id] = {
+        "key":        raw_key,
+        "username":   req.username,
+        "role":       role,
+        "created_at": datetime.datetime.utcnow().isoformat(),
+        "enabled":    True,
+        "rate_limit": max(1, min(req.rate_limit, 10_000)),
+    }
+    _save_api_keys()
+    _write_audit("api_key.create", req.actor, req.username, {"key_id": key_id, "role": role})
+    logger.info("[P5-3] API key created for '%s' (%s)", req.username, key_id)
+
+    return {
+        "status":   "created",
+        "key_id":   key_id,
+        "key":      raw_key,          # shown once — client must save this
+        "username": req.username,
+        "role":     role,
+    }
+
+
+@app.get("/api-keys")
+def api_key_list() -> dict:
+    """Return all API key metadata (key strings are masked).
+
+    P5-3
+    """
+    entries = []
+    for kid, meta in _api_keys.items():
+        raw = meta.get("key", "")
+        entries.append({
+            "key_id":     kid,
+            "key_prefix": raw[:16] + "…" if len(raw) > 16 else raw,
+            "username":   meta.get("username"),
+            "role":       meta.get("role"),
+            "created_at": meta.get("created_at"),
+            "enabled":    meta.get("enabled", True),
+            "rate_limit": meta.get("rate_limit", 120),
+        })
+    return {"total": len(entries), "keys": entries}
+
+
+@app.delete("/api-keys/{key_id}")
+def api_key_delete(key_id: str, actor: str = "admin") -> dict:
+    """Permanently delete an API key.
+
+    P5-3
+    """
+    if key_id not in _api_keys:
+        raise HTTPException(status_code=404, detail=f"Key '{key_id}' not found")
+    meta = _api_keys.pop(key_id)
+    _save_api_keys()
+    _write_audit("api_key.delete", actor, meta.get("username", ""), {"key_id": key_id})
+    return {"status": "deleted", "key_id": key_id, "username": meta.get("username")}
+
+
+@app.post("/api-keys/{key_id}/disable")
+def api_key_disable(key_id: str, actor: str = "admin") -> dict:
+    """Disable an API key without deleting it.
+
+    P5-3
+    """
+    if key_id not in _api_keys:
+        raise HTTPException(status_code=404, detail=f"Key '{key_id}' not found")
+    _api_keys[key_id]["enabled"] = False
+    _save_api_keys()
+    _write_audit("api_key.disable", actor, _api_keys[key_id].get("username", ""), {"key_id": key_id})
+    return {"status": "disabled", "key_id": key_id}
+
+
+@app.post("/api-keys/{key_id}/enable")
+def api_key_enable(key_id: str, actor: str = "admin") -> dict:
+    """Re-enable a previously disabled API key.
+
+    P5-3
+    """
+    if key_id not in _api_keys:
+        raise HTTPException(status_code=404, detail=f"Key '{key_id}' not found")
+    _api_keys[key_id]["enabled"] = True
+    _save_api_keys()
+    _write_audit("api_key.enable", actor, _api_keys[key_id].get("username", ""), {"key_id": key_id})
+    return {"status": "enabled", "key_id": key_id}
+
+
+@app.post("/api-keys/validate")
+def api_key_validate(req: _ApiKeyValidateReq) -> dict:
+    """Check whether a key is valid and return the associated user/role.
+
+    P5-3
+    """
+    idx = _key_index()
+    if req.key not in idx:
+        return {"valid": False, "reason": "unknown or disabled key"}
+    kid  = idx[req.key]
+    meta = _api_keys[kid]
+    return {
+        "valid":    True,
+        "key_id":   kid,
+        "username": meta.get("username"),
+        "role":     meta.get("role"),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5-2 — POST /self/update
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _SelfUpdateReq(BaseModel):
+    branch: str = ""          # leave blank to pull the current branch
+    restart: bool = False     # if True, exec-restart the process after pull
+
+
+@app.post("/self/update")
+async def self_update(req: _SelfUpdateReq) -> dict:
+    """Pull the latest Arbiter source from git and report the result.
+
+    1. Runs ``git fetch`` then ``git pull --ff-only`` (or a specific branch).
+    2. Returns the before/after commit SHAs, the pull summary, and any changed
+       file paths so the caller knows what was updated.
+    3. If ``restart=true``, the process exec-restarts itself after the pull
+       (only safe when running under a process supervisor or in a container
+       with ``restart: unless-stopped``).
+
+    P5-2
+    """
+    repo_root = _BASE.parent.parent  # repo root (two dirs up from server.py)
+
+    # Safety: verify we're inside a git repository
+    try:
+        _subprocess.check_output(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=5,
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Not a git repository — cannot self-update.")
+
+    # Record current HEAD before pull
+    try:
+        sha_before = _subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+    except Exception:
+        sha_before = "unknown"
+
+    # Validate branch name if provided
+    if req.branch and not _GIT_REF_PATTERN.fullmatch(req.branch):
+        raise HTTPException(status_code=422, detail="Invalid branch name")
+
+    # git fetch
+    try:
+        _subprocess.check_output(
+            ["git", "fetch", "--prune"],
+            cwd=str(repo_root), stderr=_subprocess.STDOUT, timeout=60,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"git fetch failed: {exc}") from exc
+
+    # git pull
+    pull_cmd = ["git", "pull", "--ff-only"]
+    if req.branch:
+        pull_cmd += ["origin", req.branch]
+    try:
+        pull_out = await _asyncio.to_thread(
+            _subprocess.check_output,
+            pull_cmd,
+            cwd=str(repo_root),
+            stderr=_subprocess.STDOUT,
+            timeout=60,
+        )
+        pull_summary = pull_out.decode(errors="replace").strip()
+    except _subprocess.CalledProcessError as exc:
+        output = exc.output.decode(errors="replace").strip() if exc.output else str(exc)
+        raise HTTPException(status_code=500, detail=f"git pull failed: {output}") from exc
+
+    # Record new HEAD
+    try:
+        sha_after = _subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+    except Exception:
+        sha_after = "unknown"
+
+    # Identify changed files (only when commits actually advanced)
+    changed_files: list[str] = []
+    if sha_before != sha_after and sha_before != "unknown":
+        try:
+            diff_out = _subprocess.check_output(
+                ["git", "diff", "--name-only", sha_before, sha_after],
+                cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=10,
+            ).decode(errors="replace").strip()
+            changed_files = [l for l in diff_out.splitlines() if l]
+        except Exception:
+            pass
+
+    updated = sha_before != sha_after
+    logger.info("[P5-2/self/update] %s → %s (%d files changed)",
+                sha_before[:8], sha_after[:8], len(changed_files))
+
+    result = {
+        "updated":       updated,
+        "sha_before":    sha_before[:12],
+        "sha_after":     sha_after[:12],
+        "pull_summary":  pull_summary,
+        "changed_files": changed_files,
+        "restart_required": updated,
+    }
+
+    # Exec-restart if requested and update succeeded
+    if req.restart and updated:
+        logger.warning("[P5-2] Exec-restarting Arbiter after self-update …")
+        result["restarting"] = True
+        # Schedule restart after a brief delay so the response can be sent
+        async def _delayed_restart():
+            await _asyncio.sleep(2)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        _asyncio.create_task(_delayed_restart())
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5-4 — Plugin route registration
+#
+# Each plugin may supply an optional ``routes.py`` module.  That module must
+# expose either:
+#   • a FastAPI ``APIRouter`` instance named ``router``, OR
+#   • a callable ``register(app)`` that adds routes to the provided app.
+#
+# The PluginLoader is extended (see core/plugin_loader.py) to call
+# ``_register_plugin_routes(plugin_name, plugin_dir)`` after loading.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_registered_plugin_routes: dict[str, list[str]] = {}  # plugin_name → list of mounted paths
+
+
+def _register_plugin_routes(name: str, plugin_dir_path: Path) -> list[str]:
+    """Import a plugin's ``routes.py`` and mount its router onto the global app.
+
+    Returns the list of route paths that were registered.
+    """
+    routes_file = plugin_dir_path / "routes.py"
+    if not routes_file.exists():
+        return []
+
+    import importlib.util as _ilu
+    try:
+        spec = _ilu.spec_from_file_location(f"plugin_{name}_routes", routes_file)
+        if spec is None or spec.loader is None:
+            return []
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    except Exception as exc:
+        logger.error("[P5-4] Failed to import routes.py for plugin '%s': %s", name, exc)
+        return []
+
+    mounted: list[str] = []
+
+    # Option A: module exposes an APIRouter named 'router'
+    router_obj = getattr(mod, "router", None)
+    if router_obj is not None:
+        try:
+            from fastapi import APIRouter as _APIRouter
+            if isinstance(router_obj, _APIRouter):
+                prefix = f"/plugins/{name}"
+                app.include_router(router_obj, prefix=prefix, tags=[f"plugin:{name}"])
+                mounted += [f"{prefix}{r.path}" for r in router_obj.routes]
+                logger.info("[P5-4] Mounted %d routes for plugin '%s' at %s",
+                            len(router_obj.routes), name, prefix)
+        except Exception as exc:
+            logger.error("[P5-4] Failed to mount router for plugin '%s': %s", name, exc)
+
+    # Option B: module exposes register(app) callable
+    register_fn = getattr(mod, "register", None)
+    if register_fn is not None and callable(register_fn) and not mounted:
+        try:
+            register_fn(app)
+            logger.info("[P5-4] Called register(app) for plugin '%s'", name)
+            mounted.append(f"/plugins/{name}/*")
+        except Exception as exc:
+            logger.error("[P5-4] register(app) failed for plugin '%s': %s", name, exc)
+
+    _registered_plugin_routes[name] = mounted
+    return mounted
+
+
+# Retroactively register routes for any plugins that were loaded at startup
+for _p_name, _p_meta in list(_plugin_loader.loaded_plugins.items()):
+    _p_dir = _BASE / "plugins" / _p_meta.get("_dir", _p_name)
+    if _p_dir.is_dir():
+        _register_plugin_routes(_p_name, _p_dir)
+
+
+@app.post("/plugins/install")
+def install_plugin(req: dict = {}) -> dict:
+    """Install a plugin from a local directory path.
+
+    Pass ``{"path": "/absolute/path/to/plugin-dir"}`` to load a plugin from
+    disk.  The directory must contain a valid ``plugin.json`` manifest.  If the
+    plugin includes a ``routes.py`` the routes are registered immediately.
+
+    P5-4
+    """
+    plugin_path_str = req.get("path", "") if isinstance(req, dict) else ""
+    if not plugin_path_str:
+        raise HTTPException(status_code=422, detail="Provide 'path' in the request body.")
+
+    plugin_path = Path(plugin_path_str)
+
+    # Security: for relative paths, restrict to simple names (no traversal chars)
+    # and resolve under the engine's plugins dir.
+    if not plugin_path.is_absolute():
+        if not _re.fullmatch(r"[A-Za-z0-9_-]{1,64}", plugin_path_str):
+            raise HTTPException(status_code=422, detail="Relative plugin path must be a simple name [A-Za-z0-9_-].")
+        plugin_path = (_BASE / "plugins" / plugin_path_str).resolve()
+        # Guard: resolved path must stay inside plugins dir
+        try:
+            plugin_path.relative_to((_BASE / "plugins").resolve())
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Plugin path escapes plugins directory.")
+
+    if not plugin_path.is_dir():
+        raise HTTPException(status_code=404, detail=f"Plugin directory not found: {plugin_path}")
+
+    if not (plugin_path / "plugin.json").exists():
+        raise HTTPException(status_code=422, detail="Missing plugin.json manifest.")
+
+    # Load via plugin_loader
+    _plugin_loader.load_plugin(plugin_path)
+
+    # Read manifest to get plugin name
+    try:
+        meta = json.loads((plugin_path / "plugin.json").read_text(encoding="utf-8"))
+        name = meta.get("name", plugin_path.name)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read manifest: {exc}") from exc
+
+    # Register routes
+    mounted = _register_plugin_routes(name, plugin_path)
+
+    return {
+        "status":         "installed",
+        "name":           name,
+        "version":        meta.get("version", "?"),
+        "routes_mounted": mounted,
+    }
+
+
+@app.get("/plugins/routes")
+def plugin_routes_list() -> dict:
+    """Return all plugin-registered route paths.
+
+    P5-4
+    """
+    return {
+        "plugins": [
+            {"name": n, "routes": routes}
+            for n, routes in _registered_plugin_routes.items()
+        ]
+    }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 6 — Cross-Project Intelligence
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── PA6-1: AI commit message generation ──────────────────────────────────────
+
+class _CommitMessageReq(BaseModel):
+    diff: str
+    context: str = ""   # optional extra context (e.g. branch name, task description)
+    project: str = ""
+
+
+@app.post("/ai/commit-message")
+def ai_commit_message(req: _CommitMessageReq) -> dict:
+    """Generate a conventional commit message from a git diff.
+
+    Returns a structured conventional-commit breakdown (type, scope, subject,
+    body) plus the full ready-to-use commit string.
+
+    PA6-1
+    """
+    if not req.diff.strip():
+        raise HTTPException(status_code=422, detail="'diff' must not be empty")
+
+    _MAX_DIFF = 8_000
+    truncated = len(req.diff) > _MAX_DIFF
+    diff_snippet = req.diff[:_MAX_DIFF]
+    if truncated:
+        diff_snippet += "\n... [diff truncated]"
+
+    system = (
+        "You are an expert at writing git commit messages following the Conventional Commits "
+        "specification (https://www.conventionalcommits.org/).\n"
+        "Given a git diff (and optional context), produce a commit message in this exact format:\n"
+        "TYPE: <type>   (one of: feat|fix|docs|style|refactor|perf|test|chore|ci|build)\n"
+        "SCOPE: <scope or blank>\n"
+        "SUBJECT: <short imperative summary, ≤72 chars>\n"
+        "BODY:\n<optional multi-line explanation; blank if none>\n"
+        "Output ONLY these labelled lines — no prose, no markdown."
+    )
+    context_note = f"\nExtra context: {req.context}" if req.context else ""
+    project_note = f"\nProject: {req.project}" if req.project else ""
+    user_msg = f"Generate a commit message for this diff:{context_note}{project_note}\n\n```diff\n{diff_snippet}\n```"
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse structured fields
+    commit_type = scope = subject = ""
+    body_lines: list[str] = []
+    in_body = False
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("TYPE:"):
+            commit_type = ls[5:].strip().lower()
+        elif ls.upper().startswith("SCOPE:"):
+            scope = ls[6:].strip()
+        elif ls.upper().startswith("SUBJECT:"):
+            subject = ls[8:].strip()
+        elif ls.upper().startswith("BODY:"):
+            in_body = True
+        elif in_body:
+            body_lines.append(line)
+
+    body = "\n".join(body_lines).strip()
+    scope_part = f"({scope})" if scope else ""
+    full_message = f"{commit_type}{scope_part}: {subject}"
+    if body:
+        full_message += f"\n\n{body}"
+
+    return {
+        "message":       full_message,
+        "type":          commit_type,
+        "scope":         scope,
+        "subject":       subject,
+        "body":          body,
+        "diff_truncated": truncated,
+        "raw":           raw,
+    }
+
+
+# ── PA6-2: AI structured planning ────────────────────────────────────────────
+
+class _AiPlanReq(BaseModel):
+    goal: str
+    project: str = ""
+    context: str = ""        # optional architecture/tech-stack context
+    max_tasks: int = 10
+
+
+@app.post("/ai/plan")
+def ai_plan(req: _AiPlanReq) -> dict:
+    """Turn a natural-language goal into a structured implementation plan.
+
+    Returns a list of tasks suitable for adding to a project roadmap.  Each
+    task has an id, title, description, priority (P0–P3), and estimated effort.
+
+    PA6-2
+    """
+    if not req.goal.strip():
+        raise HTTPException(status_code=422, detail="'goal' must not be empty")
+
+    max_t = max(1, min(req.max_tasks, 20))
+
+    system = (
+        "You are a senior software architect and project planner.\n"
+        "Given a development goal, produce a numbered implementation plan.\n"
+        f"Output at most {max_t} tasks. Use this exact format for each task:\n"
+        "TASK <n>:\n"
+        "TITLE: <short action-oriented title>\n"
+        "DESCRIPTION: <one or two sentences>\n"
+        "PRIORITY: <P0|P1|P2|P3>  (P0=critical, P3=nice-to-have)\n"
+        "EFFORT: <XS|S|M|L|XL>\n"
+        "---\n"
+        "Do not add any other text."
+    )
+    project_note = f" for the '{req.project}' project" if req.project else ""
+    context_note = f"\n\nAdditional context:\n{req.context}" if req.context else ""
+    user_msg = f"Goal{project_note}: {req.goal}{context_note}"
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse tasks from the structured output
+    tasks: list[dict] = []
+    current: dict | None = None
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("TASK ") and ":" in ls:
+            if current:
+                tasks.append(current)
+            num = ls.split(":")[0].split()[-1]
+            current = {"id": f"T{num}", "title": "", "description": "",
+                       "priority": "P2", "effort": "M"}
+        elif current is not None:
+            if ls.upper().startswith("TITLE:"):
+                current["title"] = ls[6:].strip()
+            elif ls.upper().startswith("DESCRIPTION:"):
+                current["description"] = ls[12:].strip()
+            elif ls.upper().startswith("PRIORITY:"):
+                current["priority"] = ls[9:].strip().upper()
+            elif ls.upper().startswith("EFFORT:"):
+                current["effort"] = ls[7:].strip().upper()
+    if current:
+        tasks.append(current)
+
+    return {
+        "goal":    req.goal,
+        "project": req.project,
+        "tasks":   tasks,
+        "count":   len(tasks),
+        "raw":     raw,
+    }
+
+
+# ── PA6-3: Unified workspace timeline ─────────────────────────────────────────
+
+_MAX_TIMELINE_COMMITS = 200
+
+
+@app.get("/workspace/timeline")
+def workspace_timeline(
+    limit: int = 50,
+    project: str = "",
+) -> dict:
+    """Return a unified git commit timeline across all managed project workspaces.
+
+    Aggregates ``git log`` output from every sub-directory under ``Projects/``
+    that is a git repo (has a ``.git`` folder or is inside the main repo).
+    Entries are sorted newest-first.
+
+    Query params:
+      - ``limit``   — max entries to return (default 50, max 200)
+      - ``project`` — if set, restrict to that project subdirectory only
+
+    PA6-3
+    """
+    limit = max(1, min(limit, _MAX_TIMELINE_COMMITS))
+    repo_root = _BASE.parent.parent
+
+    # Collect project dirs to scan
+    projects_base = repo_root / "Projects"
+    dirs_to_scan: list[tuple[str, Path]] = []
+
+    if project:
+        p_dir = projects_base / project
+        if not p_dir.is_dir():
+            raise HTTPException(status_code=404, detail=f"Project '{project}' not found")
+        dirs_to_scan.append((project, p_dir))
+    else:
+        if projects_base.is_dir():
+            for pd in sorted(projects_base.iterdir()):
+                if pd.is_dir():
+                    dirs_to_scan.append((pd.name, pd))
+        # Also include root repo commits touching Projects/
+        dirs_to_scan.append(("[arbiter]", repo_root))
+
+    entries: list[dict] = []
+    seen_shas: set[str] = set()
+
+    for proj_name, scan_dir in dirs_to_scan:
+        try:
+            fmt = "%H\x1f%ad\x1f%an\x1f%s"
+            if scan_dir == repo_root:
+                # Root repo: only commits that touched Projects/
+                out = _subprocess.check_output(
+                    ["git", "log", f"--format={fmt}", "--date=iso-strict",
+                     f"-{limit}", "--", "Projects/"],
+                    cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=10,
+                ).decode(errors="replace")
+            else:
+                # Project dir: check if it has its own git history or log by path
+                git_dir = scan_dir / ".git"
+                if git_dir.is_dir():
+                    out = _subprocess.check_output(
+                        ["git", "log", f"--format={fmt}", "--date=iso-strict",
+                         f"-{limit}"],
+                        cwd=str(scan_dir), stderr=_subprocess.DEVNULL, timeout=10,
+                    ).decode(errors="replace")
+                else:
+                    out = _subprocess.check_output(
+                        ["git", "log", f"--format={fmt}", "--date=iso-strict",
+                         f"-{limit}", "--", str(scan_dir)],
+                        cwd=str(repo_root), stderr=_subprocess.DEVNULL, timeout=10,
+                    ).decode(errors="replace")
+
+            for line in out.splitlines():
+                parts = line.split("\x1f", 3)
+                if len(parts) != 4:
+                    continue
+                sha, date, author, message = parts
+                sha_short = sha[:12]
+                if sha_short in seen_shas:
+                    continue
+                seen_shas.add(sha_short)
+                entries.append({
+                    "sha":     sha_short,
+                    "date":    date.strip(),
+                    "author":  author.strip(),
+                    "message": message.strip(),
+                    "project": proj_name,
+                })
+        except Exception:
+            continue
+
+    # Sort newest-first
+    entries.sort(key=lambda e: e["date"], reverse=True)
+
+    return {
+        "count":   len(entries[:limit]),
+        "limit":   limit,
+        "entries": entries[:limit],
+    }
+
+
+# ── PA6-4: Project dependency parsing ────────────────────────────────────────
+
+def _parse_requirements_txt(path: Path) -> list[dict]:
+    deps = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Strip extras and env markers
+        m = _re.match(r"^([A-Za-z0-9_.\-\[\]]+)([>=<~!^]{1,2}[^\s;#]+)?", line)
+        if m:
+            deps.append({
+                "name":    m.group(1).split("[")[0],
+                "version": (m.group(2) or "").strip() or "*",
+                "type":    "python",
+                "file":    path.name,
+            })
+    return deps
+
+
+def _parse_package_json(path: Path) -> list[dict]:
+    deps = []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return deps
+    for dep_type in ("dependencies", "devDependencies", "peerDependencies"):
+        for name, version in data.get(dep_type, {}).items():
+            deps.append({
+                "name":    name,
+                "version": version,
+                "type":    "npm" + (":dev" if dep_type == "devDependencies" else ""),
+                "file":    path.name,
+            })
+    return deps
+
+
+def _parse_csproj(path: Path) -> list[dict]:
+    deps = []
+    try:
+        import xml.etree.ElementTree as _ET
+        tree = _ET.parse(path)
+        for ref in tree.iter("PackageReference"):
+            name    = ref.get("Include", "")
+            version = ref.get("Version", "*")
+            if name:
+                deps.append({
+                    "name":    name,
+                    "version": version,
+                    "type":    "nuget",
+                    "file":    path.name,
+                })
+    except Exception:
+        pass
+    return deps
+
+
+def _parse_go_mod(path: Path) -> list[dict]:
+    deps = []
+    in_require = False
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        ls = line.strip()
+        if ls == "require (":
+            in_require = True
+            continue
+        if in_require and ls == ")":
+            in_require = False
+            continue
+        if in_require or ls.startswith("require "):
+            raw = ls[len("require "):].strip() if ls.startswith("require ") else ls
+            parts = raw.split()
+            if len(parts) >= 2:
+                deps.append({
+                    "name":    parts[0],
+                    "version": parts[1],
+                    "type":    "go",
+                    "file":    path.name,
+                })
+    return deps
+
+
+def _parse_cargo_toml(path: Path) -> list[dict]:
+    deps = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        in_deps = False
+        for line in text.splitlines():
+            ls = line.strip()
+            if ls in ("[dependencies]", "[dev-dependencies]", "[build-dependencies]"):
+                in_deps = True
+                continue
+            if ls.startswith("[") and ls != "[dependencies]":
+                in_deps = False
+            if in_deps and "=" in ls and not ls.startswith("#"):
+                name, _, ver_raw = ls.partition("=")
+                ver_raw = ver_raw.strip().strip('"\'').strip()
+                deps.append({
+                    "name":    name.strip(),
+                    "version": ver_raw,
+                    "type":    "cargo",
+                    "file":    path.name,
+                })
+    except Exception:
+        pass
+    return deps
+
+
+_DEP_PARSERS: dict = {
+    "requirements.txt": _parse_requirements_txt,
+    "package.json":     _parse_package_json,
+    "go.mod":           _parse_go_mod,
+    "Cargo.toml":       _parse_cargo_toml,
+}
+
+
+@app.get("/projects/{project_id}/dependencies")
+def project_dependencies(project_id: str) -> dict:
+    """Parse all recognised dependency manifests in a project workspace and
+    return a structured dependency list.
+
+    Recognises: ``requirements.txt``, ``package.json``, ``*.csproj``,
+    ``go.mod``, ``Cargo.toml``.  Searches the project directory recursively
+    up to 3 levels deep.
+
+    PA6-4
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    all_deps: list[dict] = []
+    manifest_files_found: list[str] = []
+
+    def _scan(directory: Path, depth: int) -> None:
+        if depth > 3:
+            return
+        for item in directory.iterdir():
+            if item.is_dir() and not item.name.startswith("."):
+                _scan(item, depth + 1)
+            elif item.is_file():
+                rel = str(item.relative_to(project_dir))
+                if item.name in _DEP_PARSERS:
+                    manifest_files_found.append(rel)
+                    try:
+                        all_deps.extend(_DEP_PARSERS[item.name](item))
+                    except Exception:
+                        pass
+                elif item.suffix == ".csproj":
+                    manifest_files_found.append(rel)
+                    try:
+                        all_deps.extend(_parse_csproj(item))
+                    except Exception:
+                        pass
+
+    try:
+        _scan(project_dir, 0)
+    except PermissionError:
+        pass
+
+    return {
+        "project_id":       project_id,
+        "manifests_found":  manifest_files_found,
+        "dependency_count": len(all_deps),
+        "dependencies":     all_deps,
+    }
+
+
+# ── PA6-5: Workspace snapshots ────────────────────────────────────────────────
+
+_SNAPSHOTS_FILE = _BASE.parent.parent / ".arbiter" / "workspace_snapshots.json"
+_snapshots_lock = _threading.Lock()
+
+
+def _load_snapshots() -> list[dict]:
+    if not _SNAPSHOTS_FILE.exists():
+        return []
+    try:
+        return json.loads(_SNAPSHOTS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_snapshots(snaps: list[dict]) -> None:
+    _SNAPSHOTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _SNAPSHOTS_FILE.write_text(json.dumps(snaps, indent=2), encoding="utf-8")
+
+
+class _SnapshotReq(BaseModel):
+    name: str
+    active_project: str = ""
+    notes: str = ""
+
+
+@app.post("/workspace/snapshot")
+def workspace_snapshot_create(req: _SnapshotReq) -> dict:
+    """Create a named snapshot of the current workspace state.
+
+    Captures the current active project, git branch + dirty-file list for
+    every Projects/ sub-repo (or the main repo path), and any notes.
+    Snapshots are stored in ``.arbiter/workspace_snapshots.json``.
+
+    PA6-5
+    """
+    if not req.name.strip():
+        raise HTTPException(status_code=422, detail="'name' must not be empty")
+
+    repo_root = _BASE.parent.parent
+    projects_base = repo_root / "Projects"
+
+    # Gather git state per project
+    git_states: dict[str, dict] = {}
+    scan_dirs: list[tuple[str, Path]] = []
+    if projects_base.is_dir():
+        for pd in sorted(projects_base.iterdir()):
+            if pd.is_dir():
+                scan_dirs.append((pd.name, pd))
+    scan_dirs.append(("[arbiter]", repo_root))
+
+    for proj_name, scan_dir in scan_dirs:
+        try:
+            cwd = str(scan_dir) if (scan_dir / ".git").is_dir() else str(repo_root)
+            branch = _subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=cwd, stderr=_subprocess.DEVNULL, timeout=5,
+            ).decode().strip()
+            dirty = _subprocess.check_output(
+                ["git", "status", "--short"],
+                cwd=cwd, stderr=_subprocess.DEVNULL, timeout=5,
+            ).decode(errors="replace").strip()
+            sha = _subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=cwd, stderr=_subprocess.DEVNULL, timeout=5,
+            ).decode().strip()
+            git_states[proj_name] = {
+                "branch":      branch,
+                "sha":         sha,
+                "dirty_files": [l.strip() for l in dirty.splitlines() if l.strip()],
+            }
+        except Exception:
+            git_states[proj_name] = {"branch": "?", "sha": "?", "dirty_files": []}
+
+    import uuid as _uuid
+    import datetime as _dt
+    snap = {
+        "id":             _uuid.uuid4().hex[:12],
+        "name":           req.name.strip(),
+        "created_at":     _dt.datetime.utcnow().isoformat(),
+        "active_project": req.active_project,
+        "notes":          req.notes,
+        "git_states":     git_states,
+    }
+
+    with _snapshots_lock:
+        snaps = _load_snapshots()
+        snaps.append(snap)
+        _save_snapshots(snaps)
+
+    logger.info("[PA6-5] Workspace snapshot created: '%s' (%s)", snap["name"], snap["id"])
+    return {"status": "created", "snapshot": snap}
+
+
+@app.get("/workspace/snapshots")
+def workspace_snapshots_list() -> dict:
+    """List all saved workspace snapshots (newest first).
+
+    PA6-5
+    """
+    with _snapshots_lock:
+        snaps = _load_snapshots()
+    snaps_sorted = sorted(snaps, key=lambda s: s.get("created_at", ""), reverse=True)
+    return {"count": len(snaps_sorted), "snapshots": snaps_sorted}
+
+
+@app.post("/workspace/snapshots/{snapshot_id}/restore")
+def workspace_snapshot_restore(snapshot_id: str) -> dict:
+    """Restore a workspace snapshot.
+
+    Returns the snapshot metadata so the client can re-open the saved
+    active_project and display the git state at snapshot time.  Git checkout
+    is NOT performed automatically — the client decides whether to act on the
+    returned branch/sha information.
+
+    PA6-5
+    """
+    with _snapshots_lock:
+        snaps = _load_snapshots()
+
+    snap = next((s for s in snaps if s.get("id") == snapshot_id), None)
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_id}' not found")
+
+    logger.info("[PA6-5] Workspace snapshot restore requested: '%s' (%s)",
+                snap.get("name"), snapshot_id)
+    return {
+        "status":   "restored",
+        "snapshot": snap,
+        "note":     "Set active_project and checkout branches as indicated by git_states.",
+    }
+
+
+# ── PA6-6: AI project context summary ────────────────────────────────────────
+
+_MAX_SUMMARY_FILE_CHARS = 3_000
+_SUMMARY_CANDIDATE_FILES = [
+    "README.md", "readme.md", "README.txt",
+    "roadmap.json",
+    "Specs.md", "ARCHITECTURE.md", "DESIGN.md",
+    "src/main.py", "src/app.py", "src/index.ts", "src/index.js",
+    "Program.cs", "App.cs", "Startup.cs",
+    "main.go", "main.rs", "main.cpp",
+    "package.json", "requirements.txt", "go.mod", "Cargo.toml",
+]
+
+
+@app.post("/projects/{project_id}/context/summary")
+def project_context_summary(project_id: str) -> dict:
+    """Generate a compressed AI summary of a project for fast context injection.
+
+    Reads the project's key documentation and entry-point files, then uses the
+    LLM to produce a concise architecture summary that can be injected into
+    any subsequent chat prompt as compressed context.
+
+    PA6-6
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    # Collect snippets from candidate files
+    snippets: list[str] = []
+    files_read: list[str] = []
+    for candidate in _SUMMARY_CANDIDATE_FILES:
+        fpath = project_dir / candidate
+        if fpath.exists() and fpath.is_file():
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+                snippet = content[:_MAX_SUMMARY_FILE_CHARS]
+                if len(content) > _MAX_SUMMARY_FILE_CHARS:
+                    snippet += "\n... [truncated]"
+                snippets.append(f"=== {candidate} ===\n{snippet}")
+                files_read.append(candidate)
+            except Exception:
+                pass
+
+    if not snippets:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No readable source files found in '{project_id}'",
+        )
+
+    combined = "\n\n".join(snippets)
+    system = (
+        "You are a senior software architect. Given project files, write a concise but "
+        "comprehensive context summary (200–400 words) covering:\n"
+        "1. What the project does (one sentence)\n"
+        "2. Tech stack and key dependencies\n"
+        "3. Architecture overview (main components and their relationships)\n"
+        "4. Current development phase / status\n"
+        "5. Key entry points and important files\n"
+        "Be factual — only include information present in the provided files."
+    )
+    user_msg = f"Project: {project_id}\n\nFiles:\n{combined}"
+
+    try:
+        summary = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    return {
+        "project_id": project_id,
+        "summary":    summary,
+        "key_files":  files_read,
+    }
+
+
+# ── PA6-7: Cross-project file search ─────────────────────────────────────────
+
+_MAX_SEARCH_RESULTS = 500
+_SEARCH_SKIP_DIRS = {
+    ".git", "__pycache__", "node_modules", ".venv", "venv", "env",
+    "bin", "obj", ".vs", "dist", "build", ".idea",
+}
+_SEARCH_SKIP_EXTS = {
+    ".pyc", ".pyo", ".dll", ".exe", ".so", ".dylib", ".class",
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp",
+    ".zip", ".tar", ".gz", ".rar", ".7z",
+    ".db", ".sqlite", ".sqlite3",
+    ".lock",
+}
+
+
+@app.get("/projects/search")
+def projects_search(
+    q: str,
+    project: str = "",
+    ext: str = "",
+    limit: int = 50,
+    case_sensitive: bool = False,
+) -> dict:
+    """Full-text search across all files in managed project workspaces.
+
+    Query params:
+      - ``q``              — search term (required)
+      - ``project``        — restrict to a specific project (optional)
+      - ``ext``            — filter by file extension, e.g. ``.py`` (optional)
+      - ``limit``          — max results (default 50, max 500)
+      - ``case_sensitive`` — default False
+
+    Returns matching lines with file path, line number, and the matched line.
+
+    PA6-7
+    """
+    if not q.strip():
+        raise HTTPException(status_code=422, detail="Query 'q' must not be empty")
+
+    limit = max(1, min(limit, _MAX_SEARCH_RESULTS))
+    needle = q if case_sensitive else q.lower()
+    ext_filter = ext.lower() if ext else ""
+
+    projects_base = _PROJECTS_DIR
+    if not projects_base.is_dir():
+        return {"query": q, "count": 0, "results": []}
+
+    # Determine which project dirs to scan
+    if project:
+        p_dir = projects_base / project
+        if not p_dir.is_dir():
+            raise HTTPException(status_code=404, detail=f"Project '{project}' not found")
+        search_roots = [(project, p_dir)]
+    else:
+        search_roots = [
+            (pd.name, pd) for pd in sorted(projects_base.iterdir())
+            if pd.is_dir()
+        ]
+
+    results: list[dict] = []
+
+    def _walk_and_search(proj_name: str, root: Path) -> None:
+        for dirpath, dirnames, filenames in os.walk(str(root)):
+            # Prune skip dirs in-place
+            dirnames[:] = [d for d in dirnames if d not in _SEARCH_SKIP_DIRS]
+            for fname in filenames:
+                fpath = Path(dirpath) / fname
+                if fpath.suffix.lower() in _SEARCH_SKIP_EXTS:
+                    continue
+                if ext_filter and fpath.suffix.lower() != ext_filter:
+                    continue
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    check = line if case_sensitive else line.lower()
+                    if needle in check:
+                        results.append({
+                            "project":     proj_name,
+                            "file":        str(fpath.relative_to(projects_base)),
+                            "line_number": lineno,
+                            "line":        line.rstrip(),
+                        })
+                        if len(results) >= _MAX_SEARCH_RESULTS:
+                            return
+
+    for proj_name, proj_dir in search_roots:
+        _walk_and_search(proj_name, proj_dir)
+        if len(results) >= _MAX_SEARCH_RESULTS:
+            break
+
+    truncated = len(results) >= _MAX_SEARCH_RESULTS
+    return {
+        "query":     q,
+        "project":   project or "*",
+        "count":     len(results[:limit]),
+        "truncated": truncated,
+        "results":   results[:limit],
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 7 — Observability & Developer Experience
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Record server start time for uptime calculation
+_SERVER_START_TIME: float = time.time()
+
+
+# ── PA7-1: Runtime metrics ────────────────────────────────────────────────────
+
+@app.get("/metrics")
+def metrics_get() -> dict:
+    """Return Arbiter Engine runtime statistics.
+
+    Includes:
+    - Per-endpoint request counts, error counts, and latency percentiles
+      (p50, p95, p99) derived from the rolling 200-sample window already
+      maintained by the metrics middleware.
+    - Aggregate LLM call counts and cache hit/miss ratio.
+    - Process memory (RSS) and uptime.
+
+    PA7-1
+    """
+    import psutil as _psutil_opt  # optional — graceful degradation if absent
+
+    # Process memory
+    try:
+        proc = _psutil_opt.Process()
+        mem_mb = round(proc.memory_info().rss / 1_048_576, 1)
+    except Exception:
+        mem_mb = None
+
+    uptime_s = round(time.time() - _SERVER_START_TIME, 1)
+
+    # Aggregate endpoint stats
+    endpoint_stats: list[dict] = []
+    with _metrics_lock:
+        for path, data in sorted(_metrics.items()):
+            lats = sorted(data["latencies_ms"])
+            n = len(lats)
+            p50 = lats[int(n * 0.50)] if n else 0.0
+            p95 = lats[int(n * 0.95)] if n else 0.0
+            p99 = lats[int(n * 0.99)] if n else 0.0
+            avg  = round(data["total_ms"] / data["requests"], 1) if data["requests"] else 0.0
+            endpoint_stats.append({
+                "endpoint":     path,
+                "requests":     data["requests"],
+                "errors":       data["errors"],
+                "avg_ms":       avg,
+                "p50_ms":       round(p50, 1),
+                "p95_ms":       round(p95, 1),
+                "p99_ms":       round(p99, 1),
+            })
+
+    # LLM cache
+    with _llm_cache_lock:
+        cache_size = len(_llm_cache)
+
+    # Budget totals
+    total_llm_calls = 0
+    total_tokens = 0
+    with _budget_lock:
+        for proj_data in _budget.values():
+            total_llm_calls += proj_data.get("calls", 0)
+            total_tokens     += proj_data.get("estimated_tokens", 0)
+
+    total_requests = sum(e["requests"] for e in endpoint_stats)
+    total_errors   = sum(e["errors"]   for e in endpoint_stats)
+
+    return {
+        "uptime_seconds":    uptime_s,
+        "memory_rss_mb":     mem_mb,
+        "total_requests":    total_requests,
+        "total_errors":      total_errors,
+        "llm_calls":         total_llm_calls,
+        "estimated_tokens":  total_tokens,
+        "cache_entries":     cache_size,
+        "endpoints":         endpoint_stats,
+    }
+
+
+# ── PA7-2: Per-project activity feed ─────────────────────────────────────────
+
+_MAX_ACTIVITY_EVENTS = 100
+
+
+@app.get("/projects/{project_id}/activity")
+def project_activity(
+    project_id: str,
+    limit: int = 30,
+) -> dict:
+    """Return a unified activity feed for a project.
+
+    Combines (newest-first):
+    - Git commits that touch the project directory
+    - Open issues from the workspace issues tracker
+    - Budget / LLM call totals for the project
+
+    Query params:
+    - ``limit`` — max total events (default 30, max 100)
+
+    PA7-2
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    limit = max(1, min(limit, _MAX_ACTIVITY_EVENTS))
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    events: list[dict] = []
+
+    # Git commits touching the project dir
+    repo_root = _BASE.parent.parent
+    try:
+        fmt = "%H\x1f%ad\x1f%an\x1f%s"
+        out = subprocess.check_output(
+            ["git", "log", f"--format={fmt}", "--date=iso-strict",
+             f"-{limit}", "--", str(project_dir)],
+            cwd=str(repo_root), stderr=subprocess.DEVNULL, timeout=10,
+        ).decode(errors="replace")
+        for line in out.splitlines():
+            parts = line.split("\x1f", 3)
+            if len(parts) == 4:
+                sha, date, author, message = parts
+                events.append({
+                    "type":    "commit",
+                    "date":    date.strip(),
+                    "summary": message.strip(),
+                    "detail":  {"sha": sha[:12], "author": author.strip()},
+                })
+    except Exception:
+        pass
+
+    # Open issues for the project workspace
+    try:
+        issue_result = _issues_list(project_id, status="open")
+        for issue in issue_result.get("issues", [])[:limit]:
+            events.append({
+                "type":    "issue",
+                "date":    issue.get("created_at", ""),
+                "summary": issue.get("title", ""),
+                "detail":  {
+                    "id":     issue.get("id"),
+                    "kind":   issue.get("kind", "bug"),
+                    "status": issue.get("status", "open"),
+                },
+            })
+    except Exception:
+        pass
+
+    # LLM budget snapshot for the project
+    with _budget_lock:
+        proj_budget = dict(_budget.get(project_id, {"calls": 0, "estimated_tokens": 0}))
+
+    # Sort newest-first and apply limit
+    events.sort(key=lambda e: e.get("date", ""), reverse=True)
+
+    return {
+        "project_id": project_id,
+        "count":      len(events[:limit]),
+        "budget":     proj_budget,
+        "events":     events[:limit],
+    }
+
+
+# ── PA7-3: AI code / error explanation ───────────────────────────────────────
+
+_MAX_EXPLAIN_CHARS = 8_000
+
+
+class _AiExplainReq(BaseModel):
+    content: str              # code snippet, error traceback, or any text
+    language: str = ""        # optional hint (e.g. "python", "csharp")
+    project: str = ""         # optional project context
+    archive_search: bool = True  # whether to cross-reference the Archive
+
+
+@app.post("/ai/explain")
+def ai_explain(req: _AiExplainReq) -> dict:
+    """Explain a code snippet, error message, or any developer text using the LLM.
+
+    Optionally cross-references the Archive for relevant prior knowledge.
+    Returns an explanation, key takeaways, and any relevant archive entries.
+
+    PA7-3
+    """
+    if not req.content.strip():
+        raise HTTPException(status_code=422, detail="'content' must not be empty")
+
+    snippet = req.content[:_MAX_EXPLAIN_CHARS]
+    truncated = len(req.content) > _MAX_EXPLAIN_CHARS
+
+    # Optional archive context
+    archive_hits: list[dict] = []
+    archive_context = ""
+    if req.archive_search:
+        try:
+            from core.archive_manager import ArchiveManager as _AM
+            am = _AM(_BASE)
+            results = am.search(req.content[:200], top_k=3)
+            for entry in results:
+                archive_hits.append({
+                    "title":   entry.get("title", ""),
+                    "snippet": entry.get("content", "")[:300],
+                    "source":  entry.get("source", ""),
+                })
+            if archive_hits:
+                archive_context = "\n\nRelevant archive entries:\n" + "\n".join(
+                    f"- {h['title']}: {h['snippet']}" for h in archive_hits
+                )
+        except Exception:
+            pass
+
+    lang_hint = f" ({req.language})" if req.language else ""
+    proj_hint = f"\nProject context: {req.project}" if req.project else ""
+
+    system = (
+        "You are a senior software engineer and technical writer.\n"
+        "Given a code snippet, error message, or technical text, provide:\n"
+        "EXPLANATION: <clear prose explanation of what this is and what it does or means>\n"
+        "KEY_POINTS:\n"
+        "- <point 1>\n"
+        "- <point 2>\n"
+        "...\n"
+        "RECOMMENDATION: <one actionable next step if relevant, otherwise 'N/A'>\n"
+        "Use only these labelled sections — no other text."
+    )
+    user_msg = (
+        f"Explain this{lang_hint}:{proj_hint}{archive_context}\n\n"
+        f"```\n{snippet}\n```"
+        + ("\n\n[Content truncated]" if truncated else "")
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse structured response
+    explanation = ""
+    key_points: list[str] = []
+    recommendation = ""
+    in_section = ""
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("EXPLANATION:"):
+            in_section = "explanation"
+            explanation = ls[len("EXPLANATION:"):].strip()
+        elif ls.upper().startswith("KEY_POINTS:"):
+            in_section = "key_points"
+        elif ls.upper().startswith("RECOMMENDATION:"):
+            in_section = "recommendation"
+            recommendation = ls[len("RECOMMENDATION:"):].strip()
+        elif in_section == "explanation" and ls:
+            explanation += " " + ls
+        elif in_section == "key_points" and ls.startswith("-"):
+            key_points.append(ls[1:].strip())
+        elif in_section == "recommendation" and not recommendation and ls:
+            recommendation = ls
+
+    return {
+        "explanation":    explanation.strip(),
+        "key_points":     key_points,
+        "recommendation": recommendation,
+        "archive_hits":   archive_hits,
+        "truncated":      truncated,
+        "raw":            raw,
+    }
+
+
+# ── PA7-4: Aggregate workspace health ────────────────────────────────────────
+
+@app.get("/workspace/health")
+def workspace_health() -> dict:
+    """Aggregate health check across the entire Arbiter workspace.
+
+    Checks:
+    - LLM backend reachability (ping via a trivial generation)
+    - Git repo state (clean / dirty / detached HEAD)
+    - Disk space on the repo root mount point
+    - Status of each managed project (roadmap progress, git dirty files)
+    - Count of open issues across all projects
+
+    PA7-4
+    """
+    repo_root = _BASE.parent.parent
+    result: dict = {"ok": True, "checks": {}}
+
+    # LLM health
+    try:
+        _llm.chat([{"role": "user", "content": "ping"}])
+        result["checks"]["llm"] = {"status": "ok", "backend": _backend}
+    except Exception as exc:
+        result["checks"]["llm"] = {"status": "error", "detail": str(exc)}
+        result["ok"] = False
+
+    # Git state
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(repo_root), stderr=subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+        dirty_out = subprocess.check_output(
+            ["git", "status", "--short"],
+            cwd=str(repo_root), stderr=subprocess.DEVNULL, timeout=5,
+        ).decode(errors="replace").strip()
+        dirty_files = [l for l in dirty_out.splitlines() if l.strip()]
+        result["checks"]["git"] = {
+            "status":      "ok",
+            "branch":      branch,
+            "dirty_files": len(dirty_files),
+        }
+    except Exception as exc:
+        result["checks"]["git"] = {"status": "error", "detail": str(exc)}
+        result["ok"] = False
+
+    # Disk space
+    try:
+        import shutil as _shutil_h
+        usage = _shutil_h.disk_usage(str(repo_root))
+        result["checks"]["disk"] = {
+            "status":        "ok",
+            "total_gb":      round(usage.total / 1_073_741_824, 1),
+            "used_gb":       round(usage.used  / 1_073_741_824, 1),
+            "free_gb":       round(usage.free  / 1_073_741_824, 1),
+            "used_pct":      round(usage.used / usage.total * 100, 1),
+        }
+        if usage.free / usage.total < 0.05:   # less than 5 % free
+            result["checks"]["disk"]["status"] = "warning"
+    except Exception as exc:
+        result["checks"]["disk"] = {"status": "error", "detail": str(exc)}
+
+    # Projects summary
+    projects_base = _PROJECTS_DIR
+    project_summaries: list[dict] = []
+    total_open_issues = 0
+    if projects_base.is_dir():
+        for pd in sorted(projects_base.iterdir()):
+            if not pd.is_dir():
+                continue
+            psum: dict = {"id": pd.name}
+            rp = pd / "roadmap.json"
+            if rp.exists():
+                try:
+                    rd = json.loads(rp.read_text(encoding="utf-8"))
+                    phases = rd.get("phases", rd.get("milestones", []))
+                    total_t = sum(len(p.get("tasks", [])) for p in phases)
+                    done_t  = sum(
+                        1 for p in phases for t in p.get("tasks", [])
+                        if t.get("status") == "done"
+                    )
+                    psum["roadmap_pct"] = round(done_t / total_t * 100, 1) if total_t else 0.0
+                    psum["roadmap_version"] = rd.get("version", "?")
+                except Exception:
+                    psum["roadmap_pct"] = None
+            # Git dirty for project
+            try:
+                git_dir = pd / ".git"
+                cwd = str(pd) if git_dir.is_dir() else str(repo_root)
+                dirty = subprocess.check_output(
+                    ["git", "status", "--short", "--", str(pd)],
+                    cwd=cwd, stderr=subprocess.DEVNULL, timeout=5,
+                ).decode(errors="replace").strip()
+                psum["dirty_files"] = len([l for l in dirty.splitlines() if l.strip()])
+            except Exception:
+                psum["dirty_files"] = None
+            # Open issues
+            try:
+                issues = _issues_list(pd.name, status="open")
+                open_count = len(issues.get("issues", []))
+                psum["open_issues"] = open_count
+                total_open_issues += open_count
+            except Exception:
+                psum["open_issues"] = 0
+            project_summaries.append(psum)
+
+    result["checks"]["projects"] = {
+        "status":           "ok",
+        "count":            len(project_summaries),
+        "total_open_issues": total_open_issues,
+        "projects":         project_summaries,
+    }
+
+    return result
+
+
+# ── PA7-5: Git blame with AI commentary ──────────────────────────────────────
+
+class _BlameExplainReq(BaseModel):
+    file_path: str         # path relative to repo root
+    project: str = ""      # project id (used to resolve path under Projects/)
+    start_line: int = 1
+    end_line: int = 0      # 0 = to end of file
+
+
+_MAX_BLAME_LINES = 200
+
+
+@app.post("/git/blame-explain")
+def git_blame_explain(req: _BlameExplainReq) -> dict:
+    """Run git blame on a file and have the AI summarise change history.
+
+    Returns the raw blame output (capped to ``_MAX_BLAME_LINES`` lines) and an
+    AI-generated commentary covering: authors, change frequency, hotspots, and
+    any patterns worth noting.
+
+    PA7-5
+    """
+    if not req.file_path.strip():
+        raise HTTPException(status_code=422, detail="'file_path' must not be empty")
+
+    # Validate path — no traversal
+    if ".." in req.file_path or req.file_path.startswith("/"):
+        raise HTTPException(status_code=422, detail="Invalid file_path")
+
+    repo_root = _BASE.parent.parent
+
+    # Resolve the file path
+    if req.project:
+        if not _PROJECT_ID_PATTERN.fullmatch(req.project):
+            raise HTTPException(status_code=422, detail="Invalid project")
+        abs_path = _PROJECTS_DIR / req.project / req.file_path
+    else:
+        abs_path = repo_root / req.file_path
+
+    if not abs_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {req.file_path}")
+
+    # Run git blame
+    blame_args = ["git", "blame", "--line-porcelain"]
+    if req.start_line >= 1 and req.end_line > req.start_line:
+        blame_args += [f"-L{req.start_line},{req.end_line}"]
+    blame_args.append(str(abs_path))
+
+    try:
+        blame_raw = subprocess.check_output(
+            blame_args, cwd=str(repo_root),
+            stderr=subprocess.DEVNULL, timeout=15,
+        ).decode(errors="replace")
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"git blame failed: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # Parse porcelain blame into structured entries
+    entries: list[dict] = []
+    current: dict = {}
+    for line in blame_raw.splitlines():
+        if not line:
+            continue
+        if line[0] not in ("\t", " ") and len(line.split()) >= 3:
+            # Commit line: sha orig_line final_line [group_count]
+            parts = line.split()
+            current = {"sha": parts[0][:12], "line": int(parts[2])}
+        elif line.startswith("author "):
+            current["author"] = line[7:].strip()
+        elif line.startswith("author-time "):
+            ts = int(line[12:].strip())
+            current["date"] = datetime.datetime.fromtimestamp(
+                ts, tz=datetime.timezone.utc
+            ).strftime("%Y-%m-%d")
+        elif line.startswith("summary "):
+            current["commit_summary"] = line[8:].strip()
+        elif line.startswith("\t"):
+            current["content"] = line[1:]
+            entries.append(dict(current))
+            current = {}
+
+    entries = entries[:_MAX_BLAME_LINES]
+
+    # Build compact blame text for LLM
+    blame_text = "\n".join(
+        f"L{e.get('line','?')} [{e.get('author','?')} {e.get('date','')}] "
+        f"{e.get('content','')[:120]}"
+        for e in entries
+    )
+
+    system = (
+        "You are a code historian and software engineer.\n"
+        "Given git blame output for a file (showing author, date, and code per line), "
+        "provide a concise commentary covering:\n"
+        "1. Top contributors and their areas of ownership\n"
+        "2. Most recently changed regions (hotspots)\n"
+        "3. Any notable patterns (e.g. one author owns all error handling, stale sections)\n"
+        "4. A one-sentence ownership summary\n"
+        "Be factual and concise (200 words max)."
+    )
+    user_msg = (
+        f"File: {req.file_path}"
+        + (f" (project: {req.project})" if req.project else "")
+        + f"\n\nBlame output ({len(entries)} lines shown):\n{blame_text}"
+    )
+
+    try:
+        commentary = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        commentary = f"[LLM error] {exc}"
+
+    return {
+        "file_path":       req.file_path,
+        "project":         req.project,
+        "lines_analysed":  len(entries),
+        "entries":         entries,
+        "commentary":      commentary,
+    }
+
+
+# ── PA7-6: AI-generated project changelog ────────────────────────────────────
+
+class _ChangelogReq(BaseModel):
+    project_id: str
+    since: str = ""     # ISO date or git ref (tag / sha) — empty = all history
+    until: str = ""     # ISO date or git ref — empty = HEAD
+    max_commits: int = 100
+
+
+@app.post("/projects/{project_id}/changelog")
+def project_changelog(project_id: str, req: _ChangelogReq) -> dict:
+    """Generate a human-readable CHANGELOG for a project from its git history.
+
+    Collects git log entries for the project directory (optionally bounded by
+    ``since`` / ``until`` refs), groups them by week or version tag, and uses
+    the LLM to write a polished CHANGELOG entry for each group.
+
+    Body fields:
+    - ``since``       — git ref, tag, or ISO date to start from (optional)
+    - ``until``       — git ref, tag, or ISO date to end at (optional, default HEAD)
+    - ``max_commits`` — cap on commits to process (default 100, max 500)
+
+    PA7-6
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    max_c = max(1, min(req.max_commits, 500))
+    repo_root = _BASE.parent.parent
+
+    # Build git log command
+    log_args = [
+        "git", "log",
+        "--format=%H\x1f%ad\x1f%an\x1f%s",
+        "--date=short",
+        f"-{max_c}",
+    ]
+    if req.since:
+        log_args += [f"--since={req.since}"] if _re.match(r"\d{4}-\d{2}-\d{2}", req.since) else [f"{req.since}..HEAD"]
+    if req.until and req.until.lower() not in ("", "head"):
+        log_args += [f"--until={req.until}"] if _re.match(r"\d{4}-\d{2}-\d{2}", req.until) else [f"HEAD...{req.until}"]
+    log_args += ["--", str(project_dir)]
+
+    try:
+        raw_log = subprocess.check_output(
+            log_args, cwd=str(repo_root),
+            stderr=subprocess.DEVNULL, timeout=15,
+        ).decode(errors="replace")
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"git log failed: {exc}") from exc
+
+    commits: list[dict] = []
+    for line in raw_log.splitlines():
+        parts = line.split("\x1f", 3)
+        if len(parts) == 4:
+            sha, date, author, message = parts
+            commits.append({
+                "sha":     sha[:12],
+                "date":    date.strip(),
+                "author":  author.strip(),
+                "message": message.strip(),
+            })
+
+    if not commits:
+        return {
+            "project_id": project_id,
+            "commits":    0,
+            "changelog":  "No commits found for the specified range.",
+            "entries":    [],
+        }
+
+    # Group commits by week (ISO year-week)
+    from collections import defaultdict as _defaultdict
+    groups: dict = _defaultdict(list)
+    for c in commits:
+        try:
+            dt = datetime.date.fromisoformat(c["date"])
+            week_key = f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
+        except Exception:
+            week_key = c["date"][:7] if len(c["date"]) >= 7 else "unknown"
+        groups[week_key].append(c)
+
+    # Generate changelog per group
+    changelog_sections: list[dict] = []
+    for week_key in sorted(groups.keys(), reverse=True):
+        group_commits = groups[week_key]
+        bullet_list = "\n".join(
+            f"- [{c['sha']}] {c['message']} ({c['author']})"
+            for c in group_commits
+        )
+        system = (
+            "You are a technical writer producing a CHANGELOG. "
+            "Given a list of git commits for a single week, write a concise CHANGELOG section "
+            "(3–8 bullet points) grouping related changes by theme (feat, fix, refactor, etc.). "
+            "Use present tense. Output ONLY the bullet points — no headings, no extra text."
+        )
+        user_msg = f"Week {week_key} commits for {project_id}:\n{bullet_list}"
+        try:
+            section_text = _llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_msg},
+            ])
+        except Exception as exc:
+            section_text = "\n".join(f"- {c['message']}" for c in group_commits)
+
+        changelog_sections.append({
+            "week":    week_key,
+            "commits": len(group_commits),
+            "text":    section_text.strip(),
+        })
+
+    full_changelog = "\n\n".join(
+        f"## {s['week']}\n{s['text']}" for s in changelog_sections
+    )
+
+    return {
+        "project_id": project_id,
+        "commits":    len(commits),
+        "sections":   len(changelog_sections),
+        "changelog":  full_changelog,
+        "entries":    changelog_sections,
     }
 
 

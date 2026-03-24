@@ -1,0 +1,55 @@
+<!--
+  Novaforge Tooling Layer — MainWindow stub
+  WPF host window with four panels: Chat, FileExplorer, ToolingLayer, StatusLog.
+  Full implementation tracked in roadmap.json → NF1-1.
+-->
+<Window x:Class="Novaforge.ToolingLayer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Novaforge.ToolingLayer"
+        Title="Novaforge Tooling Layer"
+        Width="1440" Height="900"
+        MinWidth="1024" MinHeight="600"
+        Background="{DynamicResource BgBrush}">
+
+    <Window.Resources>
+        <!-- Default dark theme colours (ChatGPT palette) -->
+        <SolidColorBrush x:Key="BgBrush"    Color="#202123"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#2A2B2F"/>
+        <SolidColorBrush x:Key="AiTextBrush" Color="#00FFAB"/>
+        <SolidColorBrush x:Key="FgBrush"    Color="#ECECEC"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3A3B40"/>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220"/>        <!-- File Explorer -->
+            <ColumnDefinition Width="*"/>          <!-- Chat -->
+            <ColumnDefinition Width="280"/>        <!-- Tooling / Actions -->
+            <ColumnDefinition Width="260"/>        <!-- Status Log -->
+        </Grid.ColumnDefinitions>
+
+        <!-- File Explorer Panel -->
+        <Border Grid.Column="0" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+            <local:FileExplorerPanel x:Name="FileExplorer"/>
+        </Border>
+
+        <!-- Chat Panel -->
+        <Border Grid.Column="1" Background="{DynamicResource BgBrush}">
+            <local:ChatPanel x:Name="Chat"/>
+        </Border>
+
+        <!-- Tooling / AI Actions Panel -->
+        <Border Grid.Column="2" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,1,0">
+            <local:ToolingPanel x:Name="Tooling"/>
+        </Border>
+
+        <!-- Status Log Panel -->
+        <Border Grid.Column="3" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0">
+            <local:StatusLogPanel x:Name="StatusLog"/>
+        </Border>
+    </Grid>
+</Window>

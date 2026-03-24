@@ -1,8 +1,39 @@
 # Arbiter — Repository Directive
 
-**Version:** 2.0  
-**Date:** 2026-03-23  
+**Version:** 3.0  
+**Date:** 2026-03-24  
 **Status:** Active
+
+---
+
+## ⚠️ SCOPE BOUNDARY — READ THIS FIRST
+
+> **This repository is ARBITER and ARBITER only.**
+
+Work done in this repo — by humans, agents, or Arbiter's own self-build loop — targets the **Arbiter platform** exclusively:
+
+- `AIEngine/` — Python AI backends (PythonBridge port 8000, ArbiterEngine port 8001)
+- `HostApp/` — C# WPF Windows application
+- `VisualStudioExtension/` — VSIX extension for Visual Studio 2022
+- `Installer/`, `Dockerfile`, `setup_arbiter.py` — distribution and setup
+
+### What `Projects/` is
+
+The `Projects/` folder contains **managed project workspaces** — repositories that Arbiter operates on **from within the running application** via its project management and self-build features.
+
+| Project | Path | Purpose |
+|---------|------|---------|
+| SteamServerAdmin | `Projects/SteamServerAdmin/` | Standalone Steam game-server management tool |
+| Novaforge | `Projects/Novaforge/` | Standalone mech game project |
+
+**These are NOT development targets for this repo's agents or contributors.**  
+Arbiter builds SSA and Novaforge autonomously by reading their own `roadmap.json` files while running. Agents working in this repo must **never** implement tasks from `Projects/SteamServerAdmin/roadmap.json` or `Projects/Novaforge/roadmap.json`.
+
+### What to work on
+
+✅ **In scope:** Arbiter features — chat engine, VS extension, self-build loop, LLM backends, WPF host, API endpoints in `server.py` / `fastapi_bridge.py`, installer, Docker, documentation.
+
+❌ **Out of scope:** Anything in `Projects/SteamServerAdmin/` or `Projects/Novaforge/` — including their `src/`, `ToolingLayer/`, `AI/`, tests, or roadmap tasks. Those projects are built by Arbiter, not by repo agents.
 
 ---
 
@@ -284,8 +315,18 @@ GET  /self-build/log             — full self-build session log
 | M7 — Self-Iteration | Full self-build loop (4 modes), roadmap-driven autonomous development | ✅ Complete |
 | M8 — Distribution | Inno Setup installer, auto-update, plugin marketplace, CLI, Docker, cloud sync | ✅ Complete |
 | M9 — Productivity & Integration | Scaffold, docgen, refactor engine, Docker IDE, task queue, API client, CI/cron, deploy | ✅ Complete |
-| M10 — Enhanced Chat & AI | Chat branching, templates, feedback system, multi-modal input, smart context, bookmarks | 🔜 Next |
-| M11 — Advanced AI Intelligence | Multi-model routing, agents marketplace, semantic search, knowledge graph, pair programming | 🔜 Planned |
+| M10 — Enhanced Chat & AI | Chat branching, templates, feedback system, multi-modal input, smart context, bookmarks | ✅ Complete |
+| M11 — Advanced AI Intelligence | Multi-model routing, agents marketplace, semantic search, knowledge graph, pair programming | ✅ Complete |
+| M12 — Logging & Issues | Structured logging, issue tracker integration, build failure analysis | ✅ Complete |
+| M13 — Reliability & Real-time | Performance hardening, SSE/WS improvements, crash recovery, health monitoring | ✅ Complete |
+| M14 — Code Quality & Security | Linting integration, CodeQL, dependency scanning, policy enforcement | ✅ Complete |
+| Phase1 — Platform Consolidation | Cross-platform CI, container builds, automated release pipeline | ✅ Complete |
+| Phase2 — Tooling Layer | Tool registry, plugin hot-reload, LLM backend factory v2 | ✅ Complete |
+| Phase3 — Workspace Intelligence | Project-aware context, roadmap-driven prompts, semantic workspace search | ✅ Complete |
+| Phase4 — Dev Agent Enhancement | Multi-step agent loops, structured outputs, tool calling, rollback | ✅ Complete |
+| Phase5 — Production & Deployment | Dockerfile, self-update endpoint, multi-user API keys, plugin system | ✅ Complete |
+
+**All milestones and phases are complete as of v1.7.0.** Next work on Arbiter is defined by new milestones added to `roadmap.json`.
 
 See `roadmap.json` for full task-level breakdown.
 
@@ -329,45 +370,12 @@ See `roadmap.json` for full task-level breakdown.
 
 This is an active solo project. The self-build loop (Pillar 3) means Arbiter itself contributes code back to the repository. All AI-generated commits are tagged with `[arbiter-self-build]` in the commit message so they are distinguishable from human commits.
 
-The development priority order is:
-1. ✅ M0–M9 complete — all foundation, IDE, engine, archive, WPF, chat, VS integration, self-build, distribution, and productivity milestones shipped
-2. 🔜 M10 (Enhanced Chat & Conversational AI) — next milestone in active development
-3. 🔜 M11 (Advanced AI Intelligence) — semantic search, multi-model routing, agents marketplace, knowledge graph
+**All current milestones (M0–M14, Phase1–Phase5) are complete as of v1.7.0.**  
+New Arbiter work is defined by adding new milestones to `roadmap.json`. When Arbiter's self-build loop or an agent picks up work, it must:
 
----
+1. Read `roadmap.json` — **this repo's roadmap only**
+2. Find a pending Arbiter milestone or task
+3. Implement it inside `AIEngine/`, `HostApp/`, `VisualStudioExtension/`, or related Arbiter infrastructure
+4. **Never** implement tasks from `Projects/SteamServerAdmin/roadmap.json` or `Projects/Novaforge/roadmap.json`
 
-## M10 — Enhanced Chat & Conversational AI (Next Milestone)
-
-M10 expands the Chat Engine pillar with advanced conversational capabilities derived from usage patterns in the existing chat log system. All M10 features build on the existing `/chat`, `/assistant/chat`, and `/history` infrastructure.
-
-### M10 Implementation Directives
-
-| Feature | API Target | Notes |
-|---------|-----------|-------|
-| Chat session branching | `POST /chat/branch` | Fork from any `history_id`; returns new `session_id` |
-| Conversation templates | `GET/POST /chat/templates` | Stored in `Memory/chat_templates.json` |
-| AI response rating | `POST /chat/feedback` | `{message_id, rating: 1|-1, comment}` → `logs/feedback.json` |
-| Message bookmarks | `GET/POST/DELETE /chat/bookmarks` | Stored in `Memory/bookmarks.json` per project |
-| Multi-modal input | `POST /chat/context` extension | `image_data` base64 field forwarded to vision-capable LLMs |
-| Smart context | `GET /context/active` | Returns auto-detected context from active editor state |
-| Real-time streaming | `/ws/chat` upgrade | WebSocket stream for token-by-token progressive render |
-| Message threading | `POST /chat/thread` | `{parent_message_id, message}` → creates nested thread |
-| Chat analytics | `GET /chat/analytics` | Usage stats: tokens, personas, projects, response quality |
-| Conversation summarization | `POST /chat/summarize` | Summarise past N turns into compressed context string |
-
----
-
-## M11 — Advanced AI Intelligence (Planned)
-
-M11 elevates Arbiter's core AI capabilities with semantic intelligence, multi-model coordination, and continuous learning.
-
-| Feature | Description |
-|---------|-------------|
-| Multi-model routing | Route queries to Ollama/OpenAI/Anthropic/local based on complexity + latency + cost |
-| Agents marketplace | Install specialist agents (Security, DevOps, Docs) as first-class plugins |
-| Code gen from requirements | `POST /ai/generate` — full feature from high-level natural language spec |
-| Semantic code search | `GET /search/semantic?q=` — embeddings (ChromaDB) over all project code |
-| Cross-project knowledge graph | Relationship map: files ↔ functions ↔ classes ↔ APIs across all projects |
-| AI-powered test intelligence | Generate test suites + identify untested edge cases per file |
-| Adaptive persona learning | Auto-tune persona prompts from feedback history |
-| AI pair programming mode | Continuous background analysis + real-time inline suggestions |
+Those sub-projects are built by Arbiter from within the running application, not by this repo's agents.

@@ -67,5 +67,12 @@ def create_llm(backend: str, config: "ConfigLoader") -> "BaseLLM":
             api_key=config.get("llm.gemini.key", ""),
             model=config.get("llm.gemini.model", "gemini-2.0-flash"),
         )
+    if backend == "codegeex":
+        from llm.codegeex import CodeGeeXLLM
+        return CodeGeeXLLM(
+            base_url=config.get("llm.codegeex.base_url", "http://localhost:8080"),
+            model=config.get("llm.codegeex.model", "codegeex-4-all-9b"),
+            api_key=config.get("llm.codegeex.key", ""),
+        )
     from llm.local import LocalLLM
     return LocalLLM(model_path=config.get("llm.local.model_path", ""))

@@ -7,11 +7,11 @@
 
 ## Current Status
 
-**Version:** 1.1.0 | **All M0–M14 milestones complete** ✅
+**Version:** 1.9.0 | **All M0–M14 milestones + Phases 1–7 complete** ✅
 
 ---
 
-## Completed Milestones
+## Completed Milestones (M0–M14)
 
 | # | Milestone | Key Features | Status |
 |---|-----------|-------------|--------|
@@ -33,106 +33,39 @@
 
 ---
 
-## Active Phases (Implementation Plan)
+## Completed Phases (1–7)
 
-The following phases implement the long-term vision from the project's implementation plan,
-combining AI tooling, server management, game systems, and development automation
-into one cohesive platform.
-
-### Phase 1 — Platform Consolidation *(In Progress)*
-
-| Task | Description | Status |
-|------|-------------|--------|
-| P1-1 | Per-system logging — `logs/<system>/` at repo root | ✅ Done |
-| P1-2 | Comprehensive docs wiki (`docs/wiki/`) | ✅ Done |
-| P1-3 | Server shutdown prompt — keep live or shut down on app close | ✅ Done |
-| P1-4 | Enhanced README banner with tool icons and roadmap | ✅ Done |
-| P1-5 | ROADMAP.md as user-facing roadmap document | ✅ Done |
-| P1-6 | Master Design Bible (`docs/design/MASTER_DESIGN_BIBLE.md`) | 🔜 Next |
-| P1-7 | In-application Wiki panel from `docs/wiki/` | 🔜 Planned |
-| P1-8 | Changelog automation from git log | 🔜 Planned |
-
-### Phase 2 — Tooling Layer & AI Integration *(Planned)*
-
-| Task | Description | Status |
-|------|-------------|--------|
-| P2-1 | Unified WPF UI for all editor tools | 🔜 Planned |
-| P2-2 | Deeper VS Code / Visual Studio plugin integration | 🔜 Planned |
-| P2-3 | ArbiterAI agent for automated coding, asset iteration, PCG | 🔜 Planned |
-| P2-4 | Open-source model integration (Ollama, CodeGeeX) | 🔜 Planned |
-
-### Phase 3 — Server Management System *(Planned)*
-
-> **Standalone project:** [`Projects/SteamServerAdmin`](Projects/SteamServerAdmin/roadmap.json)  
-> SteamServerAdmin is its own independent project managed by Arbiter. Any Arbiter-managed game project (e.g. Novaforge) registers its servers there. The tasks below are the Arbiter platform-level integration points.
-
-| Task | Description | Status |
-|------|-------------|--------|
-| P3-1 | SteamServerAdmin — start/stop/restart/update servers autonomously | 🔜 Planned |
-| P3-2 | Role-based permissions (Admin, Moderator, Operator, Player) | 🔜 Planned |
-| P3-3 | Permission audit logging and change notifications | 🔜 Planned |
-| P3-4 | AI health monitoring — auto-restart on threshold breach | 🔜 Planned |
-| P3-5 | Server dashboard in Tooling Layer / Monaco IDE | 🔜 Planned |
-
-### Phase 4 — Game Systems & Procedural Generation *(Planned)*
-
-> **Standalone project:** [`Projects/Novaforge`](Projects/Novaforge/roadmap.json)  
-> Novaforge is its own independent game project managed by Arbiter. The tasks below are the Arbiter platform-level features that make game system development possible.
-
-| Task | Description | Status |
-|------|-------------|--------|
-| P4-1 | Mech suit systems — tiered upgrades (Reactor, Armor, Weapons, Cockpit) | 🔜 Planned |
-| P4-2 | Visual propagation — upgrades affect interior/exterior aesthetics | 🔜 Planned |
-| P4-3 | PCG room/interior/exterior generation with modular asset placement | 🔜 Planned |
-| P4-4 | PCG ↔ Mech integration — upgrade tier drives generation complexity | 🔜 Planned |
-
-### Phase 5 — Development Agent Integration *(Planned)*
-
-| Task | Description | Status |
-|------|-------------|--------|
-| P5-1 | Repo monitoring — AI watches commits and suggests/implements changes | 🔜 Planned |
-| P5-2 | PCG coherence checker — ensures game assets stay consistent | 🔜 Planned |
-| P5-3 | Automated code → test → asset placement → AI feedback loop | 🔜 Planned |
-| P5-4 | Server monitoring automation — AI triggers scripts from logs | 🔜 Planned |
-
-### Phase 6 — Integration & Testing *(Planned)*
-
-| Task | Description | Status |
-|------|-------------|--------|
-| P6-1 | Tooling Layer ↔ ArbiterAI ↔ Visual Studio cross-system tests | 🔜 Planned |
-| P6-2 | Game systems ↔ PCG ↔ Mech logic validation suite | 🔜 Planned |
-| P6-3 | Server monitoring ↔ Admin tools ↔ AI agent E2E tests | 🔜 Planned |
-
-### Phase 7 — Deployment & Scaling *(Planned)*
-
-| Task | Description | Status |
-|------|-------------|--------|
-| P7-1 | Deploy Tooling Layer and Dev Agent to developer machines | 🔜 Planned |
-| P7-2 | Deploy server admin scripts to live servers | 🔜 Planned |
-| P7-3 | Full AI oversight for continuous project iteration | 🔜 Planned |
-| P7-4 | Analytics dashboards for AI-driven optimisation | 🔜 Planned |
+| Phase | Title | Key Additions | Status |
+|-------|-------|---------------|--------|
+| **Phase 1** | Platform Consolidation | Logging, wiki, shutdown prompt, README, ROADMAP.md | ✅ Done |
+| **Phase 2** | Tooling Layer & AI Integration | Agent loop, VS inline/refactor, model routing, CodeGeeX | ✅ Done |
+| **Phase 3** | Project-Aware Workspace Intelligence | /projects activate/health, workspace state, scaffold | ✅ Done |
+| **Phase 4** | Development Agent Enhancement | git watch/review-commit, self-improve, tests/run | ✅ Done |
+| **Phase 5** | Production & Deployment | Dockerfile, self-update, API keys + rate-limit, plugins | ✅ Done |
+| **Phase 6** | Cross-Project Intelligence | commit-message AI, AI plan, workspace timeline, dependencies, snapshots, context/summary, cross-project search | ✅ Done |
+| **Phase 7** | Observability & Developer Experience | /metrics, project activity feed, AI explain, workspace health, git blame-explain, project changelog | ✅ Done |
 
 ---
 
 ## Managed Projects
 
-Arbiter manages the following external projects as first-class workspaces. Each has its own
-`roadmap.json` inside `Projects/` and is driven by the same chat engine, self-build loop,
-and Tooling Layer as Arbiter itself.
+Arbiter manages the following external projects as first-class workspaces from within the
+running application. Each has its own `roadmap.json` inside `Projects/` and is driven by
+the same chat engine, self-build loop, and tooling as Arbiter itself.
+
+**These projects are developed by Arbiter while it is running — not by direct repo contributions.**
 
 | Project | Type | Summary | Roadmap |
 |---------|------|---------|---------|
 | **Novaforge** | Game Development | Atlas Core+ECS engine, modular mech suit systems, AI-driven PCG | [`Projects/Novaforge/roadmap.json`](Projects/Novaforge/roadmap.json) |
 | **SteamServerAdmin** | Server Administration | Autonomous Steam game server lifecycle management, role permissions, AI health monitoring | [`Projects/SteamServerAdmin/roadmap.json`](Projects/SteamServerAdmin/roadmap.json) |
 
-> To register a new project, add a `roadmap.json` to `Projects/<YourProject>/` following the schema in [`Projects/ExampleProject/roadmap.json`](Projects/ExampleProject/roadmap.json).
-
 ---
 
 ## How the Roadmap Drives Development
 
 `roadmap.json` is read by the self-build loop on every session start. Tasks with
-`status: "pending"` are processed in milestone order. After each task completes,
+`status: "pending"` are processed in phase/milestone order. After each task completes,
 the roadmap is updated automatically with `status: "done"`.
 
 To add your own tasks, edit `roadmap.json` or use the **Roadmap** panel in the
