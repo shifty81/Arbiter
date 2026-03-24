@@ -44,6 +44,12 @@ def _find_repo_root(start: Path | None = None) -> Path:
     """Walk upward from *start* (default: this file's directory) to find the
     repository root — identified by the presence of ``roadmap.json``.
 
+    We limit traversal to 8 levels.  This is deliberately generous: the
+    deepest any Arbiter source file currently sits relative to the repo root
+    is ``AIEngine/ArbiterEngine/core/`` (3 levels), so 8 covers even deeply
+    nested future layouts while avoiding runaway traversal to filesystem root
+    on misconfigured or containerised environments.
+
     Falls back to a directory two levels above this file if not found.
     """
     candidate = (start or Path(__file__).resolve().parent)

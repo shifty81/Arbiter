@@ -43,42 +43,36 @@ namespace ArbiterHost
                     MessageBoxResult.Yes);
 
                 if (answer == MessageBoxResult.Yes)
-                {
-                    // Terminate the Arbiter Engine server if we started it.
-                    try
-                    {
-                        if (engineRunning)
-                            AppConfig.EngineProcess!.Kill(entireProcessTree: true);
-                    }
-                    catch { /* best-effort */ }
-
-                    // Terminate the ArbiterAI bridge server (port 8000) if we started it.
-                    try
-                    {
-                        if (bridgeRunning)
-                            AppConfig.BridgeProcess!.Kill(entireProcessTree: true);
-                    }
-                    catch { /* best-effort */ }
-                }
-                // If No: leave servers running — they are accessible via web UI.
+                    KillServerProcesses();
+                // If No: leave servers running — they remain accessible via the web UI.
             }
             else
             {
-                // No server processes managed by this app; nothing to shut down.
-                try
-                {
-                    if (AppConfig.EngineProcess != null && !AppConfig.EngineProcess.HasExited)
-                        AppConfig.EngineProcess.Kill(entireProcessTree: true);
-                }
-                catch { /* best-effort */ }
-
-                try
-                {
-                    if (AppConfig.BridgeProcess != null && !AppConfig.BridgeProcess.HasExited)
-                        AppConfig.BridgeProcess.Kill(entireProcessTree: true);
-                }
-                catch { /* best-effort */ }
+                // No managed processes are running; still attempt a best-effort cleanup
+                // in case a process became orphaned between the check and here.
+                KillServerProcesses();
             }
+        }
+
+        /// <summary>
+        /// Terminates the Engine and Bridge server processes that Arbiter started,
+        /// ignoring any errors (best-effort cleanup).
+        /// </summary>
+        private static void KillServerProcesses()
+        {
+            try
+            {
+                if (AppConfig.EngineProcess != null && !AppConfig.EngineProcess.HasExited)
+                    AppConfig.EngineProcess.Kill(entireProcessTree: true);
+            }
+            catch { /* best-effort */ }
+
+            try
+            {
+                if (AppConfig.BridgeProcess != null && !AppConfig.BridgeProcess.HasExited)
+                    AppConfig.BridgeProcess.Kill(entireProcessTree: true);
+            }
+            catch { /* best-effort */ }
         }
     }
 }
