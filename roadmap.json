@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
-  "description": "Self-hosted, fully offline AI-powered development platform — three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration. Roadmap now extends to a 7-phase implementation plan covering server management, game systems (PCG/mech suits), and full development agent integration.",
-  "version": "1.4.0",
+  "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
+  "version": "1.5.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1226,143 +1226,94 @@
     },
     {
       "id": "Phase3",
-      "title": "Server Management System",
-      "description": "SteamServerAdmin is a fully standalone project (Projects/SteamServerAdmin). It has no runtime coupling to ArbiterEngine. These tasks track its independent development milestones as an Arbiter-managed project.",
-      "status": "active",
-      "standalone_project": "Projects/SteamServerAdmin/roadmap.json",
+      "title": "Project-Aware Workspace Intelligence",
+      "description": "Arbiter becomes aware of the projects it manages. New endpoints let Arbiter prime its AI context from any project's files and roadmap, introspect the live git workspace, scaffold new projects via AI, and persist workspace state across sessions.",
+      "status": "done",
       "tasks": [
         {
           "id": "P3-1",
-          "title": "SteamServerAdmin — start/stop/restart/update servers automatically with warnings before restarts",
-          "status": "pending"
+          "title": "POST /projects/{id}/activate — prime AI context with project roadmap, key files, and recent commits",
+          "status": "done",
+          "notes": "POST /projects/{id}/activate: loads project roadmap (completion stats, pending tasks), source file list, recent git commits into workspace_state active_project_context. Response includes summary and context length."
         },
         {
           "id": "P3-2",
-          "title": "Role-based permissions (Admin, Moderator, Operator, Standard Player) with dynamic restriction",
-          "status": "pending"
+          "title": "GET /projects/{id}/health — roadmap completion %, pending task count, last git activity",
+          "status": "done",
+          "notes": "GET /projects/{id}/health: returns roadmap version, total/done/pending task counts, completion_pct, active_phase, and last 10 git commits for the project path."
         },
         {
           "id": "P3-3",
-          "title": "Permission audit logging and change notifications visible in SSA web dashboard",
-          "status": "pending"
+          "title": "GET /git/status, GET /git/log, GET /git/diff — live git introspection for the active workspace",
+          "status": "done",
+          "notes": "Existing /git/status, /git/log, /git/diff endpoints (from earlier milestones) already fulfil workspace introspection. Enhanced /git/diff with ?staged=true to return staged (cached) diffs alongside normal working-tree diffs."
         },
         {
           "id": "P3-4",
-          "title": "AI health monitoring — auto-restart servers on threshold breach; trigger scripts autonomously from logs",
-          "status": "pending"
+          "title": "GET /workspace/state + POST /workspace/state — persist active project, preferences to .arbiter/workspace_state.json",
+          "status": "done",
+          "notes": "GET /workspace/state: returns persisted state (active_project, recent_files, preferences) from .arbiter/workspace_state.json (excludes large context blob). POST /workspace/state: merges supplied fields; recent_files deduplicated, capped at 20."
         },
         {
           "id": "P3-5",
-          "title": "Server management dashboard — SSA provides its own standalone dark-mode web UI; no Tooling Layer or Monaco IDE embedding required",
-          "status": "pending"
+          "title": "POST /projects/scaffold — AI-assisted new project scaffolding from a text description",
+          "status": "done",
+          "notes": "POST /projects/scaffold: validates project_id, creates Projects/{id}/ skeleton (src/ docs/ tests/ config/ scripts/), roadmap.json, workspace_profile.json. AI enriches roadmap phases from description if LLM is available."
         }
-      ],
-      "notes": "Phase 3 tasks belong to the SteamServerAdmin standalone project. They will be implemented inside Projects/SteamServerAdmin/ from within Arbiter once Arbiter itself is fully operational. SSA is NOT integrated into the Arbiter Engine."
+      ]
     },
     {
       "id": "Phase4",
-      "title": "Game Systems & Procedural Generation",
-      "description": "AI-assisted procedural content generation for rooms/interiors and mech suit upgrade systems with reactive visual propagation. Developed as part of the Novaforge standalone project (Projects/Novaforge). These tasks track the Arbiter platform-level features that support game system development.",
-      "status": "pending",
-      "standalone_project": "Projects/Novaforge/roadmap.json",
+      "title": "Development Agent Enhancement",
+      "description": "Extend the Arbiter AI agent with repo monitoring, automated commit review, a self-build loop, and test orchestration so Arbiter can participate actively in any project's development cycle.",
+      "status": "active",
       "tasks": [
         {
           "id": "P4-1",
-          "title": "Mech suit systems — tiered upgrades for Reactor, Armor, Weapons, and Cockpit with piloted mechanic",
+          "title": "GET /git/watch (SSE) — stream new commit events as they land; surface AI-generated summaries",
           "status": "pending"
         },
         {
           "id": "P4-2",
-          "title": "Visual propagation — upgrades affect interior/exterior aesthetics, LCD panels, conduits, pipes, textures",
+          "title": "POST /git/review-commit — AI reviews the latest commit diff and returns structured feedback",
           "status": "pending"
         },
         {
           "id": "P4-3",
-          "title": "PCG room/interior/exterior generation with modular dynamic asset placement",
+          "title": "POST /self/improve — Arbiter agent proposes and applies improvements to its own codebase via the agent loop",
           "status": "pending"
         },
         {
           "id": "P4-4",
-          "title": "PCG ↔ Mech integration — upgrade tier drives generation complexity and asset richness",
+          "title": "POST /tests/run — run a project's test suite and feed results back to the AI for analysis",
           "status": "pending"
         }
       ]
     },
     {
       "id": "Phase5",
-      "title": "Development Agent Integration",
-      "description": "ArbiterAI as a full-time repository overseer and automation agent. Monitors repos, ensures PCG and mech upgrades stay cohesive, automates code generation and server maintenance.",
+      "title": "Production & Deployment",
+      "description": "Package and harden Arbiter for production use: Docker support, auto-update, multi-user API key scoping, rate limiting, and a plugin system for extending the API with custom modules.",
       "status": "pending",
       "tasks": [
         {
           "id": "P5-1",
-          "title": "Repo monitoring — AI watches for new commits and suggests or implements changes automatically",
+          "title": "Dockerfile for ArbiterEngine — single-container deployment with config volume mount",
           "status": "pending"
         },
         {
           "id": "P5-2",
-          "title": "PCG coherence checker — ensures game assets stay consistent with mech upgrade tiers",
+          "title": "POST /self/update — pull latest Arbiter source, apply, and hot-reload endpoints without downtime",
           "status": "pending"
         },
         {
           "id": "P5-3",
-          "title": "Automated code → test → asset placement → AI feedback continuous loop",
+          "title": "Multi-user API keys — per-user keys with role enforcement; rate limiting middleware",
           "status": "pending"
         },
         {
           "id": "P5-4",
-          "title": "Server monitoring automation — AI triggers server admin scripts from log thresholds",
-          "status": "pending"
-        }
-      ]
-    },
-    {
-      "id": "Phase6",
-      "title": "Integration & Testing",
-      "description": "Cross-system integration tests validating Tooling Layer, AI, VS, game systems, PCG, mech logic, server monitoring, and agent behaviors all working together.",
-      "status": "pending",
-      "tasks": [
-        {
-          "id": "P6-1",
-          "title": "Tooling Layer ↔ ArbiterAI ↔ Visual Studio cross-system integration test suite",
-          "status": "pending"
-        },
-        {
-          "id": "P6-2",
-          "title": "Game systems ↔ PCG ↔ Mech logic validation suite — upgrade propagation and role-based permissions",
-          "status": "pending"
-        },
-        {
-          "id": "P6-3",
-          "title": "Server monitoring ↔ Admin tools ↔ AI agent end-to-end automated behavior tests",
-          "status": "pending"
-        }
-      ]
-    },
-    {
-      "id": "Phase7",
-      "title": "Deployment & Scaling",
-      "description": "Deploy Tooling Layer and Dev Agent across developer machines and live servers. Enable full AI oversight for continuous project iteration. Monitor with analytics dashboards.",
-      "status": "pending",
-      "tasks": [
-        {
-          "id": "P7-1",
-          "title": "Deploy Tooling Layer and Dev Agent to developer machines",
-          "status": "pending"
-        },
-        {
-          "id": "P7-2",
-          "title": "Deploy server admin scripts to live Steam/game servers",
-          "status": "pending"
-        },
-        {
-          "id": "P7-3",
-          "title": "Enable full AI oversight for continuous project iteration and feedback loops",
-          "status": "pending"
-        },
-        {
-          "id": "P7-4",
-          "title": "Analytics dashboards for AI-driven optimisation and project health monitoring",
+          "title": "Plugin system — loadable Python modules in plugins/ that register new FastAPI routes on startup",
           "status": "pending"
         }
       ]

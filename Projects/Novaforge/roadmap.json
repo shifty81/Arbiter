@@ -1,7 +1,7 @@
 {
   "project": "Novaforge",
   "description": "Novaforge is a game development project managed inside Arbiter. It integrates a custom Atlas core + ECS game engine, AI-powered procedural content generation, and modular mech suit upgrade systems. Server administration is handled by the standalone SteamServerAdmin project (Projects/SteamServerAdmin) which Novaforge integrates with at runtime. Arbiter acts as the AI development platform for both — planning, generating code, iterating assets, and overseeing servers autonomously.",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "last_updated": "2026-03-24",
   "arbiter_integration": {
     "managed_by": "Arbiter",
@@ -173,63 +173,55 @@
     {
       "id": 2,
       "name": "Phase 2 — Remote Web Interface",
-      "status": "done",
+      "status": "active",
       "description": "Expose the Arbiter AI backend as a persistent local web server so Novaforge can be accessed, brainstormed, and iterated from any browser or device.",
       "tasks": [
         {
           "id": "NF2-1",
           "title": "HTTP API server (Kestrel/FastAPI): /ai/query, /ai/stream (SSE), /ai/actions, /ai/execute, /ai/workspace, /ai/theme",
-          "status": "done",
-          "notes": "FastAPI server at Projects/Novaforge/WebAPI/remote_api.py. Endpoints: /ai/query, /ai/stream (SSE), /ai/actions, /ai/execute, /ai/history, /ai/context/file, /ai/theme, /ai/health, /ai/resources."
+          "status": "pending"
         },
         {
           "id": "NF2-2",
           "title": "Remote browser client: React/Blazor frontend connecting to /ai/stream for token-by-token streaming",
-          "status": "done",
-          "notes": "Embedded self-contained dark-mode HTML dashboard served at GET /. SSE streaming via EventSource. No CDN dependencies."
+          "status": "pending"
         },
         {
           "id": "NF2-3",
           "title": "Clickable AI action buttons in browser: same execution pipeline as local GUI",
-          "status": "done",
-          "notes": "Dashboard fetches /ai/actions and renders clickable action buttons. Each calls /ai/execute. Buttons appear after AI reply."
+          "status": "pending"
         },
         {
           "id": "NF2-4",
           "title": "Theme sync: /ai/theme endpoint exposes current palette as JSON; frontend applies dynamically",
-          "status": "done",
-          "notes": "/ai/theme returns ChatGPT dark palette as JSON. Dashboard fetches it and renders colour swatches."
+          "status": "pending"
         },
         {
           "id": "NF2-5",
           "title": "Authentication / access control: token-based auth for remote users; restrict destructive actions",
-          "status": "done",
-          "notes": "Bearer token auth via FastAPI HTTPBearer dependency. Token auto-generated on first run, saved to .novaforge_api_token (chmod 600). /ai/stream accepts token as query param for EventSource compat."
+          "status": "pending"
         },
         {
           "id": "NF2-6",
           "title": "LAN / ngrok remote access: expose server on LAN or via secure tunnel",
-          "status": "done",
-          "notes": "Server binds to 0.0.0.0 for LAN access. --ngrok flag opens pyngrok tunnel. Default port 8006."
+          "status": "pending"
         },
         {
           "id": "NF2-7",
           "title": "Resource monitoring: track GPU/CPU/memory usage; prompt throttling to prevent lockups",
-          "status": "done",
-          "notes": "/ai/resources returns CPU/RAM/disk via psutil. Graceful fallback message if psutil not installed."
+          "status": "pending"
         },
         {
           "id": "NF2-8",
           "title": "Crash protection: auto-restart AI service on failure; rotating log for crash diagnostics",
-          "status": "done",
-          "notes": "--supervised flag wraps uvicorn in _run_supervised() auto-restart loop with exponential backoff (max 20 retries, up to 60s wait)."
+          "status": "pending"
         }
       ]
     },
     {
       "id": 3,
       "name": "Phase 3 — SteamServerAdmin Integration",
-      "status": "active",
+      "status": "pending",
       "description": "Integrate Novaforge with the standalone SteamServerAdmin project (Projects/SteamServerAdmin). All server management features live there; this phase covers the connection points between the two projects.",
       "dependency": "Projects/SteamServerAdmin",
       "tasks": [

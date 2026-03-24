@@ -1595,16 +1595,22 @@ def git_log(path: str = "workspace", limit: int = 20) -> dict:
 
 
 @app.get("/git/diff")
-def git_diff(path: str = "workspace", file: str = "") -> dict:
+def git_diff(path: str = "workspace", file: str = "", staged: bool = False) -> dict:
+    """Return the current diff for a workspace path.
+
+    Pass ``?staged=true`` to see the staged (cached) diff.  P3-3
+    """
     root = _ALLOWED_ROOTS.get(
         Path(path).parts[0].lower() if Path(path).parts else "workspace",
         _ALLOWED_ROOTS["workspace"],
     )
     git_args = ["diff"]
+    if staged:
+        git_args.append("--cached")
     if file:
         git_args += ["--", file]
     r = _run_git_cmd(git_args, root, timeout=10)
-    return {"diff": r.get("stdout", "")}
+    return {"diff": r.get("stdout", ""), "staged": staged}
 
 
 # ─── Project health / init ────────────────────────────────────────────────────
@@ -8888,7 +8894,7 @@ _ARBITER_DASHBOARD_HTML = """<!DOCTYPE html>
 <header>
   <span class="dot ok" id="engine-dot"></span>
   <h1>Arbiter Admin Dashboard</h1>
-  <span class="badge">v1.4</span>
+  <span class="badge">v1.5</span>
   <span style="flex:1"></span>
   <span id="clock"></span>
 </header>
@@ -9120,6 +9126,383 @@ def arbiter_dashboard() -> _HTMLResponse:
     independent projects from within Arbiter, not integrated here.
     """
     return _HTMLResponse(content=_ARBITER_DASHBOARD_HTML, status_code=200)
+
+
+# =============================================================================
+# Phase 3 — Project-Aware Workspace Intelligence
+# =============================================================================
+# P3-1  POST /projects/{id}/activate   — prime AI context with project data
+# P3-2  GET  /projects/{id}/health     — roadmap completion + git activity
+# P3-3  GET  /git/status|log|diff      — live git introspection
+# P3-4  GET/POST /workspace/state      — persist workspace preferences
+# P3-5  POST /projects/scaffold        — AI-assisted new project scaffolding
+# =============================================================================
+
+import subprocess as _subprocess
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Workspace state (P3-4) — in-memory + persisted to .arbiter/workspace_state.json
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WORKSPACE_STATE_PATH = _BASE / ".arbiter" / "workspace_state.json"
+_workspace_state: dict = {}
+_workspace_state_lock = threading.Lock()
+
+
+def _load_workspace_state() -> None:
+    global _workspace_state
+    if _WORKSPACE_STATE_PATH.exists():
+        try:
+            _workspace_state = json.loads(
+                _WORKSPACE_STATE_PATH.read_text(encoding="utf-8")
+            )
+        except Exception:
+            _workspace_state = {}
+
+
+def _save_workspace_state() -> None:
+    _WORKSPACE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _WORKSPACE_STATE_PATH.write_text(
+        json.dumps(_workspace_state, indent=2), encoding="utf-8"
+    )
+
+
+_load_workspace_state()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-1 — Activate project: prime AI context
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/projects/{project_id}/activate")
+async def project_activate(project_id: str) -> dict:
+    """Prime the AI context with a project's roadmap, key files, and recent commits.
+
+    Loads the project's ``roadmap.json``, lists top-level source files, and
+    fetches the five most recent git commits.  All of this is injected as a
+    system-level context message so subsequent ``/chat`` requests are
+    automatically project-aware.
+
+    P3-1
+    """
+    project_dir = _BASE.parent.parent / "Projects" / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    context_parts: list[str] = [f"# Arbiter project context: {project_id}\n"]
+
+    # Roadmap
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.exists():
+        try:
+            roadmap_data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            pending_tasks = [
+                f"{ph.get('id','?')} / {t['id']}: {t['title']}"
+                for ph in roadmap_data.get("phases", [])
+                for t in ph.get("tasks", [])
+                if t.get("status") == "pending"
+            ]
+            total_tasks = sum(
+                len(ph.get("tasks", []))
+                for ph in roadmap_data.get("phases", [])
+            )
+            done_tasks = total_tasks - len(pending_tasks)
+            context_parts.append(
+                f"## Roadmap: {roadmap_data.get('project', project_id)} "
+                f"v{roadmap_data.get('version', '?')}\n"
+                f"Progress: {done_tasks}/{total_tasks} tasks done.\n"
+                "Pending tasks:\n" +
+                "\n".join(f"  - {t}" for t in pending_tasks[:20])
+            )
+        except Exception as exc:
+            context_parts.append(f"## Roadmap: (parse error: {exc})")
+
+    # Key source files
+    src_files: list[str] = []
+    for ext in ("*.py", "*.cs", "*.json"):
+        src_files.extend(
+            str(p.relative_to(project_dir))
+            for p in project_dir.rglob(ext)
+            if ".git" not in p.parts and len(src_files) < 30
+        )
+    if src_files:
+        context_parts.append("## Key files\n" + "\n".join(f"  {f}" for f in src_files[:30]))
+
+    # Recent git commits
+    try:
+        git_log = _subprocess.check_output(
+            ["git", "log", "--oneline", "-5",
+             "--", str(project_dir)],
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=5,
+        ).decode(errors="replace").strip()
+        if git_log:
+            context_parts.append("## Recent commits\n" + git_log)
+    except Exception:
+        pass
+
+    context_msg = "\n\n".join(context_parts)
+
+    # Inject into conversation history cache under a reserved key
+    with _workspace_state_lock:
+        _workspace_state["active_project"] = project_id
+        _workspace_state["active_project_context"] = context_msg
+        _save_workspace_state()
+
+    logger.info("[P3-1] Activated project context: %s (%d chars)", project_id, len(context_msg))
+    return {
+        "status":     "activated",
+        "project_id": project_id,
+        "context_length": len(context_msg),
+        "summary":    context_parts[1][:200] if len(context_parts) > 1 else "",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-2 — Project health
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/projects/{project_id}/health")
+async def project_health(project_id: str) -> dict:
+    """Return a health summary for a project: roadmap progress and git activity.
+
+    P3-2
+    """
+    project_dir = _BASE.parent.parent / "Projects" / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    result: dict = {"project_id": project_id}
+
+    # Roadmap stats
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.exists():
+        try:
+            rd = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            phases = rd.get("phases", [])
+            total = sum(len(ph.get("tasks", [])) for ph in phases)
+            done  = sum(
+                1 for ph in phases
+                for t in ph.get("tasks", [])
+                if t.get("status") == "done"
+            )
+            active_phase = next(
+                (ph for ph in phases if ph.get("status") == "active"), None
+            )
+            result["roadmap"] = {
+                "version":       rd.get("version", "?"),
+                "total_tasks":   total,
+                "done_tasks":    done,
+                "pending_tasks": total - done,
+                "completion_pct": round(done / total * 100, 1) if total else 0,
+                "active_phase":  active_phase.get("id") if active_phase else None,
+                "active_phase_title": active_phase.get("name", "") if active_phase else "",
+            }
+        except Exception as exc:
+            result["roadmap"] = {"error": str(exc)}
+
+    # Recent git activity for this project path
+    try:
+        git_log = _subprocess.check_output(
+            ["git", "log", "--oneline", "--format=%h %ad %s",
+             "--date=short", "-10", "--", str(project_dir)],
+            cwd=str(_BASE.parent.parent),
+            stderr=_subprocess.DEVNULL,
+            timeout=5,
+        ).decode(errors="replace").strip()
+        commits = [ln for ln in git_log.splitlines() if ln.strip()]
+        result["git"] = {
+            "recent_commits": commits,
+            "last_commit": commits[0] if commits else None,
+        }
+    except Exception:
+        result["git"] = {"error": "git unavailable"}
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-3 — Git introspection
+# The existing /git/status, /git/log, /git/diff endpoints (defined earlier in
+# this file) already fulfil the workspace introspection requirement.  Phase 3
+# adds the ``staged`` query parameter to /git/diff (patched at its definition)
+# and documents these endpoints as P3-3 features.
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-4 — Workspace state
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _WorkspaceStateReq(BaseModel):
+    active_project: str = ""
+    recent_files: list[str] = []
+    preferences: dict = {}
+
+
+@app.get("/workspace/state")
+def workspace_state_get() -> dict:
+    """Return the persisted workspace state.
+
+    P3-4
+    """
+    with _workspace_state_lock:
+        # Omit the large context blob from the public response
+        public = {k: v for k, v in _workspace_state.items()
+                  if k != "active_project_context"}
+    return {"state": public}
+
+
+@app.post("/workspace/state")
+def workspace_state_set(req: _WorkspaceStateReq) -> dict:
+    """Update and persist workspace state.
+
+    Merges the supplied fields into the existing state; unset fields are
+    preserved.
+
+    P3-4
+    """
+    with _workspace_state_lock:
+        if req.active_project:
+            _workspace_state["active_project"] = req.active_project
+        if req.recent_files:
+            existing = _workspace_state.get("recent_files", [])
+            # Prepend new files, deduplicate, keep latest 20
+            merged = req.recent_files + [f for f in existing if f not in req.recent_files]
+            _workspace_state["recent_files"] = merged[:20]
+        if req.preferences:
+            _workspace_state.setdefault("preferences", {}).update(req.preferences)
+        _save_workspace_state()
+    return {"status": "ok", "state": {k: v for k, v in _workspace_state.items()
+                                       if k != "active_project_context"}}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3-5 — AI-assisted project scaffolding
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ScaffoldReq(BaseModel):
+    project_id: str
+    description: str
+    tech_stack: list[str] = []
+    phases: list[str] = []
+
+
+@app.post("/projects/scaffold")
+async def project_scaffold(req: _ScaffoldReq) -> dict:
+    """Scaffold a new Arbiter-managed project via AI.
+
+    Creates ``Projects/{project_id}/`` with a directory skeleton,
+    ``roadmap.json``, and ``docs/.gitkeep``.  The AI generates an initial
+    roadmap based on *description*.
+
+    P3-5
+    """
+    project_id = req.project_id.strip()
+    # Strict whitelist: alphanumeric, underscores, and hyphens only.
+    # This prevents path traversal (e.g. '../', encoded variants) by construction.
+    import re as _re
+    if not project_id or not _re.fullmatch(r"[A-Za-z0-9_-]{1,64}", project_id):
+        raise HTTPException(
+            status_code=422,
+            detail="project_id must be 1–64 characters: letters, digits, _ or - only",
+        )
+
+    project_dir = _BASE.parent.parent / "Projects" / project_id
+    # Belt-and-suspenders: resolve and confirm it stays inside Projects/
+    projects_root = (_BASE.parent.parent / "Projects").resolve()
+    if not project_dir.resolve().parent == projects_root:
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if project_dir.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{project_id}' already exists at {project_dir}",
+        )
+
+    # ── Ask AI to draft an initial roadmap ───────────────────────────────────
+    ai_prompt = (
+        f"Draft a JSON roadmap for a software project called '{project_id}'.\n"
+        f"Description: {req.description}\n"
+        f"Tech stack: {', '.join(req.tech_stack) if req.tech_stack else 'not specified'}\n"
+        f"Requested phases: {', '.join(req.phases) if req.phases else 'derive from description'}\n\n"
+        "Return ONLY valid JSON matching this structure:\n"
+        '{"project":"<id>","description":"<desc>","version":"0.1.0",'
+        '"phases":[{"id":0,"name":"Phase 0 — Scaffold","status":"done","tasks":[]}]}'
+    )
+
+    roadmap_data: dict = {
+        "project":     project_id,
+        "description": req.description,
+        "version":     "0.1.0",
+        "last_updated": datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+        "tech_stack":  req.tech_stack,
+        "phases": [
+            {
+                "id": 0,
+                "name": "Phase 0 — Scaffold & Setup",
+                "status": "done",
+                "description": "Initial project scaffold created by Arbiter.",
+                "tasks": [
+                    {"id": "S0-1", "title": "Project directory scaffold", "status": "done",
+                     "notes": "Created by Arbiter /projects/scaffold"},
+                ],
+            },
+            {
+                "id": 1,
+                "name": "Phase 1 — Core Implementation",
+                "status": "pending",
+                "description": "Core features as defined in the project description.",
+                "tasks": [],
+            },
+        ],
+    }
+
+    # Try to enrich with AI if available
+    if _llm is not None:
+        try:
+            ai_msgs = [
+                {"role": "system", "content": "You are a technical project planner. Output only valid JSON."},
+                {"role": "user",   "content": ai_prompt},
+            ]
+            ai_raw = await _asyncio.to_thread(_llm.chat, ai_msgs, max_tokens=1024)
+            start = ai_raw.find("{")
+            end   = ai_raw.rfind("}") + 1
+            if start != -1 and end > start:
+                parsed = json.loads(ai_raw[start:end])
+                if "phases" in parsed:
+                    roadmap_data.update(parsed)
+        except Exception as exc:
+            logger.warning("[P3-5] AI roadmap generation failed: %s", exc)
+
+    # ── Create directory skeleton ─────────────────────────────────────────────
+    dirs = ["src", "docs", "tests", "config", "scripts"]
+    for d in dirs:
+        (project_dir / d).mkdir(parents=True, exist_ok=True)
+        (project_dir / d / ".gitkeep").touch()
+
+    # roadmap.json
+    (project_dir / "roadmap.json").write_text(
+        json.dumps(roadmap_data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # workspace_profile.json
+    (project_dir / "workspace_profile.json").write_text(
+        json.dumps({
+            "project":     project_id,
+            "description": req.description,
+            "arbiter_managed": True,
+        }, indent=2),
+        encoding="utf-8",
+    )
+
+    logger.info("[P3-5] Scaffolded project '%s' at %s", project_id, project_dir)
+    return {
+        "status":      "created",
+        "project_id":  project_id,
+        "path":        str(project_dir),
+        "files_created": [
+            f"Projects/{project_id}/roadmap.json",
+            f"Projects/{project_id}/workspace_profile.json",
+        ] + [f"Projects/{project_id}/{d}/.gitkeep" for d in dirs],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

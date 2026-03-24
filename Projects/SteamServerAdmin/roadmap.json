@@ -1,7 +1,7 @@
 {
   "project": "SteamServerAdmin",
   "description": "SteamServerAdmin is a standalone autonomous server administration platform managed inside Arbiter. It handles start, stop, restart, and update operations for Steam-based game servers via SteamCMD, enforces role-based permission systems, provides AI-driven health monitoring that reacts to live log thresholds, and exposes a full REST + web dashboard for remote administration. Any Arbiter-managed game project (e.g. Novaforge) can register its servers here to get full autonomous management.",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "last_updated": "2026-03-24",
   "arbiter_integration": {
     "managed_by": "Arbiter",
@@ -123,57 +123,50 @@
     {
       "id": 2,
       "name": "Phase 2 — Role-Based Permissions & Audit",
-      "status": "done",
+      "status": "active",
       "description": "Enforced permission tiers for server operations, with audit logging of all changes visible in the SSA web dashboard.",
       "tasks": [
         {
           "id": "SSA2-1",
           "title": "Permission model: four tiers — Admin (full control), Moderator (kick/ban/say), Operator (restart/update), Standard Player (read-only status)",
-          "status": "done",
-          "notes": "Four permission tiers (admin/moderator/operator/standard) with inherited action sets. allowed_actions() computes inherited permissions. PermissionError raised on violation."
+          "status": "pending"
         },
         {
           "id": "SSA2-2",
           "title": "Per-server role config: map Steam IDs or usernames to roles in config/<server>.json",
-          "status": "done",
-          "notes": "PermissionManager loads from config/<server_id>.json 'permissions' key on construction. Steam IDs or usernames as keys."
+          "status": "pending"
         },
         {
           "id": "SSA2-3",
           "title": "Dynamic restriction: role changes take effect without server restart; propagate to RCON and API layer immediately",
-          "status": "done",
-          "notes": "PermissionManager.reload() hot-reloads roles and whitelist from disk — no server restart needed. Thread-safe via RLock."
+          "status": "pending"
         },
         {
           "id": "SSA2-4",
           "title": "Whitelist management: Admin-only; add/remove players; immediately reflected in server config",
-          "status": "done",
-          "notes": "WhitelistManager integrated into PermissionManager: whitelist_add(), whitelist_remove(), is_whitelisted(), get_whitelist(). Admin-only (whitelist.add/remove actions)."
+          "status": "pending"
         },
         {
           "id": "SSA2-5",
           "title": "Audit log: every permission change, ban, kick, and restart is JSONL-logged with actor, timestamp, and reason",
-          "status": "done",
-          "notes": "AuditLogger writes append-only JSONL to logs/steam_server_admin/audit_<server_id>.jsonl. Every role change, whitelist mutation, ban, kick, restart logged."
+          "status": "pending"
         },
         {
           "id": "SSA2-6",
           "title": "Audit log visible in SSA web dashboard admin panel and accessible via REST API (GET /servers/{id}/audit)",
-          "status": "done",
-          "notes": "AuditLogger.get_audit(limit, event_prefix) returns structured entries for REST API. stats() returns aggregate totals."
+          "status": "pending"
         },
         {
           "id": "SSA2-7",
           "title": "Permission change notifications: push alerts to SSA web dashboard and optionally to Discord webhook or email",
-          "status": "done",
-          "notes": "NotificationDispatcher: in-memory queue polled via .poll(clear=True). Optional Discord webhook via urllib (fire-and-forget daemon thread). NotificationConfig holds discord_webhook and email."
+          "status": "pending"
         }
       ]
     },
     {
       "id": 3,
       "name": "Phase 3 — REST API & Web Dashboard",
-      "status": "active",
+      "status": "pending",
       "description": "Full REST API and dark-mode web dashboard so SteamServerAdmin can be operated remotely from any browser.",
       "tasks": [
         {
