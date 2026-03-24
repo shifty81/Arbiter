@@ -8521,6 +8521,7 @@ def models_backends() -> dict:
     import importlib
 
     backends_config = {
+        "embedded":  {"label": "Embedded (in-process)", "url": "",                                                          "model": _config.get("llm.embedded.model_path", "models/model.gguf")},
         "ollama":    {"label": "Ollama",    "url": _config.get("llm.ollama.base_url",    "http://localhost:11434"), "model": _config.get("llm.ollama.model", "llama3")},
         "lmstudio":  {"label": "LM Studio", "url": _config.get("llm.lmstudio.base_url",  "http://localhost:1234"),  "model": _config.get("llm.lmstudio.model", "")},
         "localai":   {"label": "LocalAI",   "url": _config.get("llm.localai.base_url",   "http://localhost:8080"),  "model": _config.get("llm.localai.model", "codestral")},
@@ -8537,8 +8538,15 @@ def models_backends() -> dict:
     result = []
     for key, info in backends_config.items():
         url = info["url"]
-        reachable = False
-        if url.startswith("http"):
+        reachable: bool = False
+        if key == "embedded":
+            try:
+                from llm.embedded import get_state as _get_emb_state
+                _es = _get_emb_state()
+                reachable = _es.is_loaded
+            except Exception:
+                reachable = False
+        elif url.startswith("http"):
             try:
                 _req_mod.get(url, timeout=2)
                 reachable = True
@@ -13576,6 +13584,272 @@ def workspace_summary() -> dict:
         "projects":     project_summaries,
         "narrative":    narrative.strip(),
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 10 — Embedded AI & Zero-External-Dependency Local Inference
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA10-1: Load a GGUF model into the embedded in-process backend ─────────────
+
+class _EmbeddedLoadReq(BaseModel):
+    model_path: str = ""       # path to .gguf file (relative to ArbiterEngine/ or absolute)
+    n_ctx: int = 4096          # context window in tokens
+    n_gpu_layers: int = -1     # -1 = all layers on GPU, 0 = CPU only
+    n_threads: int = 0         # 0 = auto-detect CPU threads
+    verbose: bool = False
+    switch_active: bool = True  # also make 'embedded' the active backend
+
+
+@app.post("/ai/embedded/load")
+async def ai_embedded_load(req: _EmbeddedLoadReq) -> dict:
+    """Load a GGUF model file into Arbiter's embedded in-process LLM.
+
+    Once loaded the model stays resident in RAM/VRAM until
+    ``POST /ai/embedded/unload`` is called or the server restarts.
+
+    The ``embedded`` backend requires **no external application** — no Ollama,
+    no LM Studio, nothing.  Install ``llama-cpp-python`` once and point it at
+    any ``.gguf`` file.
+
+    Parameters
+    ----------
+    model_path
+        Path to the ``.gguf`` model file.  Relative paths are resolved from
+        the ``ArbiterEngine/`` directory.  Defaults to
+        ``llm.embedded.model_path`` in ``config.toml``.
+    n_ctx
+        Context window size in tokens (default 4096).
+    n_gpu_layers
+        Number of transformer layers to offload to GPU.
+        ``-1`` = offload everything (all layers) to GPU.
+        ``0``  = CPU-only inference.
+    n_threads
+        CPU threads for inference (0 = auto).
+    verbose
+        Print llama.cpp progress/debug output.
+    switch_active
+        If ``true`` (default), also set ``embedded`` as the active backend so
+        all subsequent AI calls use the newly loaded model immediately.
+
+    PA10-1
+    """
+    global _llm
+
+    model_path = req.model_path.strip() or _config.get("llm.embedded.model_path", "")
+    if not model_path:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Provide model_path in the request body or set "
+                "llm.embedded.model_path in configs/config.toml"
+            ),
+        )
+
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+
+    try:
+        await _asyncio.to_thread(
+            state.load,
+            model_path,
+            req.n_ctx,
+            req.n_gpu_layers,
+            req.n_threads,
+            req.verbose,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        # llama-cpp-python not installed
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load model: {exc}"
+        ) from exc
+
+    if req.switch_active:
+        from llm.embedded import EmbeddedLLM as _EmbeddedLLM
+        _config.set("agent.default_llm_backend", "embedded")
+        # The model is already in the singleton state; create a wrapper without reloading
+        _llm = _EmbeddedLLM(model_path="", auto_load=False)
+
+    return {
+        "status":         "ok",
+        "model_path":     state.model_path,
+        "n_ctx":          req.n_ctx,
+        "n_gpu_layers":   req.n_gpu_layers,
+        "active_backend": _config.get("agent.default_llm_backend", "ollama"),
+    }
+
+
+# ── PA10-2: Embedded LLM status ──────────────────────────────────────────────
+
+@app.get("/ai/embedded/status")
+def ai_embedded_status() -> dict:
+    """Report the status of the in-process embedded LLM.
+
+    Returns:
+    - Whether ``llama-cpp-python`` is installed and its version
+    - Whether a model is currently loaded and which file
+    - Current configuration (context size, GPU layers, threads)
+    - Active backend name
+    - GPU hardware summary (if an NVIDIA GPU is present)
+
+    PA10-2
+    """
+    # Check llama-cpp-python installation
+    try:
+        import llama_cpp  # type: ignore[import]
+        installed = True
+        llama_version: str | None = getattr(llama_cpp, "__version__", "unknown")
+    except ImportError:
+        installed = False
+        llama_version = None
+
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+
+    # GPU detection (best-effort)
+    gpu_info: dict | None = None
+    try:
+        gpu_raw = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,memory.free",
+                "--format=csv,noheader",
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        ).decode().strip()
+        if gpu_raw:
+            parts = [p.strip() for p in gpu_raw.split(",")]
+            gpu_info = {
+                "name":         parts[0] if len(parts) > 0 else "",
+                "memory_total": parts[1] if len(parts) > 1 else "",
+                "memory_free":  parts[2] if len(parts) > 2 else "",
+            }
+    except Exception:
+        pass
+
+    return {
+        "installed":         installed,
+        "llama_cpp_version": llama_version,
+        "model_loaded":      state.is_loaded,
+        "model_path":        state.model_path if state.is_loaded else None,
+        "n_ctx":             state.n_ctx       if state.is_loaded else None,
+        "n_gpu_layers":      state.n_gpu_layers if state.is_loaded else None,
+        "n_threads":         state.n_threads    if state.is_loaded else None,
+        "active_backend":    _config.get("agent.default_llm_backend", "ollama"),
+        "gpu":               gpu_info,
+        "install_hint":      None if installed else "pip install llama-cpp-python",
+    }
+
+
+# ── PA10-3: List available GGUF model files ───────────────────────────────────
+
+@app.get("/ai/embedded/models")
+def ai_embedded_models(search_dir: str = "") -> dict:
+    """Scan for ``.gguf`` model files available for the embedded backend.
+
+    Looks in:
+    1. The path given by ``search_dir`` (if provided)
+    2. ``ArbiterEngine/models/`` — created automatically if absent
+    3. The directory of ``llm.embedded.model_path`` from ``config.toml``
+
+    Returns a list of found ``.gguf`` files with name, absolute path, and
+    file size.
+
+    PA10-3
+    """
+    search_dirs: list[Path] = []
+
+    if search_dir:
+        p = Path(search_dir)
+        if p.is_dir():
+            search_dirs.append(p)
+
+    # Default models directory (auto-created for convenience)
+    default_models = _BASE / "models"
+    default_models.mkdir(exist_ok=True)
+    search_dirs.append(default_models)
+
+    # Directory derived from config model_path
+    cfg_path = _config.get("llm.embedded.model_path", "")
+    if cfg_path:
+        p = Path(cfg_path)
+        if not p.is_absolute():
+            p = _BASE / p
+        if p.parent.is_dir():
+            search_dirs.append(p.parent)
+
+    seen: set[str] = set()
+    models: list[dict] = []
+    for d in search_dirs:
+        try:
+            for f in sorted(d.glob("*.gguf")):
+                key = str(f.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                size_bytes = f.stat().st_size
+                models.append({
+                    "name":       f.name,
+                    "path":       str(f),
+                    "size_mb":    round(size_bytes / 1_048_576, 1),
+                    "size_bytes": size_bytes,
+                })
+        except Exception as exc:
+            logger.warning("Could not scan %s for GGUF files: %s", d, exc)
+
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+
+    return {
+        "models":       models,
+        "count":        len(models),
+        "models_dir":   str(default_models),
+        "active_model": state.model_path if state.is_loaded else None,
+    }
+
+
+# ── PA10-4: Unload the embedded model ────────────────────────────────────────
+
+@app.post("/ai/embedded/unload")
+async def ai_embedded_unload() -> dict:
+    """Unload the in-process embedded model and free RAM/VRAM.
+
+    After unloading, any AI call will fall back to the next configured backend
+    (Ollama, OpenAI API, etc.).  Call ``POST /ai/embedded/load`` to reload.
+
+    If the active backend is ``embedded`` when this endpoint is called, the
+    active backend is automatically reverted to ``ollama``.
+
+    PA10-4
+    """
+    global _llm
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+    was_loaded = state.is_loaded
+
+    await _asyncio.to_thread(state.unload)
+
+    # Revert active backend if it was pointing at embedded
+    if _config.get("agent.default_llm_backend", "ollama") == "embedded":
+        _config.set("agent.default_llm_backend", "ollama")
+        try:
+            from llm.factory import create_llm as _create_llm
+            _llm = await _asyncio.to_thread(_create_llm, "ollama", _config)
+        except Exception as exc:
+            logger.warning("Could not restore ollama backend after unload: %s", exc)
+
+    return {
+        "status":         "ok",
+        "was_loaded":     was_loaded,
+        "active_backend": _config.get("agent.default_llm_backend", "ollama"),
     }
 
 

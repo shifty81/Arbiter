@@ -30,6 +30,16 @@ model = "codestral"
 [llm.local]
 model_path = "models/model.gguf"
 
+[llm.embedded]
+# In-process GGUF inference via llama-cpp-python — no external server required.
+# Install: pip install llama-cpp-python
+# GPU (CUDA): pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+model_path   = "models/model.gguf"  # relative to ArbiterEngine/ or absolute
+n_ctx        = 4096                  # context window in tokens
+n_gpu_layers = -1                    # -1 = all layers on GPU, 0 = CPU only
+n_threads    = 0                     # 0 = auto-detect
+verbose      = false
+
 [llm.lmstudio]
 base_url = "http://localhost:1234"
 model = ""

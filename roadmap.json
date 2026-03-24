@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1492,6 +1492,50 @@
           "title": "GET /workspace/summary — cross-project executive summary: status of all projects, recent activity, open TODOs, AI narrative",
           "status": "done",
           "notes": "GET /workspace/summary: iterates all Projects/ directories, collects roadmap completion, 7-day git commits, TODO count, last-modified. LLM writes 2-4 sentence executive narrative. Returns projects[] array plus narrative and generated_at timestamp."
+        }
+      ]
+    },
+    {
+      "id": "Phase10",
+      "title": "Embedded AI & Zero-External-Dependency Local Inference",
+      "description": "Eliminate the hard dependency on an external Ollama (or any other) server. Arbiter can now run LLM inference entirely in-process using llama-cpp-python and any GGUF model file. Full GPU acceleration (CUDA / Metal / CPU fallback) with a thread-safe singleton model state, hot-load/unload API, model file discovery, and seamless integration with the existing backend switcher.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA10-1",
+          "title": "POST /ai/embedded/load — load a GGUF model into process memory (no external server required)",
+          "status": "done",
+          "notes": "POST /ai/embedded/load: resolves model_path (relative to ArbiterEngine/ or absolute), calls llama-cpp-python Llama() in a thread, stores in global _ModelState singleton, optionally switches active backend to 'embedded'. Parameters: model_path, n_ctx (4096), n_gpu_layers (-1=all GPU), n_threads (0=auto), verbose, switch_active."
+        },
+        {
+          "id": "PA10-2",
+          "title": "GET /ai/embedded/status — model state, GPU hardware info, llama-cpp-python install status",
+          "status": "done",
+          "notes": "GET /ai/embedded/status: checks llama_cpp import, reads _ModelState (is_loaded, model_path, n_ctx, n_gpu_layers, n_threads), queries nvidia-smi for GPU name/memory. Returns install_hint if not installed."
+        },
+        {
+          "id": "PA10-3",
+          "title": "GET /ai/embedded/models — discover .gguf model files in ArbiterEngine/models/ and config path",
+          "status": "done",
+          "notes": "GET /ai/embedded/models: scans ArbiterEngine/models/ (auto-created), optional search_dir override, config-derived path. Returns list with name, path, size_mb. Auto-creates models/ directory."
+        },
+        {
+          "id": "PA10-4",
+          "title": "POST /ai/embedded/unload — free the loaded model from RAM/VRAM and revert active backend",
+          "status": "done",
+          "notes": "POST /ai/embedded/unload: calls _ModelState.unload() in a thread (del self._llm), reverts active backend to 'ollama' if it was 'embedded'. Returns was_loaded flag and new active_backend."
+        },
+        {
+          "id": "PA10-5",
+          "title": "llm/embedded.py — thread-safe in-process GGUF backend with GPU acceleration and graceful llama-cpp-python absence handling",
+          "status": "done",
+          "notes": "New llm/embedded.py: EmbeddedLLM class backed by _ModelState singleton. chat/generate/stream_chat/tool_call all delegate to singleton. Graceful _NOT_INSTALLED and _NO_MODEL strings when llama-cpp-python absent or model not loaded. factory.py updated with embedded case. config.toml updated with [llm.embedded] section."
+        },
+        {
+          "id": "PA10-6",
+          "title": "GET /models/backends updated to include embedded backend with in-process reachability check",
+          "status": "done",
+          "notes": "GET /models/backends: embedded entry added with is_loaded from _ModelState as reachability indicator (no HTTP probe needed). base.py _fmt_unavailable updated to mention embedded. local.py stub message updated to recommend embedded. requirements.txt has llama-cpp-python as commented optional dep."
         }
       ]
     }

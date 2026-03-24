@@ -2522,6 +2522,11 @@ for _stub_path, _stub_tag in [
     ("/ai/code-walkthrough", "phase9"),
     ("/workspace/notes", "phase9"),
     ("/workspace/summary", "phase9"),
+    # Phase 10 — Embedded AI & Zero-External-Dependency Local Inference
+    ("/ai/embedded/load", "phase10"),
+    ("/ai/embedded/status", "phase10"),
+    ("/ai/embedded/models", "phase10"),
+    ("/ai/embedded/unload", "phase10"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),
