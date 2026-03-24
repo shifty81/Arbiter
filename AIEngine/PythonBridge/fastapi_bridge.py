@@ -811,26 +811,54 @@ def build_detect(path: str = "workspace"):
 # ═════════════════════════════════════════════════════════════════════════════
 
 class _AssistantMsg(BaseModel):
-    prompt: str
+    # Primary field names used by /assistant/chat and /assistant/chat/agentic.
+    # The IDE's agentic mode historically sent "message"/"llm_backend"/"project_path"
+    # instead of "prompt"/"backend"/"project" — accept both so old and new clients work.
+    prompt: str = ""
+    message: str = ""          # alias for prompt (sent by agentic JS path)
     project: str = "default"
+    project_path: str = ""     # alias for project (sent by agentic JS path)
     backend: str = ""
-    context: str = ""   # current open-file content injected by the IDE
-    mode: str = "chat"  # "chat" | "agentic"
+    llm_backend: str = ""      # alias for backend (sent by agentic JS path)
+    context: str = ""          # current open-file content injected by the IDE
+    selection: str = ""        # currently selected text, if any
+    mode: str = "chat"         # "chat" | "agentic"
+
+    def effective_prompt(self) -> str:
+        return (self.prompt or self.message or "").strip()
+
+    def effective_project(self) -> str:
+        return (self.project_path or self.project or "default").strip() or "default"
+
+    def effective_backend(self) -> str:
+        return self.backend or self.llm_backend
 
 
 @app.post("/assistant/chat")
 def assistant_chat(msg: _AssistantMsg):
     """Primary chat endpoint used by the Monaco IDE chat panel."""
-    system = get_system_prompt(get_active_persona(get_db(msg.project)), msg.project)
+    prompt = msg.effective_prompt()
+    project = msg.effective_project()
+    if not prompt:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="prompt or message field is required")
+    system = get_system_prompt(get_active_persona(get_db(project)), project)
     if msg.context:
         system += f"\n\nCurrently open file:\n```\n{msg.context[:3000]}\n```"
-    response = generate_response(msg.prompt, msg.project, system_prompt=system)
+    if msg.selection:
+        system += f"\n\nSelected text:\n```\n{msg.selection[:2000]}\n```"
+    response = generate_response(prompt, project, system_prompt=system)
     return {"response": response}
 
 
 @app.post("/assistant/chat/agentic")
 def assistant_chat_agentic(msg: _AssistantMsg):
     """Agentic chat: plan → propose file edits → apply → summarise."""
+    prompt = msg.effective_prompt()
+    project = msg.effective_project()
+    if not prompt:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="prompt or message field is required")
     try:
         import sys as _sys2
         _engine_path = str(SCRIPT_DIR.parent / "ArbiterEngine")
@@ -843,10 +871,11 @@ def assistant_chat_agentic(msg: _AssistantMsg):
         _cfg.load()
         _llm = _create_llm(_cfg.get("agent.default_llm_backend", "ollama"), _cfg)
         _engine = AgenticChatEngine(llm=_llm, base_dir=SCRIPT_DIR.parent.parent,
-                                    project_path=msg.project)
-        result = _engine.run(msg.prompt)
+                                    project_path=project)
+        result = _engine.run(prompt)
         return {
             "response": result.reply,
+            "reply": result.reply,   # keep both for compat with older clients
             "todos": [{"id": t.id, "text": t.text, "done": t.done} for t in result.todos],
             "file_changes": [
                 {"path": c.path, "additions": c.additions,
@@ -855,8 +884,8 @@ def assistant_chat_agentic(msg: _AssistantMsg):
             ],
         }
     except Exception as _exc:
-        response = generate_response(msg.prompt, msg.project)
-        return {"response": response, "todos": [], "file_changes": [],
+        response = generate_response(prompt, project)
+        return {"response": response, "reply": response, "todos": [], "file_changes": [],
                 "_fallback": str(_exc)}
 
 
@@ -1010,6 +1039,110 @@ async def ws_terminal(ws: WebSocket):
 async def ws_pty(ws: WebSocket):
     """PTY session — reuses the line-based terminal implementation."""
     await ws_terminal(ws)
+
+
+# ── /ws/assistant/chat/agentic — streaming agentic chat ─────────────────────
+#
+#  Client sends ONE JSON message:
+#      { "prompt": "...", "project": "default", "backend": "ollama" }
+#  Server emits event packets:
+#      { "type": "thinking", "text": "..." }
+#      { "type": "todos",    "todos": [...] }
+#      { "type": "reply",    "text": "...", "todos": [...], "file_changes": [...] }
+#      { "type": "done" }
+#      { "type": "error",    "data": "..." }
+# ─────────────────────────────────────────────────────────────────────────────
+@app.websocket("/ws/assistant/chat/agentic")
+async def ws_assistant_chat_agentic(ws: WebSocket):
+    """Stream agentic chat responses to the IDE chat panel.
+
+    The client first attempts this WebSocket endpoint; on failure it falls back
+    to the REST POST /assistant/chat/agentic endpoint.  Having the WS endpoint
+    present avoids the silent connect-then-fail that previously caused the
+    fallback to hit with wrong field names.
+    """
+    import asyncio as _aio2
+    import threading as _thr3
+
+    await ws.accept()
+    try:
+        data = await ws.receive_json()
+    except Exception:
+        await ws.send_json({"type": "error", "data": "Invalid JSON payload"})
+        await ws.close()
+        return
+
+    # Accept both prompt/message and project/project_path field names.
+    prompt: str = (data.get("prompt") or data.get("message") or "").strip()
+    project: str = (data.get("project") or data.get("project_path") or "default").strip() or "default"
+
+    if not prompt:
+        await ws.send_json({"type": "error", "data": "Empty prompt"})
+        await ws.close()
+        return
+
+    await ws.send_json({"type": "thinking", "text": "Thinking…"})
+
+    # Run the agentic engine (or fall back to plain generate_response) in a
+    # background thread so we don't block the event loop.
+    loop = _aio2.get_event_loop()
+    import queue as _q2
+    event_q: _q2.Queue[dict | None] = _q2.Queue()
+
+    def _run_agentic() -> None:
+        try:
+            import sys as _sys3
+            _engine_path = str(SCRIPT_DIR.parent / "ArbiterEngine")
+            if _engine_path not in _sys3.path:
+                _sys3.path.insert(0, _engine_path)
+            from core.agentic_agent import AgenticChatEngine  # type: ignore
+            from llm.factory import create_llm as _create_llm2  # type: ignore
+            from core.config_loader import ConfigLoader as _CL2  # type: ignore
+            _cfg2 = _CL2(SCRIPT_DIR.parent / "ArbiterEngine" / "configs")
+            _cfg2.load()
+            _llm2 = _create_llm2(_cfg2.get("agent.default_llm_backend", "ollama"), _cfg2)
+            _eng = AgenticChatEngine(llm=_llm2, base_dir=SCRIPT_DIR.parent.parent,
+                                     project_path=project)
+            result = _eng.run(prompt)
+            if result.todos:
+                event_q.put({"type": "todos",
+                              "todos": [{"id": t.id, "text": t.text, "done": t.done}
+                                        for t in result.todos]})
+            file_changes = [
+                {"path": c.path, "additions": c.additions,
+                 "deletions": c.deletions, "diff": c.diff}
+                for c in result.file_changes
+            ] if result.file_changes else []
+            event_q.put({"type": "reply", "text": result.reply,
+                         "todos": [{"id": t.id, "text": t.text, "done": t.done}
+                                   for t in result.todos],
+                         "file_changes": file_changes})
+        except Exception as _exc2:
+            # Fall back to plain generate_response
+            reply = generate_response(prompt, project)
+            event_q.put({"type": "reply", "text": reply, "todos": [], "file_changes": [],
+                         "_fallback": str(_exc2)})
+        finally:
+            event_q.put(None)  # sentinel
+
+    _thr3.Thread(target=_run_agentic, daemon=True).start()
+
+    try:
+        while True:
+            try:
+                evt = await loop.run_in_executor(None, lambda: event_q.get(timeout=0.1))
+            except _q2.Empty:
+                continue
+            if evt is None:
+                break
+            await ws.send_json(evt)
+        await ws.send_json({"type": "done"})
+    except (WebSocketDisconnect, Exception):
+        pass
+    try:
+        await ws.close()
+    except Exception:
+        pass
 
 
 # ── /ws/chat — streaming AI chat for the Monaco IDE chat panel ───────────────

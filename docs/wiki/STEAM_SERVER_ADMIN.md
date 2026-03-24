@@ -1,65 +1,63 @@
 # SteamServerAdmin
 
 > **Type:** Standalone Server Administration Project  
-> **Managed by:** Arbiter  
+> **Tracked by:** Arbiter (roadmap only — no runtime API coupling)  
 > **Project file:** [`Projects/SteamServerAdmin/roadmap.json`](../../Projects/SteamServerAdmin/roadmap.json)  
-> **Used by:** [Novaforge](NOVAFORGE.md) and any other Arbiter-managed game project
+> **Used by:** [Novaforge](NOVAFORGE.md) and any other game project that needs Steam server management
 
 ---
 
 ## Overview
 
-SteamServerAdmin is a **standalone autonomous server administration platform** managed inside Arbiter. It is not a subsystem of any single game project — it is a general-purpose service that any Arbiter-managed project can register its servers with to get full lifecycle management.
+SteamServerAdmin is a **fully standalone, autonomous server administration platform**. It lives in the `Projects/` folder so Arbiter can track its roadmap, but it has **no runtime dependency on ArbiterEngine** — it runs independently as its own service with its own API, web dashboard, and AI monitoring.
 
 **Core capabilities:**
 
 - 🔄 Autonomous start / stop / restart / update for any number of Steam game servers
 - 🔒 Role-based permissions (Admin, Moderator, Operator, Standard Player)
 - 📋 Audit logging of every permission change, ban, kick, and restart
-- 🤖 ArbiterAI health monitoring — reads live server logs and triggers actions automatically
+- 🤖 Built-in AI health monitoring — reads live server logs and triggers actions automatically using a local LLM
 - 🌐 Full REST API + dark-mode web dashboard for remote administration
-- 🔗 Integrates with Arbiter Chat Engine and self-build loop for AI-assisted admin scripting
+- 🔧 Admin script generator — the local AI can write new scripts based on observed failure patterns
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       ARBITER PLATFORM                          │
-│  ┌──────────────────┐    ┌─────────────────────────────────┐   │
-│  │  Chat Engine     │    │  Tooling Layer (WPF)            │   │
-│  │  "what happened  │    │  Status panel, audit log,       │   │
-│  │   to the server?"│    │  restart/update buttons         │   │
-│  └────────┬─────────┘    └──────────────┬──────────────────┘   │
-└───────────┼───────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                       SteamServerAdmin                               │
+│                                                                      │
+│  ┌───────────────┐  ┌───────────────┐  ┌──────────────────────────┐ │
+│  │ ServerManager │  │ PermissionMgr │  │ AI Monitor               │ │
+│  │ start/stop/   │  │ roles/        │  │ log ingestion pipeline   │ │
+│  │ restart/update│  │ whitelist/    │  │ health threshold rules   │ │
+│  │ schedules     │  │ audit log     │  │ autonomous action dispatch│ │
+│  └───────┬───────┘  └───────────────┘  └──────────────────────────┘ │
+│          │                                                           │
+│  ┌───────────────┐  ┌──────────────────────────────────────────┐   │
+│  │ RCON Client   │  │ FastAPI REST + WebSocket API              │   │
+│  │ live server   │  │ /servers, /roles, /audit, /logs          │   │
+│  │ commands      │  │ /ws/servers/{id}/logs                    │   │
+│  └───────────────┘  └──────────────────────────────────────────┘   │
+│                                                                      │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │ Local LLM Backend (configurable — Ollama, llama.cpp, etc.)    │  │
+│  │ Used by: AI Monitor, admin script generator, AI chat panel    │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
             │                             │
             ▼                             ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    SteamServerAdmin                          │
-│                                                              │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐   │
-│  │ ServerManager │  │ PermissionMgr │  │ AI Monitor    │   │
-│  │ start/stop/   │  │ roles/        │  │ log ingestion │   │
-│  │ restart/update│  │ whitelist/    │  │ threshold     │   │
-│  │ schedules     │  │ audit log     │  │ dispatch      │   │
-│  └───────┬───────┘  └───────────────┘  └───────────────┘   │
-│          │                                                   │
-│  ┌───────────────┐  ┌───────────────────────────────────┐  │
-│  │ RCON Client   │  │ FastAPI REST + WebSocket API       │  │
-│  │ live server   │  │ /servers, /roles, /audit, /logs    │  │
-│  │ commands      │  │ /ws/servers/{id}/logs              │  │
-│  └───────────────┘  └───────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
-            │                             │
-            ▼                             ▼
-┌──────────────────┐            ┌──────────────────────────┐
-│  SteamCMD        │            │  Web Dashboard (Browser) │
-│  (OS process)    │            │  Dark mode, ChatGPT pal. │
-│  install/update/ │            │  live log stream         │
-│  validate        │            │  role management table   │
-└──────────────────┘            └──────────────────────────┘
+┌──────────────────┐            ┌──────────────────────────────┐
+│  SteamCMD        │            │  Web Dashboard (Browser)     │
+│  (OS process)    │            │  Dark mode, ChatGPT palette  │
+│  install/update/ │            │  Live log stream (WebSocket) │
+│  validate        │            │  Role management table       │
+│                  │            │  AI chat panel               │
+└──────────────────┘            └──────────────────────────────┘
 ```
+
+> **Note:** SteamServerAdmin is tracked in the Arbiter `Projects/` folder purely for roadmap management. Arbiter's self-build loop can generate code for SSA tasks, but there is no runtime API coupling — SSA runs independently.
 
 ---
 

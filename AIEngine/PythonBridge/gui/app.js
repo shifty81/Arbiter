@@ -1292,9 +1292,9 @@
       catch { reject(new Error("WebSocket unavailable")); return; }
 
       ws.onopen = () => ws.send(JSON.stringify({
-        message,
-        llm_backend: backend,
-        project_path: state.activeProject || "",
+        prompt: message,
+        project: state.activeProject || "default",
+        backend,
       }));
 
       ws.onmessage = (ev) => {
@@ -1318,9 +1318,11 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message,
-          llm_backend: backend,
-          project_path: state.activeProject || "",
+          prompt: message,
+          project: state.activeProject || "default",
+          backend,
+          context: _getActiveFileContent(),
+          selection: _getEditorSelection(),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -1329,7 +1331,7 @@
       if (data.todos) onEvent({ type: "todos", todos: data.todos });
       onEvent({
         type: "reply",
-        text: data.reply,
+        text: data.response || data.reply || "",
         todos: data.todos,
         file_changes: data.file_changes,
       });
