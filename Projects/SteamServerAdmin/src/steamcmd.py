@@ -26,6 +26,10 @@ from src.logger import get_ssa_logger
 
 logger = get_ssa_logger("steamcmd")
 
+# Truncation limits for log output — keeps log lines manageable
+_MAX_DEBUG_OUTPUT_CHARS: int = 2000
+_MAX_ERROR_OUTPUT_CHARS: int = 1000
+
 
 class SteamCMDError(RuntimeError):
     """Raised when a SteamCMD command exits with a non-zero return code."""
@@ -131,12 +135,12 @@ class SteamCMD:
             raise SteamCMDError(f"SteamCMD timed out after {self.timeout}s") from exc
 
         output = proc.stdout or ""
-        logger.debug("SteamCMD output:\n%s", output[-2000:])  # last 2 KB
+        logger.debug("SteamCMD output:\n%s", output[-_MAX_DEBUG_OUTPUT_CHARS:])
 
         if proc.returncode != 0:
             raise SteamCMDError(
                 f"SteamCMD exited with code {proc.returncode}.\n"
-                f"Last output:\n{output[-1000:]}"
+                f"Last output:\n{output[-_MAX_ERROR_OUTPUT_CHARS:]}"
             )
         return output
 

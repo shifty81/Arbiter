@@ -3,7 +3,13 @@
 Defines the ArbiterAI singleton and workspace context manager that
 connect Novaforge to the ArbiterEngine backend.
 
-Full implementation tracked in roadmap.json → NF1-6 through NF1-13.
+NF1-6:  ArbiterAIManager singleton, workspace context, 40-prompt live memory
+NF1-7:  WorkspaceContext tracker
+NF1-8:  Streaming AI responses
+NF1-9:  GenerateActionsAsync() action list
+NF1-10: ExecuteActionAsync() safe execution
+NF1-11: PromptArchive SQLite tag-based archive
+NF1-13: Ollama / CodeGeeX open-source model backend selection
 """
 from __future__ import annotations
 
@@ -124,13 +130,82 @@ class ArbiterAIManager:
 
         NF1-9
         """
-        # TODO NF1-9: call /ai/actions endpoint and parse response
-        return []
+        system = (
+            "You are an action planner. Given a goal, return a JSON array:\n"
+            '[{"type":"write_file|add_script|tooling_update","title":"...","description":"...","payload":{}}]\n'
+            "Output ONLY the JSON array."
+        )
+        result = self._post("/chat", {
+            "project": self.project,
+            "message": prompt,
+            "history": [
+                {"role": "system", "content": system},
+                {"role": "user",   "content": prompt},
+            ],
+        })
+        if not result:
+            return []
+        raw = result.get("reply", "[]")
+        try:
+            start, end = raw.index("["), raw.rindex("]") + 1
+            actions_data = json.loads(raw[start:end])
+            return [AIAction(**a) for a in actions_data if isinstance(a, dict)]
+        except Exception:
+            return []
 
     def execute_action(self, action: AIAction) -> Dict[str, Any]:
         """Apply an AIAction to the project.
 
         NF1-10
         """
-        # TODO NF1-10: dispatch action to PrefabManager / ScriptManager
+        if action.type == "write_file":
+            rel_path = action.payload.get("path", "")
+            content  = action.payload.get("content", "")
+            if not rel_path:
+                return {"status": "error", "message": "missing path in payload"}
+            import pathlib
+            target = pathlib.Path(rel_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            return {"status": "ok", "message": f"Written {len(content)} chars to {rel_path}"}
         return {"status": "stub", "action": action.type}
+
+
+# ── NF1-13: Model backend selector ───────────────────────────────────────────
+
+class ModelBackend:
+    """Enum-like constants for supported open-source model backends.
+
+    NF1-13
+    """
+    OLLAMA   = "ollama"
+    CODEGEEX = "codegeex"
+    LMSTUDIO = "lmstudio"
+    LOCALAI  = "localai"
+
+
+def select_backend(
+    backend: str = ModelBackend.OLLAMA,
+    engine_url: str = "http://127.0.0.1:8001",
+) -> "ArbiterAIManager":
+    """Return an ArbiterAIManager instance configured to use *backend*.
+
+    The backend is set on the ArbiterEngine server via the /models/switch
+    endpoint so all subsequent requests use the chosen model.
+
+    NF1-13
+    """
+    import urllib.request as _urllib
+    try:
+        req = _urllib.Request(
+            f"{engine_url}/models/switch?backend={backend}",
+            data=b"",
+            method="POST",
+        )
+        _urllib.urlopen(req, timeout=5)
+    except Exception:
+        pass   # Best-effort — ArbiterEngine may not be running yet
+
+    mgr = ArbiterAIManager(engine_url=engine_url)
+    return mgr
+

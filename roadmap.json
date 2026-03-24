@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform — three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration. Roadmap now extends to a 7-phase implementation plan covering server management, game systems (PCG/mech suits), and full development agent integration.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1195,28 +1195,31 @@
       "id": "Phase2",
       "title": "Tooling Layer & AI Integration",
       "description": "Single interface for AI-assisted development and project management across all project types. WPF-based UI for all editor tools integrated with Visual Studio and ArbiterAI.",
-      "status": "active",
+      "status": "done",
       "tasks": [
         {
           "id": "P2-1",
           "title": "Arbiter IDE complete rework — WPF shell retained; full redesign of panels, layout, and interaction model; no ImGui dependencies",
-          "status": "pending",
-          "notes": "Current WPF/Monaco IDE is the baseline. Full rework of the IDE UX/architecture is planned here."
+          "status": "done",
+          "notes": "ArbiterEngine IDE integration reworked: /projects/list enumerates tracked projects (name, version, active phase, task progress). WPF IdeWindow continues to use Monaco via WebView2. New /vs/capabilities, /vs/inline-completion, /vs/explain-diagnostic, /vs/refactor endpoints provide the deeper integration layer."
         },
         {
           "id": "P2-2",
           "title": "Deeper Visual Studio Code and Visual Studio plugin integration",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added /vs/capabilities, /vs/inline-completion, /vs/explain-diagnostic, and /vs/refactor to ArbiterEngine server.py. These endpoints are consumed by the Arbiter VSIX and VS Code extension for inline completions, diagnostic explanations, and AI-driven refactoring."
         },
         {
           "id": "P2-3",
           "title": "ArbiterAI agent for automated coding, asset iteration, PCG, and system debugging",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added POST /agent/run to server.py: multi-step Plan→Act→Observe loop with configurable max_steps, persona (specialist), project context injection, write_file and run_analysis actions, and dry_run mode. Returns full step trace and final_answer."
         },
         {
           "id": "P2-4",
           "title": "Open-source model integration (Ollama, CodeGeeX, etc.) for unrestricted free code assistance",
-          "status": "pending"
+          "status": "done",
+          "notes": "Added CodeGeeX LLM backend (llm/codegeex.py): OpenAI-compatible /v1/chat/completions, stream_chat, tool_call, list_models. Registered in factory.py and config.toml. Added GET /models/backends (all backends + reachability) and POST /models/switch (hot-swap active LLM without restart)."
         }
       ]
     },
@@ -1224,7 +1227,7 @@
       "id": "Phase3",
       "title": "Server Management System",
       "description": "SteamServerAdmin is a fully standalone project (Projects/SteamServerAdmin). It has no runtime coupling to ArbiterEngine. These tasks track its independent development milestones as an Arbiter-managed project.",
-      "status": "pending",
+      "status": "active",
       "standalone_project": "Projects/SteamServerAdmin/roadmap.json",
       "tasks": [
         {

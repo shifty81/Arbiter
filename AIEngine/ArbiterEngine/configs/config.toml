@@ -51,6 +51,13 @@ model = "claude-3-5-sonnet-20241022"
 key = ""
 model = "gemini-2.0-flash"
 
+[llm.codegeex]
+# CodeGeeX local inference server (OpenAI-compatible API)
+# Start with: codegeex-server --model codegeex-4-all-9b --port 8082
+base_url = "http://localhost:8082"
+key = ""
+model = "codegeex-4-all-9b"
+
 [permissions]
 allowed_dirs = ["workspace", "projects", "cache", "logs"]
 blocked_dirs = ["configs", "core", "llm"]

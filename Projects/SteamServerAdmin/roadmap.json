@@ -67,55 +67,63 @@
     {
       "id": 1,
       "name": "Phase 1 — Core Server Management",
-      "status": "pending",
+      "status": "done",
       "description": "Core start/stop/restart/update operations for any registered Steam game server, with configurable pre-restart player warnings.",
       "tasks": [
         {
           "id": "SSA1-1",
           "title": "ServerManager: start server process — SteamCMD install + launch via config launch_args",
-          "status": "pending"
+          "status": "done",
+          "notes": "ServerManager.start() in src/server_manager.py: optional SteamCMD install if path missing, then Popen via config launch_args."
         },
         {
           "id": "SSA1-2",
           "title": "ServerManager: stop server — graceful RCON shutdown, then SIGTERM fallback with timeout",
-          "status": "pending"
+          "status": "done",
+          "notes": "ServerManager.stop(): tries RCON `quit` first (configurable timeout), then SIGTERM, then kill fallback. Stops supervisor thread first."
         },
         {
           "id": "SSA1-3",
           "title": "ServerManager: restart server — configurable countdown warning messages broadcast to players before shutdown",
-          "status": "pending"
+          "status": "done",
+          "notes": "ServerManager.restart(): broadcasts countdown warning via RCON say, then stop() → start(). warn_players flag controls whether RCON messages are sent."
         },
         {
           "id": "SSA1-4",
           "title": "ServerManager: update server — SteamCMD +app_update <id> validate; broadcast update warning; restart after",
-          "status": "pending"
+          "status": "done",
+          "notes": "ServerManager.update(): RCON warning, stop, SteamCMD +app_update validate, then restart. SteamCMDError surfaced as error dict."
         },
         {
           "id": "SSA1-5",
           "title": "Scheduled restarts/updates: cron-style schedule in per-server config; SteamServerAdmin dispatches automatically",
-          "status": "pending"
+          "status": "done",
+          "notes": "ServerScheduler: lightweight 5-field cron matcher (*, */N, exact). Fires restart or update in a daemon thread at the matched minute. Registered via MultiServerManager.load_configs()."
         },
         {
           "id": "SSA1-6",
           "title": "Process supervisor: watch server PID; auto-restart on unexpected exit; write crash event to log",
-          "status": "pending"
+          "status": "done",
+          "notes": "ServerManager._supervisor_loop(): 5-second poll, detects unexpected exit, auto-restarts up to max_crash_restarts, emits crashed/max_crashes_reached events."
         },
         {
           "id": "SSA1-7",
           "title": "Multi-server support: manage any number of registered servers independently from one SteamServerAdmin instance",
-          "status": "pending"
+          "status": "done",
+          "notes": "MultiServerManager: load_configs() scans config/ (skips schema/example), registers each server independently, start_all()/stop_all() for bulk ops."
         },
         {
           "id": "SSA1-8",
           "title": "RCON integration: send console commands to live servers (kick, ban, say, status) via RCON protocol",
-          "status": "pending"
+          "status": "done",
+          "notes": "RCONClient: full Source RCON protocol (Source Engine), send_command(), used by stop(), restart(), update(), broadcast(), and send_rcon() public API."
         }
       ]
     },
     {
       "id": 2,
       "name": "Phase 2 — Role-Based Permissions & Audit",
-      "status": "pending",
+      "status": "active",
       "description": "Enforced permission tiers for server operations, with audit logging of all changes visible in the SSA web dashboard.",
       "tasks": [
         {

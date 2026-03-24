@@ -8050,14 +8050,15 @@ async def wiki_page(page: str):
     *page* is the filename stem (without ``.md``).  The endpoint also accepts
     the full filename with extension for convenience.
     """
+    from fastapi import HTTPException as _HTTPEx
     # Strip .md extension if passed
     stem = page.removesuffix(".md")
     # Prevent path traversal
     if "/" in stem or "\\" in stem or ".." in stem:
-        return {"error": "invalid page name"}
+        raise _HTTPEx(status_code=400, detail="invalid page name")
     md_path = _WIKI_DIR / f"{stem}.md"
     if not md_path.exists():
-        return {"error": f"page '{stem}' not found"}
+        raise _HTTPEx(status_code=404, detail=f"page '{stem}' not found")
     content = md_path.read_text(encoding="utf-8", errors="replace")
     return {"name": stem, "filename": md_path.name, "content": content}
 
@@ -8165,6 +8166,414 @@ async def changelog_get():
         return {"content": None, "message": "No changelog found. POST /changelog/generate to create one."}
     content = _CHANGELOG_WIKI_PATH.read_text(encoding="utf-8", errors="replace")
     return {"content": content}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P2-3 — ArbiterAI Automation Agent
+# Runs a multi-step AI agent loop that reads project context, generates a
+# plan, and executes coding/asset/debug actions autonomously.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _AgentRunReq(BaseModel):
+    project: str = "default"
+    goal: str                          # natural-language task description
+    max_steps: int = 5                 # hard cap on agent iterations
+    persona: str = "senior_developer"  # which persona to adopt
+    dry_run: bool = False              # if True, plan only — no file writes
+
+
+class _AgentStep(BaseModel):
+    step: int
+    action: str
+    result: str
+    status: str  # success | error | skipped
+
+
+@app.post("/agent/run")
+async def agent_run(req: _AgentRunReq) -> dict:
+    """Run the ArbiterAI automation agent for a natural-language goal.
+
+    The agent executes up to *max_steps* iterations of a Plan → Act → Observe
+    loop.  Each iteration:
+
+    1. Reads current project context (files, recent chat history, workspace profile).
+    2. Asks the LLM what to do next toward *goal* (returns JSON action).
+    3. Executes the action (write file, call tool, run analysis).
+    4. Feeds the observation back into the next iteration.
+
+    P2-3
+    """
+    base = _ALLOWED_ROOTS.get("projects", _BASE / "workspace")
+    p = Path(req.project)
+    project_dir = p if (p.is_absolute() and p.exists()) else base / req.project
+
+    persona_system = _SPECIALIST_PROMPTS.get(
+        req.persona,
+        _SPECIALIST_PROMPTS.get("backend", "You are a senior developer."),
+    )
+
+    system_prompt = (
+        f"{persona_system}\n\n"
+        "You are an autonomous coding agent. For each step return a JSON object:\n"
+        '{"action": "write_file|run_analysis|answer|done", '
+        '"path": "<relative path if write_file>", '
+        '"content": "<file content or analysis request>", '
+        '"reasoning": "<why this step>"}\n'
+        "Output ONLY the JSON object, nothing else."
+    )
+
+    # Seed context: list top-level files in project dir
+    try:
+        if project_dir.is_dir():
+            file_list = "\n".join(
+                str(f.relative_to(project_dir))
+                for f in sorted(project_dir.rglob("*"))
+                if f.is_file() and not any(p in f.parts for p in (".git", "__pycache__", "node_modules"))
+            )[:2000]
+        else:
+            file_list = "(project directory not found)"
+    except Exception:
+        file_list = "(could not list files)"
+
+    messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content":
+            f"Project: {req.project}\n"
+            f"Goal: {req.goal}\n\n"
+            f"Current project files:\n{file_list}\n\n"
+            "Begin planning. Return your first action JSON."},
+    ]
+
+    steps: list[_AgentStep] = []
+    final_answer: str = ""
+
+    for step_num in range(1, req.max_steps + 1):
+        try:
+            raw = await _asyncio.to_thread(
+                _llm.chat,
+                messages,
+            )
+        except Exception as exc:
+            steps.append(_AgentStep(step=step_num, action="error", result=str(exc), status="error"))
+            break
+
+        # Parse the JSON action
+        json_match = _re.search(r"\{[\s\S]+?\}", raw)
+        if not json_match:
+            steps.append(_AgentStep(step=step_num, action="parse_error", result=raw[:200], status="error"))
+            break
+
+        try:
+            action_data = json.loads(json_match.group())
+        except Exception:
+            steps.append(_AgentStep(step=step_num, action="parse_error", result=raw[:200], status="error"))
+            break
+
+        action_type = action_data.get("action", "answer")
+        reasoning   = action_data.get("reasoning", "")
+
+        # ── Execute the action ────────────────────────────────────────────────
+        if action_type == "done" or action_type == "answer":
+            final_answer = action_data.get("content", reasoning)
+            steps.append(_AgentStep(step=step_num, action="done", result=final_answer[:500], status="success"))
+            break
+
+        elif action_type == "write_file":
+            rel_path = action_data.get("path", "")
+            content  = action_data.get("content", "")
+            observation = "skipped (dry_run=True)"
+            if not req.dry_run and rel_path and project_dir.is_dir():
+                try:
+                    target = (project_dir / rel_path).resolve()
+                    # Guard: must stay inside project_dir
+                    try:
+                        target.relative_to(project_dir.resolve())
+                    except ValueError:
+                        observation = f"Write rejected: path '{rel_path}' escapes project directory"
+                        steps.append(_AgentStep(step=step_num, action=f"write_file:{rel_path}", result=observation, status="error"))
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content, encoding="utf-8")
+                    observation = f"Written {len(content)} chars to {rel_path}"
+                except Exception as exc:
+                    observation = f"Write failed: {exc}"
+            steps.append(_AgentStep(step=step_num, action=f"write_file:{rel_path}", result=observation, status="success"))
+
+        elif action_type == "run_analysis":
+            # Delegate to the lint endpoint for a quick static check
+            analysis_target = action_data.get("path", "")
+            try:
+                lint_r = analysis_lint(_LintReq(project=req.project, file_path=analysis_target))
+                issue_count = len(lint_r.get("issues", []))
+                observation = f"Lint: {issue_count} issue(s) in {analysis_target}"
+            except Exception as exc:
+                observation = f"Analysis error: {exc}"
+            steps.append(_AgentStep(step=step_num, action=f"run_analysis:{analysis_target}", result=observation, status="success"))
+
+        else:
+            observation = f"Unknown action type '{action_type}' — skipped."
+            steps.append(_AgentStep(step=step_num, action=action_type, result=observation, status="skipped"))
+
+        # Feed observation back
+        messages.append({"role": "assistant", "content": raw})
+        messages.append({"role": "user", "content":
+            f"Observation from step {step_num}: {observation}\n"
+            "Continue toward the goal. Return your next action JSON, or {{\"action\": \"done\", \"content\": \"<summary>\"}} when finished."
+        })
+
+    return {
+        "project": req.project,
+        "goal":    req.goal,
+        "steps":   [s.model_dump() for s in steps],
+        "total_steps": len(steps),
+        "final_answer": final_answer,
+        "dry_run": req.dry_run,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P2-2 — Visual Studio / VS Code deeper integration helpers
+# These endpoints are consumed by the Arbiter VSIX and VS Code extension to
+# provide richer in-editor AI features beyond the basic chat/completion flow.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _InlineCompletionReq(BaseModel):
+    project: str = "default"
+    file_path: str = ""
+    prefix: str              # code before the cursor
+    suffix: str = ""         # code after the cursor (for FIM models)
+    language: str = ""       # e.g. "csharp", "python"
+    max_tokens: int = 256
+
+
+@app.post("/vs/inline-completion")
+async def vs_inline_completion(req: _InlineCompletionReq) -> dict:
+    """Generate an inline code completion for the VS / VS Code cursor position.
+
+    Designed for low-latency fill-in-the-middle (FIM) style requests from
+    the VSIX / VS Code extension.  Returns a single best-completion string.
+
+    P2-2
+    """
+    lang_hint = f" ({req.language})" if req.language else ""
+    prompt = (
+        f"Complete the following{lang_hint} code at the cursor position (marked <CURSOR>).\n"
+        "Return ONLY the completion text — no markdown, no explanation.\n\n"
+        f"```\n{req.prefix}<CURSOR>{req.suffix}\n```"
+    )
+    try:
+        completion = await _asyncio.to_thread(
+            _llm.chat,
+            [{"role": "user", "content": prompt}],
+        )
+        # Trim common artefacts
+        completion = completion.strip().removeprefix("```").removesuffix("```").strip()
+    except Exception as exc:
+        return {"completion": "", "error": str(exc)}
+
+    return {
+        "project":    req.project,
+        "file":       req.file_path,
+        "completion": completion,
+    }
+
+
+class _DiagnosticsReq(BaseModel):
+    project: str = "default"
+    file_path: str = ""
+    content: str             # full file content
+    language: str = ""
+    diagnostics: list[dict] = []   # raw IDE diagnostics (errors/warnings)
+
+
+@app.post("/vs/explain-diagnostic")
+async def vs_explain_diagnostic(req: _DiagnosticsReq) -> dict:
+    """Return AI explanations and fix suggestions for IDE diagnostics.
+
+    Accepts the list of compiler/linter diagnostic objects that the IDE has
+    already surfaced and returns a human-readable explanation + suggested fix
+    for each one.
+
+    P2-2
+    """
+    if not req.diagnostics:
+        return {"project": req.project, "explanations": []}
+
+    diag_text = "\n".join(
+        f"  [{d.get('severity','?')}] Line {d.get('line','?')}: {d.get('message','')}"
+        for d in req.diagnostics[:20]   # cap at 20 to stay within context window
+    )
+    snippet = req.content[:2000]
+    prompt = (
+        f"You are an expert {req.language or 'code'} debugger.\n"
+        "Explain each diagnostic below and suggest the minimal fix. "
+        "Return a JSON array:\n"
+        '[{"line": <n>, "message": "<original msg>", "explanation": "...", "fix": "..."}]\n'
+        "Output ONLY the JSON array.\n\n"
+        f"Diagnostics:\n{diag_text}\n\n"
+        f"File excerpt:\n```\n{snippet}\n```"
+    )
+    try:
+        raw = await _asyncio.to_thread(
+            _llm.chat,
+            [{"role": "user", "content": prompt}],
+        )
+        arr_match = _re.search(r"\[[\s\S]+\]", raw)
+        explanations = json.loads(arr_match.group()) if arr_match else []
+    except Exception as exc:
+        explanations = [{"error": str(exc)}]
+
+    return {"project": req.project, "file": req.file_path, "explanations": explanations}
+
+
+class _RefactorReq(BaseModel):
+    project: str = "default"
+    file_path: str = ""
+    content: str              # full file content
+    selection: str = ""       # selected code block (optional)
+    instruction: str          # e.g. "extract method", "rename variable X to Y", "add null checks"
+    language: str = ""
+
+
+@app.post("/vs/refactor")
+async def vs_refactor(req: _RefactorReq) -> dict:
+    """Apply an AI refactoring instruction to a file or selection.
+
+    Returns the rewritten code.  The caller (VSIX / VS Code extension)
+    replaces the current selection or full file with the returned content.
+
+    P2-2
+    """
+    target = req.selection or req.content
+    lang_hint = f" {req.language}" if req.language else ""
+    prompt = (
+        f"Apply the following refactoring to this{lang_hint} code:\n"
+        f"Instruction: {req.instruction}\n\n"
+        "Return ONLY the refactored code with no explanation or markdown fences.\n\n"
+        f"```\n{target[:4000]}\n```"
+    )
+    try:
+        refactored = await _asyncio.to_thread(
+            _llm.chat,
+            [{"role": "user", "content": prompt}],
+        )
+        refactored = refactored.strip().removeprefix("```").removesuffix("```").strip()
+        # Strip a leading language tag like "python" or "csharp" if present
+        lines = refactored.splitlines()
+        if lines and not lines[0].strip().startswith((" ", "\t")) and len(lines[0].strip()) < 20:
+            refactored = "\n".join(lines[1:]).strip()
+    except Exception as exc:
+        return {"refactored": "", "error": str(exc)}
+
+    return {
+        "project":    req.project,
+        "file":       req.file_path,
+        "instruction": req.instruction,
+        "refactored": refactored,
+    }
+
+
+@app.get("/vs/capabilities")
+def vs_capabilities() -> dict:
+    """Return the set of VS / VS Code integration features supported by this engine.
+
+    The VSIX / VS Code extension queries this on startup to enable/disable
+    feature flags.
+
+    P2-2
+    """
+    return {
+        "inline_completion":   True,
+        "explain_diagnostic":  True,
+        "refactor":            True,
+        "chat":                True,
+        "review":              True,
+        "diff":                True,
+        "diagram":             True,
+        "test_generate":       True,
+        "coverage_hints":      True,
+        "lint":                True,
+        "complexity":          True,
+        "docs_generate":       True,
+        "agent_run":           True,
+        "version":             "2.0.0",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P2-4 — Open-source model integration: list available backends + models
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/models/backends")
+def models_backends() -> dict:
+    """Return all configured LLM backends and their availability status.
+
+    Allows the IDE and remote web UI to present a model-switcher with live
+    status (reachable / not reachable) for each configured backend.
+
+    P2-4
+    """
+    import importlib
+
+    backends_config = {
+        "ollama":    {"label": "Ollama",    "url": _config.get("llm.ollama.base_url",    "http://localhost:11434"), "model": _config.get("llm.ollama.model", "llama3")},
+        "lmstudio":  {"label": "LM Studio", "url": _config.get("llm.lmstudio.base_url",  "http://localhost:1234"),  "model": _config.get("llm.lmstudio.model", "")},
+        "localai":   {"label": "LocalAI",   "url": _config.get("llm.localai.base_url",   "http://localhost:8080"),  "model": _config.get("llm.localai.model", "codestral")},
+        "llamacpp":  {"label": "llama.cpp", "url": _config.get("llm.llamacpp.base_url",  "http://localhost:8080"),  "model": _config.get("llm.llamacpp.model", "")},
+        "tabby":     {"label": "Tabby",     "url": _config.get("llm.tabby.base_url",     "http://localhost:8080"),  "model": _config.get("llm.tabby.model", "")},
+        "openwebui": {"label": "OpenWebUI", "url": _config.get("llm.openwebui.base_url", "http://localhost:3000"),  "model": _config.get("llm.openwebui.model", "")},
+        "codegeex":  {"label": "CodeGeeX",  "url": _config.get("llm.codegeex.base_url",  "http://localhost:8082"),  "model": _config.get("llm.codegeex.model", "codegeex-4-all-9b")},
+        "api":       {"label": "OpenAI API","url": _config.get("llm.api.base_url",       "https://api.openai.com"), "model": _config.get("llm.api.model", "gpt-4o")},
+        "anthropic": {"label": "Anthropic", "url": "https://api.anthropic.com",                                     "model": _config.get("llm.anthropic.model", "claude-3-5-sonnet-20241022")},
+        "gemini":    {"label": "Gemini",    "url": "https://generativelanguage.googleapis.com",                     "model": _config.get("llm.gemini.model", "gemini-2.0-flash")},
+    }
+
+    import requests as _req_mod
+    result = []
+    for key, info in backends_config.items():
+        url = info["url"]
+        reachable = False
+        if url.startswith("http"):
+            try:
+                _req_mod.get(url, timeout=2)
+                reachable = True
+            except Exception:
+                reachable = False
+        result.append({
+            "id":       key,
+            "label":    info["label"],
+            "url":      url,
+            "model":    info["model"],
+            "reachable": reachable,
+            "active":   key == _config.get("agent.default_llm_backend", "ollama"),
+        })
+
+    return {"backends": result, "active_backend": _config.get("agent.default_llm_backend", "ollama")}
+
+
+@app.post("/models/switch")
+async def models_switch(backend: str, model: str = "") -> dict:
+    """Hot-switch the active LLM backend without restarting the server.
+
+    Updates the in-memory config and replaces the global ``_llm`` instance.
+    The change is not persisted to disk — restart the server to make it permanent.
+
+    P2-4
+    """
+    global _llm
+    try:
+        from llm.factory import create_llm as _create_llm
+        # Temporarily override config keys for the new backend
+        if model:
+            _config._data[f"llm.{backend}.model"] = model
+        _config._data["agent.default_llm_backend"] = backend
+        new_llm = await _asyncio.to_thread(_create_llm, backend, _config)
+        _llm = new_llm
+        logger.info("Switched LLM backend to %s (model=%s)", backend, model or "default")
+        return {"status": "ok", "backend": backend, "model": model or "default"}
+    except Exception as exc:
+        logger.error("Failed to switch LLM backend: %s", exc)
+        return {"status": "error", "error": str(exc)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
