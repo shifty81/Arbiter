@@ -11342,6 +11342,654 @@ def projects_search(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 7 — Observability & Developer Experience
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Record server start time for uptime calculation
+_SERVER_START_TIME: float = time.time()
+
+
+# ── PA7-1: Runtime metrics ────────────────────────────────────────────────────
+
+@app.get("/metrics")
+def metrics_get() -> dict:
+    """Return Arbiter Engine runtime statistics.
+
+    Includes:
+    - Per-endpoint request counts, error counts, and latency percentiles
+      (p50, p95, p99) derived from the rolling 200-sample window already
+      maintained by the metrics middleware.
+    - Aggregate LLM call counts and cache hit/miss ratio.
+    - Process memory (RSS) and uptime.
+
+    PA7-1
+    """
+    import psutil as _psutil_opt  # optional — graceful degradation if absent
+
+    # Process memory
+    try:
+        proc = _psutil_opt.Process()
+        mem_mb = round(proc.memory_info().rss / 1_048_576, 1)
+    except Exception:
+        mem_mb = None
+
+    uptime_s = round(time.time() - _SERVER_START_TIME, 1)
+
+    # Aggregate endpoint stats
+    endpoint_stats: list[dict] = []
+    with _metrics_lock:
+        for path, data in sorted(_metrics.items()):
+            lats = sorted(data["latencies_ms"])
+            n = len(lats)
+            p50 = lats[int(n * 0.50)] if n else 0.0
+            p95 = lats[int(n * 0.95)] if n else 0.0
+            p99 = lats[int(n * 0.99)] if n else 0.0
+            avg  = round(data["total_ms"] / data["requests"], 1) if data["requests"] else 0.0
+            endpoint_stats.append({
+                "endpoint":     path,
+                "requests":     data["requests"],
+                "errors":       data["errors"],
+                "avg_ms":       avg,
+                "p50_ms":       round(p50, 1),
+                "p95_ms":       round(p95, 1),
+                "p99_ms":       round(p99, 1),
+            })
+
+    # LLM cache
+    with _llm_cache_lock:
+        cache_size = len(_llm_cache)
+
+    # Budget totals
+    total_llm_calls = 0
+    total_tokens = 0
+    with _budget_lock:
+        for proj_data in _budget.values():
+            total_llm_calls += proj_data.get("calls", 0)
+            total_tokens     += proj_data.get("estimated_tokens", 0)
+
+    total_requests = sum(e["requests"] for e in endpoint_stats)
+    total_errors   = sum(e["errors"]   for e in endpoint_stats)
+
+    return {
+        "uptime_seconds":    uptime_s,
+        "memory_rss_mb":     mem_mb,
+        "total_requests":    total_requests,
+        "total_errors":      total_errors,
+        "llm_calls":         total_llm_calls,
+        "estimated_tokens":  total_tokens,
+        "cache_entries":     cache_size,
+        "endpoints":         endpoint_stats,
+    }
+
+
+# ── PA7-2: Per-project activity feed ─────────────────────────────────────────
+
+_MAX_ACTIVITY_EVENTS = 100
+
+
+@app.get("/projects/{project_id}/activity")
+def project_activity(
+    project_id: str,
+    limit: int = 30,
+) -> dict:
+    """Return a unified activity feed for a project.
+
+    Combines (newest-first):
+    - Git commits that touch the project directory
+    - Open issues from the workspace issues tracker
+    - Budget / LLM call totals for the project
+
+    Query params:
+    - ``limit`` — max total events (default 30, max 100)
+
+    PA7-2
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    limit = max(1, min(limit, _MAX_ACTIVITY_EVENTS))
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    events: list[dict] = []
+
+    # Git commits touching the project dir
+    repo_root = _BASE.parent.parent
+    try:
+        fmt = "%H\x1f%ad\x1f%an\x1f%s"
+        out = subprocess.check_output(
+            ["git", "log", f"--format={fmt}", "--date=iso-strict",
+             f"-{limit}", "--", str(project_dir)],
+            cwd=str(repo_root), stderr=subprocess.DEVNULL, timeout=10,
+        ).decode(errors="replace")
+        for line in out.splitlines():
+            parts = line.split("\x1f", 3)
+            if len(parts) == 4:
+                sha, date, author, message = parts
+                events.append({
+                    "type":    "commit",
+                    "date":    date.strip(),
+                    "summary": message.strip(),
+                    "detail":  {"sha": sha[:12], "author": author.strip()},
+                })
+    except Exception:
+        pass
+
+    # Open issues for the project workspace
+    try:
+        issue_result = _issues_list(project_id, status="open")
+        for issue in issue_result.get("issues", [])[:limit]:
+            events.append({
+                "type":    "issue",
+                "date":    issue.get("created_at", ""),
+                "summary": issue.get("title", ""),
+                "detail":  {
+                    "id":     issue.get("id"),
+                    "kind":   issue.get("kind", "bug"),
+                    "status": issue.get("status", "open"),
+                },
+            })
+    except Exception:
+        pass
+
+    # LLM budget snapshot for the project
+    with _budget_lock:
+        proj_budget = dict(_budget.get(project_id, {"calls": 0, "estimated_tokens": 0}))
+
+    # Sort newest-first and apply limit
+    events.sort(key=lambda e: e.get("date", ""), reverse=True)
+
+    return {
+        "project_id": project_id,
+        "count":      len(events[:limit]),
+        "budget":     proj_budget,
+        "events":     events[:limit],
+    }
+
+
+# ── PA7-3: AI code / error explanation ───────────────────────────────────────
+
+_MAX_EXPLAIN_CHARS = 8_000
+
+
+class _AiExplainReq(BaseModel):
+    content: str              # code snippet, error traceback, or any text
+    language: str = ""        # optional hint (e.g. "python", "csharp")
+    project: str = ""         # optional project context
+    archive_search: bool = True  # whether to cross-reference the Archive
+
+
+@app.post("/ai/explain")
+def ai_explain(req: _AiExplainReq) -> dict:
+    """Explain a code snippet, error message, or any developer text using the LLM.
+
+    Optionally cross-references the Archive for relevant prior knowledge.
+    Returns an explanation, key takeaways, and any relevant archive entries.
+
+    PA7-3
+    """
+    if not req.content.strip():
+        raise HTTPException(status_code=422, detail="'content' must not be empty")
+
+    snippet = req.content[:_MAX_EXPLAIN_CHARS]
+    truncated = len(req.content) > _MAX_EXPLAIN_CHARS
+
+    # Optional archive context
+    archive_hits: list[dict] = []
+    archive_context = ""
+    if req.archive_search:
+        try:
+            from core.archive_manager import ArchiveManager as _AM
+            am = _AM(_BASE)
+            results = am.search(req.content[:200], top_k=3)
+            for entry in results:
+                archive_hits.append({
+                    "title":   entry.get("title", ""),
+                    "snippet": entry.get("content", "")[:300],
+                    "source":  entry.get("source", ""),
+                })
+            if archive_hits:
+                archive_context = "\n\nRelevant archive entries:\n" + "\n".join(
+                    f"- {h['title']}: {h['snippet']}" for h in archive_hits
+                )
+        except Exception:
+            pass
+
+    lang_hint = f" ({req.language})" if req.language else ""
+    proj_hint = f"\nProject context: {req.project}" if req.project else ""
+
+    system = (
+        "You are a senior software engineer and technical writer.\n"
+        "Given a code snippet, error message, or technical text, provide:\n"
+        "EXPLANATION: <clear prose explanation of what this is and what it does or means>\n"
+        "KEY_POINTS:\n"
+        "- <point 1>\n"
+        "- <point 2>\n"
+        "...\n"
+        "RECOMMENDATION: <one actionable next step if relevant, otherwise 'N/A'>\n"
+        "Use only these labelled sections — no other text."
+    )
+    user_msg = (
+        f"Explain this{lang_hint}:{proj_hint}{archive_context}\n\n"
+        f"```\n{snippet}\n```"
+        + ("\n\n[Content truncated]" if truncated else "")
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse structured response
+    explanation = ""
+    key_points: list[str] = []
+    recommendation = ""
+    in_section = ""
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("EXPLANATION:"):
+            in_section = "explanation"
+            explanation = ls[len("EXPLANATION:"):].strip()
+        elif ls.upper().startswith("KEY_POINTS:"):
+            in_section = "key_points"
+        elif ls.upper().startswith("RECOMMENDATION:"):
+            in_section = "recommendation"
+            recommendation = ls[len("RECOMMENDATION:"):].strip()
+        elif in_section == "explanation" and ls:
+            explanation += " " + ls
+        elif in_section == "key_points" and ls.startswith("-"):
+            key_points.append(ls[1:].strip())
+        elif in_section == "recommendation" and not recommendation and ls:
+            recommendation = ls
+
+    return {
+        "explanation":    explanation.strip(),
+        "key_points":     key_points,
+        "recommendation": recommendation,
+        "archive_hits":   archive_hits,
+        "truncated":      truncated,
+        "raw":            raw,
+    }
+
+
+# ── PA7-4: Aggregate workspace health ────────────────────────────────────────
+
+@app.get("/workspace/health")
+def workspace_health() -> dict:
+    """Aggregate health check across the entire Arbiter workspace.
+
+    Checks:
+    - LLM backend reachability (ping via a trivial generation)
+    - Git repo state (clean / dirty / detached HEAD)
+    - Disk space on the repo root mount point
+    - Status of each managed project (roadmap progress, git dirty files)
+    - Count of open issues across all projects
+
+    PA7-4
+    """
+    repo_root = _BASE.parent.parent
+    result: dict = {"ok": True, "checks": {}}
+
+    # LLM health
+    try:
+        _llm.chat([{"role": "user", "content": "ping"}])
+        result["checks"]["llm"] = {"status": "ok", "backend": _backend}
+    except Exception as exc:
+        result["checks"]["llm"] = {"status": "error", "detail": str(exc)}
+        result["ok"] = False
+
+    # Git state
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(repo_root), stderr=subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+        dirty_out = subprocess.check_output(
+            ["git", "status", "--short"],
+            cwd=str(repo_root), stderr=subprocess.DEVNULL, timeout=5,
+        ).decode(errors="replace").strip()
+        dirty_files = [l for l in dirty_out.splitlines() if l.strip()]
+        result["checks"]["git"] = {
+            "status":      "ok",
+            "branch":      branch,
+            "dirty_files": len(dirty_files),
+        }
+    except Exception as exc:
+        result["checks"]["git"] = {"status": "error", "detail": str(exc)}
+        result["ok"] = False
+
+    # Disk space
+    try:
+        import shutil as _shutil_h
+        usage = _shutil_h.disk_usage(str(repo_root))
+        result["checks"]["disk"] = {
+            "status":        "ok",
+            "total_gb":      round(usage.total / 1_073_741_824, 1),
+            "used_gb":       round(usage.used  / 1_073_741_824, 1),
+            "free_gb":       round(usage.free  / 1_073_741_824, 1),
+            "used_pct":      round(usage.used / usage.total * 100, 1),
+        }
+        if usage.free / usage.total < 0.05:   # less than 5 % free
+            result["checks"]["disk"]["status"] = "warning"
+    except Exception as exc:
+        result["checks"]["disk"] = {"status": "error", "detail": str(exc)}
+
+    # Projects summary
+    projects_base = _PROJECTS_DIR
+    project_summaries: list[dict] = []
+    total_open_issues = 0
+    if projects_base.is_dir():
+        for pd in sorted(projects_base.iterdir()):
+            if not pd.is_dir():
+                continue
+            psum: dict = {"id": pd.name}
+            rp = pd / "roadmap.json"
+            if rp.exists():
+                try:
+                    rd = json.loads(rp.read_text(encoding="utf-8"))
+                    phases = rd.get("phases", rd.get("milestones", []))
+                    total_t = sum(len(p.get("tasks", [])) for p in phases)
+                    done_t  = sum(
+                        1 for p in phases for t in p.get("tasks", [])
+                        if t.get("status") == "done"
+                    )
+                    psum["roadmap_pct"] = round(done_t / total_t * 100, 1) if total_t else 0.0
+                    psum["roadmap_version"] = rd.get("version", "?")
+                except Exception:
+                    psum["roadmap_pct"] = None
+            # Git dirty for project
+            try:
+                git_dir = pd / ".git"
+                cwd = str(pd) if git_dir.is_dir() else str(repo_root)
+                dirty = subprocess.check_output(
+                    ["git", "status", "--short", "--", str(pd)],
+                    cwd=cwd, stderr=subprocess.DEVNULL, timeout=5,
+                ).decode(errors="replace").strip()
+                psum["dirty_files"] = len([l for l in dirty.splitlines() if l.strip()])
+            except Exception:
+                psum["dirty_files"] = None
+            # Open issues
+            try:
+                issues = _issues_list(pd.name, status="open")
+                open_count = len(issues.get("issues", []))
+                psum["open_issues"] = open_count
+                total_open_issues += open_count
+            except Exception:
+                psum["open_issues"] = 0
+            project_summaries.append(psum)
+
+    result["checks"]["projects"] = {
+        "status":           "ok",
+        "count":            len(project_summaries),
+        "total_open_issues": total_open_issues,
+        "projects":         project_summaries,
+    }
+
+    return result
+
+
+# ── PA7-5: Git blame with AI commentary ──────────────────────────────────────
+
+class _BlameExplainReq(BaseModel):
+    file_path: str         # path relative to repo root
+    project: str = ""      # project id (used to resolve path under Projects/)
+    start_line: int = 1
+    end_line: int = 0      # 0 = to end of file
+
+
+_MAX_BLAME_LINES = 200
+
+
+@app.post("/git/blame-explain")
+def git_blame_explain(req: _BlameExplainReq) -> dict:
+    """Run git blame on a file and have the AI summarise change history.
+
+    Returns the raw blame output (capped to ``_MAX_BLAME_LINES`` lines) and an
+    AI-generated commentary covering: authors, change frequency, hotspots, and
+    any patterns worth noting.
+
+    PA7-5
+    """
+    if not req.file_path.strip():
+        raise HTTPException(status_code=422, detail="'file_path' must not be empty")
+
+    # Validate path — no traversal
+    if ".." in req.file_path or req.file_path.startswith("/"):
+        raise HTTPException(status_code=422, detail="Invalid file_path")
+
+    repo_root = _BASE.parent.parent
+
+    # Resolve the file path
+    if req.project:
+        if not _PROJECT_ID_PATTERN.fullmatch(req.project):
+            raise HTTPException(status_code=422, detail="Invalid project")
+        abs_path = _PROJECTS_DIR / req.project / req.file_path
+    else:
+        abs_path = repo_root / req.file_path
+
+    if not abs_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {req.file_path}")
+
+    # Run git blame
+    blame_args = ["git", "blame", "--line-porcelain"]
+    if req.start_line >= 1 and req.end_line > req.start_line:
+        blame_args += [f"-L{req.start_line},{req.end_line}"]
+    blame_args.append(str(abs_path))
+
+    try:
+        blame_raw = subprocess.check_output(
+            blame_args, cwd=str(repo_root),
+            stderr=subprocess.DEVNULL, timeout=15,
+        ).decode(errors="replace")
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"git blame failed: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # Parse porcelain blame into structured entries
+    entries: list[dict] = []
+    current: dict = {}
+    for line in blame_raw.splitlines():
+        if not line:
+            continue
+        if line[0] not in ("\t", " ") and len(line.split()) >= 3:
+            # Commit line: sha orig_line final_line [group_count]
+            parts = line.split()
+            current = {"sha": parts[0][:12], "line": int(parts[2])}
+        elif line.startswith("author "):
+            current["author"] = line[7:].strip()
+        elif line.startswith("author-time "):
+            ts = int(line[12:].strip())
+            current["date"] = datetime.datetime.fromtimestamp(
+                ts, tz=datetime.timezone.utc
+            ).strftime("%Y-%m-%d")
+        elif line.startswith("summary "):
+            current["commit_summary"] = line[8:].strip()
+        elif line.startswith("\t"):
+            current["content"] = line[1:]
+            entries.append(dict(current))
+            current = {}
+
+    entries = entries[:_MAX_BLAME_LINES]
+
+    # Build compact blame text for LLM
+    blame_text = "\n".join(
+        f"L{e.get('line','?')} [{e.get('author','?')} {e.get('date','')}] "
+        f"{e.get('content','')[:120]}"
+        for e in entries
+    )
+
+    system = (
+        "You are a code historian and software engineer.\n"
+        "Given git blame output for a file (showing author, date, and code per line), "
+        "provide a concise commentary covering:\n"
+        "1. Top contributors and their areas of ownership\n"
+        "2. Most recently changed regions (hotspots)\n"
+        "3. Any notable patterns (e.g. one author owns all error handling, stale sections)\n"
+        "4. A one-sentence ownership summary\n"
+        "Be factual and concise (200 words max)."
+    )
+    user_msg = (
+        f"File: {req.file_path}"
+        + (f" (project: {req.project})" if req.project else "")
+        + f"\n\nBlame output ({len(entries)} lines shown):\n{blame_text}"
+    )
+
+    try:
+        commentary = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        commentary = f"[LLM error] {exc}"
+
+    return {
+        "file_path":       req.file_path,
+        "project":         req.project,
+        "lines_analysed":  len(entries),
+        "entries":         entries,
+        "commentary":      commentary,
+    }
+
+
+# ── PA7-6: AI-generated project changelog ────────────────────────────────────
+
+class _ChangelogReq(BaseModel):
+    project_id: str
+    since: str = ""     # ISO date or git ref (tag / sha) — empty = all history
+    until: str = ""     # ISO date or git ref — empty = HEAD
+    max_commits: int = 100
+
+
+@app.post("/projects/{project_id}/changelog")
+def project_changelog(project_id: str, req: _ChangelogReq) -> dict:
+    """Generate a human-readable CHANGELOG for a project from its git history.
+
+    Collects git log entries for the project directory (optionally bounded by
+    ``since`` / ``until`` refs), groups them by week or version tag, and uses
+    the LLM to write a polished CHANGELOG entry for each group.
+
+    Body fields:
+    - ``since``       — git ref, tag, or ISO date to start from (optional)
+    - ``until``       — git ref, tag, or ISO date to end at (optional, default HEAD)
+    - ``max_commits`` — cap on commits to process (default 100, max 500)
+
+    PA7-6
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    max_c = max(1, min(req.max_commits, 500))
+    repo_root = _BASE.parent.parent
+
+    # Build git log command
+    log_args = [
+        "git", "log",
+        "--format=%H\x1f%ad\x1f%an\x1f%s",
+        "--date=short",
+        f"-{max_c}",
+    ]
+    if req.since:
+        log_args += [f"--since={req.since}"] if _re.match(r"\d{4}-\d{2}-\d{2}", req.since) else [f"{req.since}..HEAD"]
+    if req.until and req.until.lower() not in ("", "head"):
+        log_args += [f"--until={req.until}"] if _re.match(r"\d{4}-\d{2}-\d{2}", req.until) else [f"HEAD...{req.until}"]
+    log_args += ["--", str(project_dir)]
+
+    try:
+        raw_log = subprocess.check_output(
+            log_args, cwd=str(repo_root),
+            stderr=subprocess.DEVNULL, timeout=15,
+        ).decode(errors="replace")
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"git log failed: {exc}") from exc
+
+    commits: list[dict] = []
+    for line in raw_log.splitlines():
+        parts = line.split("\x1f", 3)
+        if len(parts) == 4:
+            sha, date, author, message = parts
+            commits.append({
+                "sha":     sha[:12],
+                "date":    date.strip(),
+                "author":  author.strip(),
+                "message": message.strip(),
+            })
+
+    if not commits:
+        return {
+            "project_id": project_id,
+            "commits":    0,
+            "changelog":  "No commits found for the specified range.",
+            "entries":    [],
+        }
+
+    # Group commits by week (ISO year-week)
+    from collections import defaultdict as _defaultdict
+    groups: dict = _defaultdict(list)
+    for c in commits:
+        try:
+            dt = datetime.date.fromisoformat(c["date"])
+            week_key = f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
+        except Exception:
+            week_key = c["date"][:7] if len(c["date"]) >= 7 else "unknown"
+        groups[week_key].append(c)
+
+    # Generate changelog per group
+    changelog_sections: list[dict] = []
+    for week_key in sorted(groups.keys(), reverse=True):
+        group_commits = groups[week_key]
+        bullet_list = "\n".join(
+            f"- [{c['sha']}] {c['message']} ({c['author']})"
+            for c in group_commits
+        )
+        system = (
+            "You are a technical writer producing a CHANGELOG. "
+            "Given a list of git commits for a single week, write a concise CHANGELOG section "
+            "(3–8 bullet points) grouping related changes by theme (feat, fix, refactor, etc.). "
+            "Use present tense. Output ONLY the bullet points — no headings, no extra text."
+        )
+        user_msg = f"Week {week_key} commits for {project_id}:\n{bullet_list}"
+        try:
+            section_text = _llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_msg},
+            ])
+        except Exception as exc:
+            section_text = "\n".join(f"- {c['message']}" for c in group_commits)
+
+        changelog_sections.append({
+            "week":    week_key,
+            "commits": len(group_commits),
+            "text":    section_text.strip(),
+        })
+
+    full_changelog = "\n\n".join(
+        f"## {s['week']}\n{s['text']}" for s in changelog_sections
+    )
+
+    return {
+        "project_id": project_id,
+        "commits":    len(commits),
+        "sections":   len(changelog_sections),
+        "changelog":  full_changelog,
+        "entries":    changelog_sections,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))

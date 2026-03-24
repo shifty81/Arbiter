@@ -7,7 +7,7 @@
 
 ## Current Status
 
-**Version:** 1.8.0 | **All M0–M14 milestones + Phases 1–5 complete** ✅ | **Phase 6 active** 🔄
+**Version:** 1.9.0 | **All M0–M14 milestones + Phases 1–7 complete** ✅
 
 ---
 
@@ -33,34 +33,17 @@
 
 ---
 
-## Completed Phases (1–5)
+## Completed Phases (1–7)
 
-| Phase | Title | Status |
-|-------|-------|--------|
-| **Phase 1** | Platform Consolidation | ✅ Done |
-| **Phase 2** | Tooling Layer & AI Integration | ✅ Done |
-| **Phase 3** | Project-Aware Workspace Intelligence | ✅ Done |
-| **Phase 4** | Development Agent Enhancement | ✅ Done |
-| **Phase 5** | Production & Deployment | ✅ Done |
-
----
-
-## Active Phase
-
-### Phase 6 — Cross-Project Intelligence 🔄
-
-New Arbiter API capabilities extending the platform's awareness across all managed project
-workspaces.  All Phase 6 work is in `AIEngine/ArbiterEngine/server.py`.
-
-| Task | Endpoint | Description | Status |
-|------|----------|-------------|--------|
-| **PA6-1** | `POST /ai/commit-message` | diff + context → AI conventional commit message | 🔄 In Progress |
-| **PA6-2** | `POST /ai/plan` | natural-language goal → structured task list | 🔄 In Progress |
-| **PA6-3** | `GET /workspace/timeline` | unified git commit timeline across all Projects/ | 🔄 In Progress |
-| **PA6-4** | `GET /projects/{id}/dependencies` | parse requirements.txt / package.json / .csproj / go.mod / Cargo.toml | 🔄 In Progress |
-| **PA6-5** | `POST /workspace/snapshot` · `GET /workspace/snapshots` · `POST /workspace/snapshots/{id}/restore` | named workspace state snapshots | 🔄 In Progress |
-| **PA6-6** | `POST /projects/{id}/context/summary` | AI-generated compressed project context for fast injection | 🔄 In Progress |
-| **PA6-7** | `GET /projects/search` | full-text search across all files in all managed project workspaces | 🔄 In Progress |
+| Phase | Title | Key Additions | Status |
+|-------|-------|---------------|--------|
+| **Phase 1** | Platform Consolidation | Logging, wiki, shutdown prompt, README, ROADMAP.md | ✅ Done |
+| **Phase 2** | Tooling Layer & AI Integration | Agent loop, VS inline/refactor, model routing, CodeGeeX | ✅ Done |
+| **Phase 3** | Project-Aware Workspace Intelligence | /projects activate/health, workspace state, scaffold | ✅ Done |
+| **Phase 4** | Development Agent Enhancement | git watch/review-commit, self-improve, tests/run | ✅ Done |
+| **Phase 5** | Production & Deployment | Dockerfile, self-update, API keys + rate-limit, plugins | ✅ Done |
+| **Phase 6** | Cross-Project Intelligence | commit-message AI, AI plan, workspace timeline, dependencies, snapshots, context/summary, cross-project search | ✅ Done |
+| **Phase 7** | Observability & Developer Experience | /metrics, project activity feed, AI explain, workspace health, git blame-explain, project changelog | ✅ Done |
 
 ---
 

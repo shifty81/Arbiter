@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1365,6 +1365,44 @@
         {
           "id": "PA6-7",
           "title": "GET /projects/search — full-text search across all files in all managed project workspaces",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "id": "Phase7",
+      "title": "Observability & Developer Experience",
+      "description": "Enhance Arbiter's operational visibility and day-to-day developer ergonomics. New API capabilities: runtime metrics, per-project activity feeds, on-demand AI code explanation, aggregate workspace health check, git blame with AI commentary, and AI-generated changelogs from git history.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA7-1",
+          "title": "GET /metrics — runtime stats: request counts, LLM latency p50/p95/p99, memory usage, uptime",
+          "status": "done"
+        },
+        {
+          "id": "PA7-2",
+          "title": "GET /projects/{id}/activity — per-project activity feed combining git commits, test runs, AI calls, and open issues",
+          "status": "done"
+        },
+        {
+          "id": "PA7-3",
+          "title": "POST /ai/explain — paste any code snippet or error message, get AI explanation with optional archive cross-reference",
+          "status": "done"
+        },
+        {
+          "id": "PA7-4",
+          "title": "GET /workspace/health — aggregate health check: all projects + git status + LLM backend + disk space",
+          "status": "done"
+        },
+        {
+          "id": "PA7-5",
+          "title": "POST /git/blame-explain — git blame a file path and have the AI summarise ownership and change history per logical block",
+          "status": "done"
+        },
+        {
+          "id": "PA7-6",
+          "title": "POST /projects/{id}/changelog — generate a human-readable CHANGELOG from git log, grouped by version tag or date range",
           "status": "done"
         }
       ]
