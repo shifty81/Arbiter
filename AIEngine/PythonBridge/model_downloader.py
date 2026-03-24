@@ -195,11 +195,14 @@ def start_background_download(
     filename: str = "",
     auto: bool = True,
     destination_dir: Optional[Path] = None,
+    on_complete: Optional[Callable[[Path], None]] = None,
 ) -> bool:
     """
     Start a model download in a background thread.
 
     Progress is written to the module-level ``_download_status`` dict.
+    *on_complete* is called with the local :class:`~pathlib.Path` when the
+    download finishes successfully (e.g. to reload the LLM backend).
     Returns ``False`` if a download is already in progress, ``True`` otherwise.
     """
     with _status_lock:
@@ -233,6 +236,11 @@ def start_background_download(
                     running=False, progress=100.0,
                     message="Complete", model_path=str(path),
                 )
+            if on_complete:
+                try:
+                    on_complete(path)
+                except Exception as _cb_exc:
+                    print(f"[LLM] on_complete callback raised an exception: {_cb_exc}", flush=True)
         except Exception as exc:
             with _status_lock:
                 _download_status.update(

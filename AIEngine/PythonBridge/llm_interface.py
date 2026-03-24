@@ -7,12 +7,14 @@ Supports local LLaMA-style models via llama-cpp-python, Ollama, or a stub fallba
 import json
 import os
 import subprocess
+import threading
 import urllib.error
 import urllib.request
 
 _model = None
 _tokenizer = None
 _ollama_model_name: str = ""
+_model_lock = threading.Lock()
 
 # VRAM threshold (GB) for enabling GPU acceleration in llama-cpp-python
 MIN_VRAM_FOR_GPU_GB = 6.0
@@ -108,8 +110,9 @@ def _try_connect_ollama() -> str:
 
 def _load_model():
     global _model, _tokenizer, _ollama_model_name
-    if _model is not None:
-        return
+    with _model_lock:
+        if _model is not None:
+            return
 
     # 1. Explicit override via environment variable
     model_path = os.environ.get("ARBITER_MODEL_PATH", "")
@@ -125,7 +128,9 @@ def _load_model():
         try:
             from llama_cpp import Llama
             n_gpu_layers = -1 if vram >= MIN_VRAM_FOR_GPU_GB else 0
-            _model = Llama(model_path=model_path, n_gpu_layers=n_gpu_layers, n_ctx=2048)
+            loaded = Llama(model_path=model_path, n_gpu_layers=n_gpu_layers, n_ctx=2048)
+            with _model_lock:
+                _model = loaded
             print(f"[LLM] Loaded GGUF model from {model_path} (GPU layers: {n_gpu_layers})")
             return
         except ImportError:
@@ -135,8 +140,9 @@ def _load_model():
     # Try Ollama next (easy local LLM runner — just needs `ollama` installed & a model pulled)
     ollama_model = _try_connect_ollama()
     if ollama_model:
-        _ollama_model_name = ollama_model
-        _model = "ollama"
+        with _model_lock:
+            _ollama_model_name = ollama_model
+            _model = "ollama"
         print(f"[LLM] Using Ollama model: {ollama_model}  (host: {OLLAMA_BASE_URL})")
         return
 
@@ -144,7 +150,8 @@ def _load_model():
     print("[LLM] No model configured — using stub responder. "
           "Run setup_arbiter.py or POST /models/download to download a model automatically, "
           "or install Ollama (https://ollama.com) and run: ollama pull mistral")
-    _model = "stub"
+    with _model_lock:
+        _model = "stub"
 
 
 def get_model_status() -> dict:
@@ -165,6 +172,20 @@ def get_model_status() -> dict:
 
 def preload_model() -> None:
     """Public entry-point for pre-loading the model at server startup."""
+    _load_model()
+
+
+def reload_model() -> None:
+    """Force a re-detection and re-load of the LLM backend.
+
+    Call this after a new model has been downloaded so the server picks it up
+    without requiring a restart.
+    """
+    global _model, _tokenizer, _ollama_model_name
+    with _model_lock:
+        _model = None
+        _tokenizer = None
+        _ollama_model_name = ""
     _load_model()
 
 
