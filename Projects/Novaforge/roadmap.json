@@ -10,7 +10,7 @@
     "vs_extension": false,
     "remote_web_ui": true,
     "workspace_profile": "Projects/Novaforge/roadmap.json",
-    "notes": "Novaforge is a fully standalone project — treated the same as SteamServerAdmin. Arbiter is used ONLY as the AI development platform (IDE + chat) while building Novaforge. There is NO runtime dependency between Novaforge code and ArbiterEngine in either direction. Novaforge's AI layer calls a local OpenAI-compatible model server (Ollama/LM Studio) directly via NOVAFORGE_AI_URL."
+    "notes": "Novaforge is an INTERNAL PROJECT managed by the Arbiter application. Arbiter is used ONLY as the AI development platform (IDE + chat) while building Novaforge. There is NO runtime dependency between Novaforge code and ArbiterEngine. Novaforge's AI calls a local OpenAI-compatible server directly via NOVAFORGE_AI_URL. Agents and contributors working in the Arbiter repository must NEVER implement tasks from this roadmap directly. All Novaforge development is done by Arbiter while running."
   },
   "tech_stack": {
     "game_engine": "Custom Atlas core + ECS (C++/C#)",

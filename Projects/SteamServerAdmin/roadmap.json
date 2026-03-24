@@ -275,5 +275,10 @@
     "Mod management: install/update/remove mods via SteamCMD workshop IDs",
     "Plugin architecture for non-Steam server backends (bare-metal, Pterodactyl)",
     "AI-generated changelogs from SteamCMD update manifests"
-  ]
+  ],
+  "arbiter_managed": {
+    "managed_by": "Arbiter",
+    "scope": "internal-project",
+    "notes": "SteamServerAdmin is an INTERNAL PROJECT managed by the Arbiter application. Arbiter works on this project from within the running application via its self-build and project-management features. Agents and contributors working in the Arbiter repository must NEVER implement tasks from this roadmap directly. All SSA development is done by Arbiter itself while running."
+  }
 }
