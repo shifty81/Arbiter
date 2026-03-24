@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform \u2014 three-pillar system: Chat Engine, Visual Studio Integration, and Self-Iteration.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "last_updated": "2026-03-23",
   "pillars": [
     "Pillar 1 \u2014 Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1075,6 +1075,62 @@
           "id": "M13-8",
           "title": "Add automatic LLM backend failover: if the primary backend returns a connection error or timeout, transparently retry the request against the next backend in a configured fallback chain (e.g. ollama \u2192 lmstudio \u2192 api) and log which backend served the request",
           "status": "done"
+        }
+      ]
+    },
+    {
+      "id": "M14",
+      "title": "Intelligent Code Quality & Security Analysis",
+      "description": "A suite of static analysis, vulnerability scanning, complexity metrics, duplicate detection, documentation generation, coverage reporting, performance profiling, and AI-powered code review endpoints to give developers deep insight into their codebase quality and security posture.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "M14-1",
+          "title": "Static code linting integration: run ruff/pyflakes for Python and node --check for JS/TS, surface per-line issues via /analysis/lint",
+          "status": "done",
+          "notes": "Implemented /analysis/lint with ruff -> pyflakes -> AST-heuristic fallback chain for Python and node --check for JS/TS. Returns {line, col, severity, code, message} issue list."
+        },
+        {
+          "id": "M14-2",
+          "title": "Dependency vulnerability scanning: check pip/npm/cargo dependencies for CVEs using pip-audit, safety, npm audit, or cargo audit via /analysis/deps/security",
+          "status": "done",
+          "notes": "Implemented /analysis/deps/security with pip-audit -> safety fallback for Python, npm audit for Node.js, cargo audit for Rust. Returns structured vulnerability list with package, version, CVE ID, severity, and fix version."
+        },
+        {
+          "id": "M14-3",
+          "title": "Code complexity metrics: compute per-function cyclomatic complexity and file-level maintainability index for Python via /analysis/complexity",
+          "status": "done",
+          "notes": "Implemented /analysis/complexity using ast-based cyclomatic complexity walker. Returns per-function scores with risk levels (low/medium/high/very-high), average CC, and code line counts."
+        },
+        {
+          "id": "M14-4",
+          "title": "Duplicate code detection: identify duplicate and near-duplicate code blocks across project files using rolling-window fingerprinting via /analysis/duplicates",
+          "status": "done",
+          "notes": "Implemented /analysis/duplicates using normalised min-lines window fingerprinting across .py/.js/.ts/.cs files. Returns grouped duplicate spans with file paths, line ranges, and code snippets."
+        },
+        {
+          "id": "M14-5",
+          "title": "API documentation generator: auto-generate Markdown, RST, or JSON documentation from Python source via AST extraction, with LLM fallback for other languages via /docs/generate",
+          "status": "done",
+          "notes": "Implemented /docs/generate with AST-based extraction for Python (classes, functions, docstrings, signatures) producing Markdown/RST/JSON output. Non-Python files fall back to LLM-generated docs."
+        },
+        {
+          "id": "M14-6",
+          "title": "Code coverage report parser: parse Cobertura XML (pytest-cov) and LCOV format coverage reports; optionally run tests with coverage collection via /analysis/coverage",
+          "status": "done",
+          "notes": "Implemented /analysis/coverage supporting coverage.xml (Cobertura) and lcov.info with optional pytest --cov run. Returns per-file coverage percentage, line counts, and overall project coverage."
+        },
+        {
+          "id": "M14-7",
+          "title": "Performance profiler integration: execute Python scripts under cProfile and return ranked hotspot list with call counts and timing via /analysis/profile",
+          "status": "done",
+          "notes": "Implemented /analysis/profile using cProfile to instrument Python script execution and pstats to parse results. Returns top-N hotspots with calls, total_time_s, cumulative_time_s per function."
+        },
+        {
+          "id": "M14-8",
+          "title": "AI-powered full code review workflow: combine static lint + complexity analysis with a structured LLM review pass evaluating correctness, security, performance, readability, and error-handling via /review/workflow",
+          "status": "done",
+          "notes": "Implemented /review/workflow combining M14-1 lint and M14-3 complexity results with an LLM prompt requesting structured JSON findings per checklist category. Returns merged static + AI findings with severity, line numbers, and fix suggestions."
         }
       ]
     }

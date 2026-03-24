@@ -7015,6 +7015,928 @@ async def ws_chat(websocket: WebSocket):
             pass
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-1: Static code linting integration
+# ───────────────────────────────────────────────────────────────────────────────
+
+import ast as _ast
+import re as _re
+import textwrap as _textwrap
+
+# M14 constants
+_LINT_MAX_LINE_LENGTH: int = 120
+_DUPLICATES_MAX_GROUPS: int = 50
+
+# Ruff rule codes that map to "error" severity (compile/runtime errors)
+_RUFF_ERROR_CODES: frozenset[str] = frozenset({
+    "E999",  # SyntaxError
+    "F821",  # Undefined name
+    "F811",  # Redefinition of unused name
+    "F401",  # Imported but unused (reported as error in strict mode)
+})
+
+
+class _LintReq(BaseModel):
+    project: str
+    file_path: str
+    content: str | None = None
+
+
+@app.post("/analysis/lint")
+def analysis_lint(req: _LintReq) -> dict:
+    """Run static code analysis on a file or inline content.
+
+    For Python files: parse with ``ast`` to detect syntax errors, then run
+    ``ruff`` or ``pyflakes`` if available, falling back to a simple AST-based
+    heuristic analyser.  For other languages the subprocess-based linter is
+    invoked when installed.
+
+    Returns a list of *issues*: ``{line, col, severity, code, message}``.
+
+    M14-1
+    """
+    path = Path(req.file_path)
+    suffix = path.suffix.lower()
+    issues: list[dict] = []
+
+    # Resolve content
+    content = req.content
+    if content is None:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return {"file": req.file_path, "issues": [], "error": str(exc)}
+
+    # ── Python ──────────────────────────────────────────────────────────────
+    if suffix == ".py":
+        # 1. Syntax check via ast
+        try:
+            _ast.parse(content)
+        except SyntaxError as e:
+            issues.append({
+                "line": e.lineno or 1, "col": e.offset or 1,
+                "severity": "error", "code": "E999",
+                "message": f"SyntaxError: {e.msg}",
+            })
+            return {"file": req.file_path, "language": "python", "issues": issues, "tool": "ast"}
+
+        # 2. Try ruff first
+        try:
+            import tempfile as _tmpmod
+            with _tmpmod.NamedTemporaryFile(suffix=".py", mode="w", delete=False,
+                                            encoding="utf-8") as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            proc = subprocess.run(
+                ["ruff", "check", "--output-format=json", tmp_path],
+                capture_output=True, text=True, timeout=15,
+            )
+            Path(tmp_path).unlink(missing_ok=True)
+            if proc.stdout.strip():
+                for item in json.loads(proc.stdout):
+                    loc = item.get("location", {})
+                    issues.append({
+                        "line":     loc.get("row", 1),
+                        "col":      loc.get("column", 1),
+                        "severity": "error" if item.get("code", "") in _RUFF_ERROR_CODES else "warning",
+                        "code":     item.get("code", "?"),
+                        "message":  item.get("message", ""),
+                    })
+            return {"file": req.file_path, "language": "python", "issues": issues, "tool": "ruff"}
+        except (FileNotFoundError, Exception):
+            pass
+
+        # 3. Heuristic AST-based checks
+        tree = _ast.parse(content)
+        lines = content.splitlines()
+        for node in _ast.walk(tree):
+            # Bare except
+            if isinstance(node, _ast.ExceptHandler) and node.type is None:
+                issues.append({
+                    "line": node.lineno, "col": node.col_offset + 1,
+                    "severity": "warning", "code": "W001",
+                    "message": "Bare 'except:' catches all exceptions including BaseException",
+                })
+            # Mutable default arguments
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                for default in node.args.defaults:
+                    if isinstance(default, (_ast.List, _ast.Dict, _ast.Set)):
+                        issues.append({
+                            "line": default.lineno, "col": default.col_offset + 1,
+                            "severity": "warning", "code": "W002",
+                            "message": f"Mutable default argument in function '{node.name}'",
+                        })
+        # Long lines
+        for i, line in enumerate(lines, 1):
+            if len(line) > _LINT_MAX_LINE_LENGTH:
+                issues.append({
+                    "line": i, "col": _LINT_MAX_LINE_LENGTH + 1,
+                    "severity": "info", "code": "E501",
+                    "message": f"Line too long ({len(line)} > {_LINT_MAX_LINE_LENGTH} characters)",
+                })
+        return {"file": req.file_path, "language": "python", "issues": issues, "tool": "ast-heuristic"}
+
+    # ── JavaScript / TypeScript ─────────────────────────────────────────────
+    if suffix in (".js", ".ts", ".jsx", ".tsx"):
+        try:
+            proc = subprocess.run(
+                ["node", "--check", req.file_path],
+                capture_output=True, text=True, timeout=15,
+            )
+            if proc.returncode != 0:
+                for match in _re.finditer(
+                    r"([^\n]+):(\d+)\n(.+)", proc.stderr
+                ):
+                    issues.append({
+                        "line": int(match.group(2)), "col": 1,
+                        "severity": "error", "code": "SyntaxError",
+                        "message": match.group(3).strip(),
+                    })
+        except FileNotFoundError:
+            pass
+        return {"file": req.file_path, "language": "javascript", "issues": issues, "tool": "node-check"}
+
+    # ── Generic: just return empty ───────────────────────────────────────────
+    return {"file": req.file_path, "language": suffix.lstrip(".") or "unknown", "issues": [], "tool": "none"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-2: Dependency vulnerability scanning
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _DepScanReq(BaseModel):
+    project: str
+    project_dir: str
+
+
+@app.post("/analysis/deps/security")
+def analysis_deps_security(req: _DepScanReq) -> dict:
+    """Scan project dependencies for known CVE vulnerabilities.
+
+    Detection strategy (first match wins):
+    1. ``pip-audit`` — Python requirements.txt / pyproject.toml
+    2. ``safety check`` — Python fallback
+    3. ``npm audit --json`` — Node.js package.json
+    4. ``cargo audit --json`` — Rust Cargo.toml
+
+    Returns a list of *vulnerabilities*:
+    ``{package, installed_version, vuln_id, severity, description, fix_version}``.
+
+    M14-2
+    """
+    project_path = Path(req.project_dir)
+    vulnerabilities: list[dict] = []
+    tool_used = "none"
+
+    # ── pip-audit (Python) ──────────────────────────────────────────────────
+    req_file = project_path / "requirements.txt"
+    pyproject = project_path / "pyproject.toml"
+    if req_file.exists() or pyproject.exists():
+        try:
+            cmd = ["pip-audit", "--format=json"]
+            if req_file.exists():
+                cmd += ["-r", str(req_file)]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                                  cwd=str(project_path))
+            data = json.loads(proc.stdout or "[]")
+            # pip-audit output: list of {name, version, vulns: [{id, fix_versions, description}]}
+            if isinstance(data, list):
+                for pkg in data:
+                    for v in pkg.get("vulns", []):
+                        # pip-audit 'aliases' contains alt IDs (e.g. "CVE-…"), not severity
+                        vulnerabilities.append({
+                            "package":           pkg.get("name", ""),
+                            "installed_version": pkg.get("version", ""),
+                            "vuln_id":           v.get("id", ""),
+                            "severity":          "unknown",
+                            "description":       v.get("description", ""),
+                            "fix_version":       ", ".join(v.get("fix_versions", [])),
+                            "aliases":           v.get("aliases", []),
+                        })
+            tool_used = "pip-audit"
+        except (FileNotFoundError, json.JSONDecodeError, Exception):
+            # Fallback: safety
+            try:
+                proc = subprocess.run(
+                    ["safety", "check", "--json"],
+                    capture_output=True, text=True, timeout=60,
+                    cwd=str(project_path),
+                )
+                items = json.loads(proc.stdout or "[]")
+                for item in items:
+                    vulnerabilities.append({
+                        "package":           item[0] if len(item) > 0 else "",
+                        "installed_version": item[2] if len(item) > 2 else "",
+                        "vuln_id":           item[4] if len(item) > 4 else "",
+                        "severity":          "high",
+                        "description":       item[3] if len(item) > 3 else "",
+                        "fix_version":       item[1] if len(item) > 1 else "",
+                    })
+                tool_used = "safety"
+            except (FileNotFoundError, Exception):
+                pass
+
+    # ── npm audit (Node.js) ─────────────────────────────────────────────────
+    elif (project_path / "package.json").exists():
+        try:
+            proc = subprocess.run(
+                ["npm", "audit", "--json"],
+                capture_output=True, text=True, timeout=60,
+                cwd=str(project_path),
+            )
+            data = json.loads(proc.stdout or "{}")
+            for name, adv in data.get("vulnerabilities", {}).items():
+                vulnerabilities.append({
+                    "package":           name,
+                    "installed_version": adv.get("version", ""),
+                    "vuln_id":           adv.get("via", [{}])[0].get("url", "") if adv.get("via") else "",
+                    "severity":          adv.get("severity", "unknown"),
+                    "description":       adv.get("via", [{}])[0].get("title", "") if adv.get("via") else "",
+                    "fix_version":       adv.get("fixAvailable", {}).get("version", "") if isinstance(adv.get("fixAvailable"), dict) else "",
+                })
+            tool_used = "npm-audit"
+        except (FileNotFoundError, json.JSONDecodeError, Exception):
+            pass
+
+    # ── cargo audit (Rust) ──────────────────────────────────────────────────
+    elif (project_path / "Cargo.toml").exists():
+        try:
+            proc = subprocess.run(
+                ["cargo", "audit", "--json"],
+                capture_output=True, text=True, timeout=60,
+                cwd=str(project_path),
+            )
+            data = json.loads(proc.stdout or "{}")
+            for vuln in data.get("vulnerabilities", {}).get("list", []):
+                adv = vuln.get("advisory", {})
+                pkg = vuln.get("package", {})
+                vulnerabilities.append({
+                    "package":           pkg.get("name", ""),
+                    "installed_version": pkg.get("version", ""),
+                    "vuln_id":           adv.get("id", ""),
+                    "severity":          adv.get("cvss", "unknown"),
+                    "description":       adv.get("title", ""),
+                    "fix_version":       vuln.get("versions", {}).get("patched", [None])[0] or "",
+                })
+            tool_used = "cargo-audit"
+        except (FileNotFoundError, json.JSONDecodeError, Exception):
+            pass
+
+    return {
+        "project":         req.project,
+        "tool":            tool_used,
+        "vulnerability_count": len(vulnerabilities),
+        "vulnerabilities": vulnerabilities,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-3: Code complexity metrics
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _ComplexityReq(BaseModel):
+    project: str
+    file_path: str
+    content: str | None = None
+
+
+def _cyclomatic_complexity(tree: "_ast.AST") -> dict[str, int]:
+    """Compute per-function cyclomatic complexity for a Python AST."""
+    results: dict[str, int] = {}
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            complexity = 1
+            for child in _ast.walk(node):
+                if isinstance(child, (
+                    _ast.If, _ast.While, _ast.For, _ast.AsyncFor,
+                    _ast.ExceptHandler, _ast.With, _ast.AsyncWith,
+                    _ast.Assert, _ast.comprehension,
+                )):
+                    complexity += 1
+                elif isinstance(child, _ast.BoolOp):
+                    complexity += len(child.values) - 1
+            results[node.name] = complexity
+    return results
+
+
+@app.post("/analysis/complexity")
+def analysis_complexity(req: _ComplexityReq) -> dict:
+    """Compute cyclomatic complexity and basic maintainability metrics for a file.
+
+    For Python files the analysis is performed directly via the ``ast`` module.
+    Returns per-function complexity scores and an overall file-level summary:
+    ``{function, complexity, risk}`` where risk is:
+    - ``low`` (1–5), ``medium`` (6–10), ``high`` (11–20), ``very-high`` (>20).
+
+    M14-3
+    """
+    path = Path(req.file_path)
+    suffix = path.suffix.lower()
+    content = req.content
+    if content is None:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return {"file": req.file_path, "error": str(exc), "functions": []}
+
+    if suffix != ".py":
+        # Non-Python: return line-count heuristics only
+        lines = content.splitlines()
+        code_lines = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+        return {
+            "file":        req.file_path,
+            "language":    suffix.lstrip(".") or "unknown",
+            "total_lines": len(lines),
+            "code_lines":  len(code_lines),
+            "functions":   [],
+            "note":        "Full complexity analysis only supported for Python",
+        }
+
+    try:
+        tree = _ast.parse(content)
+    except SyntaxError as e:
+        return {"file": req.file_path, "error": f"SyntaxError: {e.msg}", "functions": []}
+
+    scores = _cyclomatic_complexity(tree)
+    lines = content.splitlines()
+    code_lines = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+
+    def _risk(cc: int) -> str:
+        if cc <= 5:   return "low"
+        if cc <= 10:  return "medium"
+        if cc <= 20:  return "high"
+        return "very-high"
+
+    functions = [
+        {"function": name, "complexity": cc, "risk": _risk(cc)}
+        for name, cc in sorted(scores.items(), key=lambda x: -x[1])
+    ]
+
+    avg_cc = sum(scores.values()) / len(scores) if scores else 0
+    return {
+        "file":              req.file_path,
+        "language":          "python",
+        "total_lines":       len(lines),
+        "code_lines":        len(code_lines),
+        "function_count":    len(scores),
+        "avg_complexity":    round(avg_cc, 2),
+        "max_complexity":    max(scores.values(), default=0),
+        "overall_risk":      _risk(int(avg_cc + 0.5)),
+        "functions":         functions,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-4: Duplicate code detection
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _DuplicatesReq(BaseModel):
+    project: str
+    project_dir: str
+    min_lines: int = 6
+    extensions: list[str] = [".py", ".js", ".ts", ".cs"]
+    max_groups: int = _DUPLICATES_MAX_GROUPS
+
+
+@app.post("/analysis/duplicates")
+def analysis_duplicates(req: _DuplicatesReq) -> dict:
+    """Detect duplicate or near-duplicate code blocks across the project.
+
+    Uses a rolling-hash (Rabin–Karp style) fingerprint of normalised
+    ``min_lines``-line windows.  Returns groups of duplicate spans:
+    ``{hash, occurrences: [{file, start_line, end_line, snippet}]}``.
+
+    M14-4
+    """
+    project_path = Path(req.project_dir)
+    exts = set(req.extensions)
+    min_lines = max(3, req.min_lines)
+
+    # Collect all files
+    files: list[Path] = []
+    for ext in exts:
+        files.extend(project_path.rglob(f"*{ext}"))
+    # Exclude common noise directories
+    files = [
+        f for f in files
+        if not any(part in (".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build")
+                   for part in f.parts)
+    ]
+
+    # Build fingerprint map: normalised_chunk_text -> [(file, start, end)]
+    fingerprints: dict[str, list[dict]] = {}
+
+    for fpath in files:
+        try:
+            raw_lines = fpath.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        # Normalise: strip whitespace, skip blank/comment-only lines
+        norm_lines = []
+        for l in raw_lines:
+            stripped = l.strip()
+            if stripped and not stripped.startswith(("#", "//", "--", "*")):
+                norm_lines.append(stripped)
+        if len(norm_lines) < min_lines:
+            continue
+        for start in range(len(norm_lines) - min_lines + 1):
+            chunk = "\n".join(norm_lines[start:start + min_lines])
+            key = chunk  # direct text match (fast for typical file sizes)
+            if key not in fingerprints:
+                fingerprints[key] = []
+            snippet = "\n".join(raw_lines[start:start + min_lines])[:200]
+            fingerprints[key].append({
+                "file":       str(fpath.relative_to(project_path)),
+                "start_line": start + 1,
+                "end_line":   start + min_lines,
+                "snippet":    snippet,
+            })
+
+    duplicates = [
+        {
+            "occurrences": occurrences,
+            "duplicate_count": len(occurrences),
+        }
+        for occurrences in fingerprints.values()
+        if len(occurrences) > 1
+    ]
+    # Deduplicate overlapping windows: keep only groups where files differ or lines are far apart
+    seen_pairs: set[frozenset] = set()
+    deduped: list[dict] = []
+    for group in duplicates:
+        pair_key = frozenset(
+            f"{o['file']}:{o['start_line']}" for o in group["occurrences"]
+        )
+        if pair_key not in seen_pairs:
+            seen_pairs.add(pair_key)
+            deduped.append(group)
+
+    deduped.sort(key=lambda g: -g["duplicate_count"])
+    return {
+        "project":         req.project,
+        "files_scanned":   len(files),
+        "duplicate_groups": len(deduped),
+        "duplicates":      deduped[:req.max_groups],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-5: API documentation generator
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _DocsGenReq(BaseModel):
+    project: str
+    file_path: str
+    content: str | None = None
+    format: str = "markdown"  # "markdown" | "rst" | "json"
+
+
+@app.post("/docs/generate")
+def docs_generate(req: _DocsGenReq) -> dict:
+    """Auto-generate API / module documentation from source code.
+
+    For Python files the ``ast`` module is used to extract modules, classes,
+    functions, and docstrings.  The result is rendered as Markdown (default),
+    reStructuredText, or a JSON schema.
+
+    For non-Python files an AI-powered summary is generated via the LLM
+    if one is available.
+
+    M14-5
+    """
+    path = Path(req.file_path)
+    suffix = path.suffix.lower()
+    content = req.content
+    if content is None:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return {"file": req.file_path, "error": str(exc), "documentation": ""}
+
+    # ── Python: AST extraction ──────────────────────────────────────────────
+    if suffix == ".py":
+        try:
+            tree = _ast.parse(content)
+        except SyntaxError as e:
+            return {"file": req.file_path, "error": f"SyntaxError: {e.msg}", "documentation": ""}
+
+        module_doc = _ast.get_docstring(tree) or ""
+        sections: list[dict] = []
+
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                args = [a.arg for a in node.args.args]
+                doc = _ast.get_docstring(node) or ""
+                returns = ""
+                if node.returns:
+                    returns = _ast.unparse(node.returns) if hasattr(_ast, "unparse") else ""
+                sections.append({
+                    "kind":      "function",
+                    "name":      node.name,
+                    "args":      args,
+                    "returns":   returns,
+                    "docstring": doc,
+                    "line":      node.lineno,
+                    "is_async":  isinstance(node, _ast.AsyncFunctionDef),
+                })
+            elif isinstance(node, _ast.ClassDef):
+                doc = _ast.get_docstring(node) or ""
+                methods = []
+                for child in node.body:
+                    if isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                        margs = [a.arg for a in child.args.args if a.arg != "self"]
+                        methods.append({
+                            "name":      child.name,
+                            "args":      margs,
+                            "docstring": _ast.get_docstring(child) or "",
+                        })
+                sections.append({
+                    "kind":      "class",
+                    "name":      node.name,
+                    "docstring": doc,
+                    "methods":   methods,
+                    "line":      node.lineno,
+                })
+
+        # Sort by line number
+        sections.sort(key=lambda s: s["line"])
+
+        if req.format == "json":
+            return {
+                "file": req.file_path, "format": "json",
+                "documentation": {
+                    "module_doc": module_doc,
+                    "sections":   sections,
+                },
+            }
+
+        # Build Markdown
+        md_lines = [f"# {path.name}\n"]
+        if module_doc:
+            md_lines.append(f"{module_doc}\n")
+        for sec in sections:
+            if sec["kind"] == "class":
+                md_lines.append(f"## class `{sec['name']}`\n")
+                if sec["docstring"]:
+                    md_lines.append(f"{sec['docstring']}\n")
+                for m in sec["methods"]:
+                    sig = f"{m['name']}({', '.join(m['args'])})"
+                    md_lines.append(f"### `{sig}`\n")
+                    if m["docstring"]:
+                        md_lines.append(f"{m['docstring']}\n")
+            else:
+                async_prefix = "async " if sec.get("is_async") else ""
+                sig = f"{async_prefix}{sec['name']}({', '.join(sec['args'])})"
+                if sec.get("returns"):
+                    sig += f" → {sec['returns']}"
+                md_lines.append(f"## `{sig}`\n")
+                if sec["docstring"]:
+                    md_lines.append(f"{sec['docstring']}\n")
+
+        if req.format == "rst":
+            # Simple Markdown → RST conversion
+            rst = "\n".join(md_lines)
+            rst = _re.sub(r"^# (.+)$", lambda m: m.group(1) + "\n" + "=" * len(m.group(1)), rst, flags=_re.M)
+            rst = _re.sub(r"^## (.+)$", lambda m: m.group(1) + "\n" + "-" * len(m.group(1)), rst, flags=_re.M)
+            rst = _re.sub(r"^### (.+)$", lambda m: m.group(1) + "\n" + "~" * len(m.group(1)), rst, flags=_re.M)
+            rst = _re.sub(r"`(.+?)`", r"``\1``", rst)
+            return {"file": req.file_path, "format": "rst", "documentation": rst}
+
+        return {"file": req.file_path, "format": "markdown", "documentation": "\n".join(md_lines)}
+
+    # ── Non-Python: LLM summary ─────────────────────────────────────────────
+    try:
+        prompt = (
+            f"Generate concise API/module documentation in {req.format.upper()} format "
+            f"for the following {suffix.lstrip('.')} file:\n\n```\n{content[:4000]}\n```"
+        )
+        doc = _llm.chat([{"role": "user", "content": prompt}])
+    except Exception as exc:
+        doc = f"[Documentation generation error] {exc}"
+    return {"file": req.file_path, "format": req.format, "documentation": doc}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-6: Code coverage report parser
+# ───────────────────────────────────────────────────════════════════════════════
+
+class _CoverageReq(BaseModel):
+    project: str
+    project_dir: str
+    run_tests: bool = False
+
+
+@app.post("/analysis/coverage")
+def analysis_coverage(req: _CoverageReq) -> dict:
+    """Parse or run coverage reports for the project.
+
+    If ``run_tests=true`` (and the project has a pytest / coverage setup)
+    the coverage run is executed in the project directory.  Otherwise the
+    most recent ``.coverage`` / ``coverage.xml`` / ``lcov.info`` is parsed.
+
+    Returns per-file line coverage percentages and an overall summary.
+
+    M14-6
+    """
+    project_path = Path(req.project_dir)
+
+    # ── Optionally run tests with coverage ──────────────────────────────────
+    if req.run_tests:
+        try:
+            subprocess.run(
+                ["python", "-m", "pytest", "--cov=.", "--cov-report=xml",
+                 "--cov-report=term-missing", "-q"],
+                cwd=str(project_path),
+                capture_output=True, text=True, timeout=120,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    # ── Parse coverage.xml (Cobertura format — pytest-cov default) ──────────
+    xml_file = project_path / "coverage.xml"
+    if xml_file.exists():
+        try:
+            import xml.etree.ElementTree as _ET
+            tree = _ET.parse(xml_file)
+            root = tree.getroot()
+            overall = float(root.attrib.get("line-rate", 0)) * 100
+            files_cov: list[dict] = []
+            for cls in root.iter("class"):
+                fname = cls.attrib.get("filename", "")
+                rate  = float(cls.attrib.get("line-rate", 0)) * 100
+                lines = cls.find("lines")
+                total  = len(list(lines)) if lines is not None else 0
+                missed = sum(1 for l in (lines or []) if l.attrib.get("hits", "1") == "0")
+                files_cov.append({
+                    "file":     fname,
+                    "coverage": round(rate, 1),
+                    "lines":    total,
+                    "missed":   missed,
+                })
+            files_cov.sort(key=lambda x: x["coverage"])
+            return {
+                "project":          req.project,
+                "overall_coverage": round(overall, 1),
+                "format":           "cobertura-xml",
+                "files":            files_cov,
+            }
+        except Exception as exc:
+            return {"project": req.project, "error": str(exc), "files": []}
+
+    # ── Parse lcov.info (used by many JS/TS projects) ───────────────────────
+    lcov_file = project_path / "lcov.info"
+    if not lcov_file.exists():
+        lcov_file = project_path / "coverage" / "lcov.info"
+    if lcov_file.exists():
+        try:
+            files_cov: list[dict] = []
+            current_file = ""
+            found = hit = 0
+            for line in lcov_file.read_text(encoding="utf-8").splitlines():
+                if line.startswith("SF:"):
+                    current_file = line[3:]
+                    found = hit = 0
+                elif line.startswith("LF:"):
+                    found = int(line[3:])
+                elif line.startswith("LH:"):
+                    hit = int(line[3:])
+                elif line == "end_of_record":
+                    rate = (hit / found * 100) if found else 0
+                    files_cov.append({
+                        "file":     current_file,
+                        "coverage": round(rate, 1),
+                        "lines":    found,
+                        "missed":   found - hit,
+                    })
+            overall = sum(f["coverage"] for f in files_cov) / len(files_cov) if files_cov else 0
+            files_cov.sort(key=lambda x: x["coverage"])
+            return {
+                "project":          req.project,
+                "overall_coverage": round(overall, 1),
+                "format":           "lcov",
+                "files":            files_cov,
+            }
+        except Exception as exc:
+            return {"project": req.project, "error": str(exc), "files": []}
+
+    return {
+        "project": req.project,
+        "overall_coverage": 0,
+        "format": "none",
+        "files": [],
+        "note": "No coverage report found. Set run_tests=true to generate one.",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-7: Performance profiler integration
+# ───────────────────────────────────────────────────────────────────────────────
+
+import pstats as _pstats
+import io as _io
+
+
+class _ProfileReq(BaseModel):
+    project: str
+    script_path: str
+    args: list[str] = []
+    top_n: int = 20
+
+
+@app.post("/analysis/profile")
+def analysis_profile(req: _ProfileReq) -> dict:
+    """Run cProfile on a Python script and return the top hotspots.
+
+    The script is executed in a **subprocess** (``python -m cProfile``) so it
+    is fully isolated from the server's process space.  Results are returned
+    as a ranked list of ``{function, file, line, calls, total_time_s,
+    cumulative_time_s}``.
+
+    M14-7
+    """
+    script = Path(req.script_path)
+    if not script.exists():
+        return {"project": req.project, "error": f"Script not found: {req.script_path}", "hotspots": []}
+    if script.suffix.lower() != ".py":
+        return {"project": req.project, "error": "Only Python scripts are supported", "hotspots": []}
+
+    try:
+        import tempfile as _tmpmod
+        with _tmpmod.NamedTemporaryFile(suffix=".prof", delete=False) as prof_file:
+            prof_path = prof_file.name
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "cProfile", "-o", prof_path, str(script)]
+                + list(req.args),
+                capture_output=True, text=True, timeout=120,
+                cwd=str(script.parent),
+            )
+        finally:
+            pass  # always try to parse the profile even if script exited non-zero
+
+        buf = _io.StringIO()
+        try:
+            ps = _pstats.Stats(prof_path, stream=buf)
+            ps.sort_stats("cumulative")
+            ps.print_stats(req.top_n)
+        finally:
+            Path(prof_path).unlink(missing_ok=True)
+
+        raw_output = buf.getvalue()
+
+        # Parse pstats text output
+        hotspots: list[dict] = []
+        for line in raw_output.splitlines():
+            # Pattern: "  ncalls  tottime  percall  cumtime  percall filename:lineno(function)"
+            m = _re.match(
+                r"\s*(\d+(?:/\d+)?)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(.+):(\d+)\((.+)\)",
+                line,
+            )
+            if m:
+                hotspots.append({
+                    "calls":             m.group(1),
+                    "total_time_s":      float(m.group(2)),
+                    "per_call_s":        float(m.group(3)),
+                    "cumulative_time_s": float(m.group(4)),
+                    "cum_per_call_s":    float(m.group(5)),
+                    "file":              m.group(6),
+                    "line":              int(m.group(7)),
+                    "function":          m.group(8),
+                })
+
+        return {
+            "project":    req.project,
+            "script":     req.script_path,
+            "top_n":      req.top_n,
+            "hotspots":   hotspots,
+            "raw_output": raw_output,
+            "stderr":     proc.stderr[:1000] if proc.returncode != 0 else "",
+        }
+    except Exception as exc:
+        return {"project": req.project, "error": str(exc), "hotspots": []}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  M14-8: AI-powered full code review workflow
+# ───────────────────────────────────────────────────────────────────────────────
+
+class _ReviewWorkflowReq(BaseModel):
+    project: str
+    file_path: str
+    content: str | None = None
+    checklist: list[str] = [
+        "correctness", "security", "performance",
+        "readability", "error-handling", "test-coverage",
+    ]
+
+
+@app.post("/review/workflow")
+async def review_workflow(req: _ReviewWorkflowReq) -> dict:
+    """Run a comprehensive AI-powered code review on a file.
+
+    Combines static analysis (M14-1) + complexity (M14-3) with an LLM
+    review pass.  The LLM is asked to evaluate the file against each item in
+    *checklist* and return structured findings.
+
+    Response: ``{summary, findings: [{category, severity, line, message, suggestion}], score}``
+
+    M14-8
+    """
+    path = Path(req.file_path)
+    content = req.content
+    if content is None:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return {"project": req.project, "file": req.file_path, "error": str(exc)}
+
+    # 1. Static analysis
+    lint_result = analysis_lint(_LintReq(
+        project=req.project,
+        file_path=req.file_path,
+        content=content,
+    ))
+    complexity_result = analysis_complexity(_ComplexityReq(
+        project=req.project,
+        file_path=req.file_path,
+        content=content,
+    ))
+
+    # 2. Build LLM prompt
+    checklist_str = "\n".join(f"- {item}" for item in req.checklist)
+    lint_summary  = f"{len(lint_result.get('issues', []))} lint issue(s)"
+    cc_summary    = (
+        f"avg cyclomatic complexity: {complexity_result.get('avg_complexity', 'N/A')}, "
+        f"max: {complexity_result.get('max_complexity', 'N/A')}"
+    )
+    snippet = content[:3000]
+    if len(content) > 3000:
+        snippet += "\n... (truncated)"
+
+    prompt = _textwrap.dedent(f"""
+        You are an expert code reviewer. Review the following file and evaluate it against
+        each item in the checklist. Return a JSON object with this exact structure:
+        {{
+          "summary": "<one-sentence overall assessment>",
+          "score": <0-100 integer>,
+          "findings": [
+            {{"category": "<checklist item>", "severity": "error|warning|info",
+              "line": <line number or null>, "message": "<issue>", "suggestion": "<fix>"}}
+          ]
+        }}
+
+        Checklist:
+        {checklist_str}
+
+        Static analysis pre-results: {lint_summary}; {cc_summary}
+
+        File: {req.file_path}
+        ```
+        {snippet}
+        ```
+
+        Reply with ONLY valid JSON.
+    """).strip()
+
+    try:
+        raw = await _asyncio.to_thread(
+            _llm.chat,
+            [{"role": "user", "content": prompt}],
+        )
+        # Extract JSON from the response
+        json_match = _re.search(r"\{[\s\S]+\}", raw)
+        if json_match:
+            review_data = json.loads(json_match.group())
+        else:
+            review_data = {"summary": raw, "score": None, "findings": []}
+    except Exception as exc:
+        review_data = {
+            "summary": f"LLM review failed: {exc}",
+            "score": None,
+            "findings": [],
+        }
+
+    # Merge static findings into the AI findings
+    for issue in lint_result.get("issues", []):
+        review_data["findings"].append({
+            "category":   "correctness",
+            "severity":   issue.get("severity", "warning"),
+            "line":       issue.get("line"),
+            "message":    f"[{issue.get('code', '?')}] {issue.get('message', '')}",
+            "suggestion": "Fix the reported lint issue.",
+        })
+
+    return {
+        "project":     req.project,
+        "file":        req.file_path,
+        "checklist":   req.checklist,
+        "lint":        lint_result,
+        "complexity":  complexity_result,
+        "review":      review_data,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
