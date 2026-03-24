@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1448,6 +1448,50 @@
           "title": "POST /projects/{id}/test-generate — AI generates unit-test stubs (pytest/jest/xunit/auto) for all untested functions and classes in a project",
           "status": "done",
           "notes": "POST /projects/{id}/test-generate: detects test framework from existing test files, scans up to 15 source files, generates complete test stub files per source file with arrange/act/assert structure and TODO markers. Supports file_path restriction."
+        }
+      ]
+    },
+    {
+      "id": "Phase9",
+      "title": "Advanced Collaboration & Knowledge Management",
+      "description": "Deepen Arbiter's role as a knowledge hub for every workspace. New capabilities: narrative AI code walkthroughs, static test-coverage estimation, persistent developer notes, project velocity dashboards, programmatic roadmap task creation, and a cross-project executive workspace summary.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA9-1",
+          "title": "POST /ai/code-walkthrough — narrative AI walkthrough of any source file: purpose, execution flow, key decisions, and gotchas",
+          "status": "done",
+          "notes": "POST /ai/code-walkthrough: reads file_path (project-relative or absolute) or inline content, applies audience hint (developer/reviewer/onboarding). LLM returns structured PURPOSE/FLOW/KEY_DECISIONS/GOTCHAS sections."
+        },
+        {
+          "id": "PA9-2",
+          "title": "GET /projects/{id}/coverage-report — static test-coverage estimation via symbol name cross-reference (no test execution required)",
+          "status": "done",
+          "notes": "GET /projects/{id}/coverage-report: uses ast.walk for Python, regex for other langs to list public symbols; cross-references symbol names against test file content. Returns per-file breakdown and overall_coverage % with uncovered symbol lists."
+        },
+        {
+          "id": "PA9-3",
+          "title": "GET+POST+DELETE /workspace/notes — persistent multi-project developer scratchpad notes with full-text search",
+          "status": "done",
+          "notes": "Three endpoints: GET /workspace/notes (list, filter by project/q/limit), POST /workspace/notes (create note with title/body/project/tags), DELETE /workspace/notes/{id} (delete by id). Persisted to logs/workspace_notes.json with atomic writes."
+        },
+        {
+          "id": "PA9-4",
+          "title": "GET /projects/{id}/progress — velocity and progress dashboard: roadmap completion stats, commit frequency, open TODO count",
+          "status": "done",
+          "notes": "GET /projects/{id}/progress: combines roadmap completion pct, active phase, git commit frequency (by week over last N weeks), recent commits list, and open TODO/FIXME count from static scan."
+        },
+        {
+          "id": "PA9-5",
+          "title": "POST /projects/{id}/roadmap/task — add a new task to a project roadmap programmatically with AI-generated description",
+          "status": "done",
+          "notes": "POST /projects/{id}/roadmap/task: validates phase_id exists in roadmap.json, auto-generates task id, AI enriches description if blank, atomically rewrites roadmap.json. Supports status (pending/in_progress/done)."
+        },
+        {
+          "id": "PA9-6",
+          "title": "GET /workspace/summary — cross-project executive summary: status of all projects, recent activity, open TODOs, AI narrative",
+          "status": "done",
+          "notes": "GET /workspace/summary: iterates all Projects/ directories, collects roadmap completion, 7-day git commits, TODO count, last-modified. LLM writes 2-4 sentence executive narrative. Returns projects[] array plus narrative and generated_at timestamp."
         }
       ]
     }

@@ -12794,6 +12794,793 @@ def project_test_generate(project_id: str, req: _TestGenerateReq) -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 9 — Advanced Collaboration & Knowledge Management
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA9-1: Narrative AI code walkthrough ─────────────────────────────────────
+
+_MAX_WALKTHROUGH_CHARS = 10_000
+
+
+class _CodeWalkthroughReq(BaseModel):
+    project_id: str = ""   # optional — restricts path resolution to Projects/{id}/
+    file_path: str         # relative path inside project (when project_id set) OR absolute path
+    content: str = ""      # inline source content — when supplied, file_path is only used as label
+    audience: str = "developer"    # "developer" | "reviewer" | "onboarding"
+
+
+@app.post("/ai/code-walkthrough")
+def ai_code_walkthrough(req: _CodeWalkthroughReq) -> dict:
+    """Generate a narrative walkthrough for a source file.
+
+    Reads the file from *file_path* (or uses inline *content*) and asks the
+    LLM to produce a human-readable narrative covering:
+    - **Purpose** — what the module/file is for
+    - **Flow** — step-by-step execution path through the main logic
+    - **Key decisions** — notable design choices and why they exist
+    - **Gotchas** — non-obvious behaviour, edge cases, or known limitations
+
+    The *audience* hint adapts the language level:
+    - ``developer``  — technical, concise
+    - ``reviewer``   — focus on correctness and edge cases
+    - ``onboarding`` — friendly, avoids jargon
+
+    PA9-1
+    """
+    # Resolve content
+    code = req.content.strip()
+    resolved_path = req.file_path
+
+    if not code:
+        candidate: Path | None = None
+        if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+            candidate = _PROJECTS_DIR / req.project_id / req.file_path
+        if candidate is None or not candidate.is_file():
+            candidate = Path(req.file_path)
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {req.file_path}")
+        try:
+            code = candidate.read_text(encoding="utf-8", errors="replace")
+            resolved_path = str(candidate)
+        except Exception as exc:
+            raise HTTPException(status_code=500,
+                                detail=f"Could not read file: {exc}") from exc
+
+    truncated = len(code) > _MAX_WALKTHROUGH_CHARS
+    excerpt = code[:_MAX_WALKTHROUGH_CHARS]
+
+    audience_notes = {
+        "developer":  "Write for an experienced developer. Be concise and technical.",
+        "reviewer":   "Write for a code reviewer. Focus on correctness, edge cases, "
+                      "and potential bugs.",
+        "onboarding": "Write for a developer who is new to this codebase. "
+                      "Avoid jargon and explain all non-obvious concepts.",
+    }
+    style = audience_notes.get(req.audience, audience_notes["developer"])
+
+    system = (
+        f"You are a senior software engineer writing a code walkthrough. {style}\n"
+        "Structure your response with exactly these labelled sections:\n"
+        "PURPOSE: <one sentence — what this file/module does>\n"
+        "FLOW:\n"
+        "<numbered steps describing the main execution path>\n"
+        "KEY_DECISIONS:\n"
+        "- <decision 1 and why>\n"
+        "- <decision 2 and why>\n"
+        "GOTCHAS:\n"
+        "- <gotcha or edge case 1>\n"
+        "Output ONLY the labelled sections — no preamble or conclusion."
+    )
+    user_msg = (
+        f"File: {req.file_path}"
+        + (f" (project: {req.project_id})" if req.project_id else "")
+        + ("\n[Content truncated to first 10 000 chars]" if truncated else "")
+        + f"\n\n```\n{excerpt}\n```"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse sections
+    purpose = ""
+    flow_lines: list[str] = []
+    key_decisions: list[str] = []
+    gotchas: list[str] = []
+    in_section = ""
+
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("PURPOSE:"):
+            in_section = "purpose"
+            purpose = ls[len("PURPOSE:"):].strip()
+        elif ls.upper().startswith("FLOW:"):
+            in_section = "flow"
+        elif ls.upper().startswith("KEY_DECISIONS:"):
+            in_section = "decisions"
+        elif ls.upper().startswith("GOTCHAS:"):
+            in_section = "gotchas"
+        elif in_section == "purpose" and ls:
+            purpose += " " + ls
+        elif in_section == "flow" and ls:
+            flow_lines.append(ls)
+        elif in_section == "decisions" and ls.startswith("-"):
+            key_decisions.append(ls[1:].strip())
+        elif in_section == "gotchas" and ls.startswith("-"):
+            gotchas.append(ls[1:].strip())
+
+    return {
+        "file_path":      resolved_path,
+        "project_id":     req.project_id,
+        "audience":       req.audience,
+        "truncated":      truncated,
+        "purpose":        purpose.strip(),
+        "flow":           flow_lines,
+        "key_decisions":  key_decisions,
+        "gotchas":        gotchas,
+        "raw":            raw,
+    }
+
+
+# ── PA9-2: Static test-coverage estimation ───────────────────────────────────
+
+_COV_SOURCE_EXTS = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+_COV_TEST_PATTERNS = [
+    "test_*.py", "*_test.py",
+    "*.test.ts", "*.test.js", "*.spec.ts", "*.spec.js",
+    "*Test.cs", "*Tests.cs",
+    "*_test.go",
+]
+_COV_SKIP_DIRS = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+
+def _is_test_file(fp: Path) -> bool:
+    return any(fp.match(g) for g in _COV_TEST_PATTERNS)
+
+
+@app.get("/projects/{project_id}/coverage-report")
+def project_coverage_report(project_id: str) -> dict:
+    """Estimate test coverage for a project via static source analysis.
+
+    Does NOT execute tests. Instead it:
+    1. Enumerates all source files and test files in the project.
+    2. For Python files, uses ``ast.walk`` to list all function/method names.
+    3. Cross-references those names against test file content to determine
+       which symbols appear to be tested (heuristic, not execution-based).
+    4. Returns a per-file breakdown and overall coverage estimate.
+
+    PA9-2
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    import ast as _ast_cov
+
+    # Collect all test file content as a single blob for name lookups
+    test_blob = ""
+    test_files_found: list[str] = []
+    for fp in project_dir.rglob("*"):
+        if fp.suffix.lower() not in _COV_SOURCE_EXTS:
+            continue
+        if any(p in _COV_SKIP_DIRS for p in fp.parts):
+            continue
+        if _is_test_file(fp):
+            try:
+                test_blob += fp.read_text(encoding="utf-8", errors="replace") + "\n"
+                test_files_found.append(str(fp.relative_to(project_dir)))
+            except Exception:
+                pass
+
+    # Analyse each source file
+    file_reports: list[dict] = []
+    total_symbols = 0
+    total_covered = 0
+
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _COV_SOURCE_EXTS:
+            continue
+        if any(p in _COV_SKIP_DIRS for p in fp.parts):
+            continue
+        if _is_test_file(fp):
+            continue
+
+        rel = str(fp.relative_to(project_dir))
+        symbols: list[str] = []
+
+        # Python: AST symbol extraction
+        if fp.suffix == ".py":
+            try:
+                tree = _ast_cov.parse(fp.read_text(encoding="utf-8", errors="replace"))
+                for node in _ast_cov.walk(tree):
+                    if isinstance(node, (_ast_cov.FunctionDef, _ast_cov.AsyncFunctionDef)):
+                        if not node.name.startswith("_"):
+                            symbols.append(node.name)
+                    elif isinstance(node, _ast_cov.ClassDef):
+                        symbols.append(node.name)
+            except SyntaxError:
+                pass
+        else:
+            # Non-Python: heuristic — scan for function/class keywords
+            try:
+                src = fp.read_text(encoding="utf-8", errors="replace")
+                for m in _re.finditer(
+                    r"(?:def |function |func |public |private |class )\s+(\w+)\s*[\({]",
+                    src,
+                ):
+                    name = m.group(1)
+                    if not name.startswith("_"):
+                        symbols.append(name)
+            except Exception:
+                pass
+
+        covered = sum(1 for s in symbols if s in test_blob)
+        total_symbols += len(symbols)
+        total_covered += covered
+
+        pct = round(covered / len(symbols) * 100, 1) if symbols else None
+        file_reports.append({
+            "file":            rel,
+            "symbols":         len(symbols),
+            "covered":         covered,
+            "uncovered":       [s for s in symbols if s not in test_blob],
+            "coverage_pct":    pct,
+        })
+
+    overall_pct = (
+        round(total_covered / total_symbols * 100, 1) if total_symbols else None
+    )
+
+    return {
+        "project_id":         project_id,
+        "method":             "static-heuristic",
+        "test_files":         test_files_found,
+        "source_files":       len(file_reports),
+        "total_symbols":      total_symbols,
+        "covered_symbols":    total_covered,
+        "overall_coverage":   overall_pct,
+        "files":              file_reports,
+        "note": (
+            "Coverage is estimated via static name-matching (no test execution). "
+            "Use /analysis/coverage for execution-based coverage."
+        ),
+    }
+
+
+# ── PA9-3: Persistent developer notes scratchpad ─────────────────────────────
+
+_WORKSPACE_NOTES_FILE = _BASE / "logs" / "workspace_notes.json"
+_workspace_notes: list[dict] = []
+_notes_lock = threading.Lock()
+
+
+def _load_workspace_notes() -> None:
+    global _workspace_notes
+    if _WORKSPACE_NOTES_FILE.is_file():
+        try:
+            _workspace_notes = json.loads(
+                _WORKSPACE_NOTES_FILE.read_text(encoding="utf-8")
+            )
+        except Exception:
+            _workspace_notes = []
+
+
+def _save_workspace_notes() -> None:
+    try:
+        _WORKSPACE_NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _WORKSPACE_NOTES_FILE.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(_workspace_notes, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(_WORKSPACE_NOTES_FILE)
+    except Exception as exc:
+        logger.warning("Could not save workspace notes: %s", exc)
+
+
+_load_workspace_notes()
+
+
+class _WorkspaceNoteReq(BaseModel):
+    title: str
+    body: str
+    project: str = ""             # associate with a specific project (optional)
+    tags: list[str] = []
+
+
+@app.get("/workspace/notes")
+def workspace_notes_list(project: str = "", q: str = "", limit: int = 50) -> dict:
+    """List developer scratchpad notes, optionally filtered by project or search query.
+
+    Query params:
+    - ``project`` — restrict to notes tagged with this project id
+    - ``q``       — full-text search across title and body
+    - ``limit``   — max results (default 50)
+
+    PA9-3
+    """
+    limit = max(1, min(limit, 500))
+    with _notes_lock:
+        notes = list(_workspace_notes)
+
+    if project:
+        notes = [n for n in notes if n.get("project", "") == project]
+    if q:
+        q_lower = q.lower()
+        notes = [
+            n for n in notes
+            if q_lower in n.get("title", "").lower()
+            or q_lower in n.get("body", "").lower()
+        ]
+
+    return {
+        "total": len(notes),
+        "notes": notes[-limit:][::-1],  # newest first
+    }
+
+
+@app.post("/workspace/notes")
+def workspace_notes_create(req: _WorkspaceNoteReq) -> dict:
+    """Create a new developer scratchpad note.
+
+    Body fields:
+    - ``title``   — note title (required)
+    - ``body``    — note content in Markdown
+    - ``project`` — optional project id to associate the note with
+    - ``tags``    — optional list of string tags
+
+    PA9-3
+    """
+    if not req.title.strip():
+        raise HTTPException(status_code=422, detail="'title' must not be empty")
+
+    note_id = f"note_{int(time.time() * 1000)}"
+    note = {
+        "id":         note_id,
+        "title":      req.title.strip(),
+        "body":       req.body,
+        "project":    req.project,
+        "tags":       req.tags,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    with _notes_lock:
+        _workspace_notes.append(note)
+        _save_workspace_notes()
+
+    return {"status": "ok", "id": note_id, "note": note}
+
+
+@app.delete("/workspace/notes/{note_id}")
+def workspace_notes_delete(note_id: str) -> dict:
+    """Delete a developer scratchpad note by its id.
+
+    PA9-3
+    """
+    with _notes_lock:
+        before = len(_workspace_notes)
+        _workspace_notes[:] = [n for n in _workspace_notes if n.get("id") != note_id]
+        removed = before - len(_workspace_notes)
+        if removed:
+            _save_workspace_notes()
+
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found")
+    return {"status": "ok", "deleted": note_id}
+
+
+# ── PA9-4: Project velocity & progress dashboard ──────────────────────────────
+
+@app.get("/projects/{project_id}/progress")
+def project_progress(
+    project_id: str,
+    weeks: int = 4,            # how many trailing weeks to report velocity for
+) -> dict:
+    """Return a velocity and progress dashboard for a managed project.
+
+    Combines:
+    - Roadmap completion statistics (total / done / pending tasks, completion %)
+    - Git commit frequency over the last *weeks* weeks (commits per week)
+    - Recent commit list
+    - Open TODO/FIXME count (from workspace annotation scan)
+    - Active phase identification
+
+    PA9-4
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    weeks = max(1, min(weeks, 52))
+    repo_root = _BASE.parent.parent
+
+    # ── Roadmap stats ─────────────────────────────────────────────────────────
+    roadmap_stats: dict = {}
+    active_phase = ""
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.is_file():
+        try:
+            rm = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            containers = rm.get("phases", rm.get("milestones", []))
+            total = done = 0
+            for container in containers:
+                for task in container.get("tasks", []):
+                    total += 1
+                    if task.get("status") == "done":
+                        done += 1
+                if container.get("status") not in ("done",) and not active_phase:
+                    active_phase = container.get("id", "")
+            pending = total - done
+            roadmap_stats = {
+                "version":          rm.get("version", ""),
+                "total_tasks":      total,
+                "done_tasks":       done,
+                "pending_tasks":    pending,
+                "completion_pct":   round(done / total * 100, 1) if total else 0.0,
+                "active_phase":     active_phase,
+            }
+        except Exception:
+            pass
+
+    # ── Git commit velocity ───────────────────────────────────────────────────
+    since_date = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(weeks=weeks)
+    ).strftime("%Y-%m-%d")
+
+    commits_by_week: dict[str, int] = {}
+    recent_commits: list[dict] = []
+    try:
+        raw_log = subprocess.check_output(
+            [
+                "git", "log",
+                "--format=%H\x1f%ad\x1f%an\x1f%s",
+                "--date=short",
+                f"--since={since_date}",
+                "-100",
+                "--", str(project_dir),
+            ],
+            cwd=str(repo_root),
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        ).decode(errors="replace")
+
+        for line in raw_log.splitlines():
+            parts = line.split("\x1f", 3)
+            if len(parts) == 4:
+                sha, date, author, message = parts
+                commit = {
+                    "sha":     sha[:12],
+                    "date":    date.strip(),
+                    "author":  author.strip(),
+                    "message": message.strip(),
+                }
+                recent_commits.append(commit)
+                try:
+                    dt = datetime.date.fromisoformat(date.strip())
+                    yr, wk, _ = dt.isocalendar()
+                    wk_key = f"{yr}-W{wk:02d}"
+                    commits_by_week[wk_key] = commits_by_week.get(wk_key, 0) + 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    total_commits = sum(commits_by_week.values())
+    avg_per_week = round(total_commits / weeks, 1) if weeks else 0.0
+
+    # ── TODO count (lightweight scan) ────────────────────────────────────────
+    todo_count = 0
+    _t_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+    _t_skip = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist"}
+    _t_pat  = _re.compile(r"#\s*(TODO|FIXME|HACK)\b", _re.IGNORECASE)
+    files_scanned = 0
+    for fp in project_dir.rglob("*"):
+        if files_scanned >= 200:
+            break
+        if fp.suffix.lower() not in _t_exts:
+            continue
+        if any(p in _t_skip for p in fp.parts):
+            continue
+        try:
+            todo_count += len(_t_pat.findall(
+                fp.read_text(encoding="utf-8", errors="replace")
+            ))
+            files_scanned += 1
+        except Exception:
+            pass
+
+    return {
+        "project_id":       project_id,
+        "roadmap":          roadmap_stats,
+        "git_velocity": {
+            "period_weeks":  weeks,
+            "since":         since_date,
+            "total_commits": total_commits,
+            "avg_per_week":  avg_per_week,
+            "by_week":       commits_by_week,
+        },
+        "recent_commits":   recent_commits[:20],
+        "open_todos":       todo_count,
+    }
+
+
+# ── PA9-5: Add task to a project roadmap via API ─────────────────────────────
+
+class _RoadmapTaskAddReq(BaseModel):
+    phase_id: str              # which phase/milestone to append the task to
+    title: str                 # task title (required)
+    description: str = ""      # optional; AI will enrich if omitted
+    status: str = "pending"    # pending | in_progress | done
+
+
+@app.post("/projects/{project_id}/roadmap/task")
+def project_roadmap_task_add(project_id: str, req: _RoadmapTaskAddReq) -> dict:
+    """Append a new task to a phase in a project's roadmap.json.
+
+    The task is added to the phase identified by *phase_id*.  If *description*
+    is omitted, the LLM generates a one-sentence description from the title.
+    The roadmap file is atomically updated on disk.
+
+    Body fields:
+    - ``phase_id``    — id of the phase/milestone to add the task to (required)
+    - ``title``       — task title (required)
+    - ``description`` — optional description; AI-generated if blank
+    - ``status``      — ``pending`` (default) | ``in_progress`` | ``done``
+
+    PA9-5
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if not req.title.strip():
+        raise HTTPException(status_code=422, detail="'title' must not be empty")
+    if req.status not in ("pending", "in_progress", "done"):
+        raise HTTPException(status_code=422,
+                            detail="'status' must be pending, in_progress, or done")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    roadmap_path = project_dir / "roadmap.json"
+    if not roadmap_path.is_file():
+        raise HTTPException(status_code=404,
+                            detail=f"No roadmap.json for project '{project_id}'")
+
+    try:
+        roadmap_data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"Could not parse roadmap.json: {exc}") from exc
+
+    containers = roadmap_data.get("phases", roadmap_data.get("milestones", []))
+    target = next((c for c in containers if c.get("id") == req.phase_id), None)
+    if target is None:
+        raise HTTPException(status_code=404,
+                            detail=f"Phase '{req.phase_id}' not found in roadmap")
+
+    # Auto-generate task id based on phase id and current task count
+    existing_ids = {t.get("id", "") for t in target.get("tasks", [])}
+    base = _re.sub(r"[^A-Za-z0-9]", "", req.phase_id)
+    idx = len(target.get("tasks", [])) + 1
+    task_id = f"{base}-custom-{idx}"
+    while task_id in existing_ids:
+        idx += 1
+        task_id = f"{base}-custom-{idx}"
+
+    # AI-enrich description if not provided
+    description = req.description.strip()
+    if not description:
+        try:
+            description = _llm.chat([
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a project manager writing concise roadmap task descriptions. "
+                        "Given a task title, write a single clear sentence describing what "
+                        "needs to be implemented and its expected outcome. No bullet points."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Task: {req.title}\nProject: {project_id}",
+                },
+            ]).strip()
+        except Exception:
+            description = req.title
+
+    new_task = {
+        "id":          task_id,
+        "title":       req.title.strip(),
+        "description": description,
+        "status":      req.status,
+    }
+    target.setdefault("tasks", []).append(new_task)
+
+    # Atomic write
+    try:
+        tmp = roadmap_path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(roadmap_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(roadmap_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to write roadmap.json: {exc}") from exc
+
+    return {
+        "status":     "ok",
+        "project_id": project_id,
+        "phase_id":   req.phase_id,
+        "task":       new_task,
+    }
+
+
+# ── PA9-6: Cross-project executive workspace summary ─────────────────────────
+
+@app.get("/workspace/summary")
+def workspace_summary() -> dict:
+    """Return a concise executive summary of the entire managed workspace.
+
+    For each managed project (under ``Projects/``) collects:
+    - Roadmap version, completion %, active phase
+    - Recent git commits (last 7 days)
+    - Open TODO/FIXME count
+    - Last-modified timestamp
+
+    Then uses the LLM to write a short narrative executive summary across all
+    projects.
+
+    PA9-6
+    """
+    if not _PROJECTS_DIR.is_dir():
+        return {"projects": [], "narrative": "No managed projects found.", "generated_at": ""}
+
+    _t_exts  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+    _t_skip  = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist"}
+    _t_pat   = _re.compile(r"#\s*(TODO|FIXME|HACK)\b", _re.IGNORECASE)
+    _date_1w = (
+        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+    ).strftime("%Y-%m-%d")
+    repo_root = _BASE.parent.parent
+
+    project_summaries: list[dict] = []
+
+    for proj_dir in sorted(_PROJECTS_DIR.iterdir()):
+        if not proj_dir.is_dir():
+            continue
+        proj = proj_dir.name
+
+        # Roadmap stats
+        rm_version = rm_pct = rm_phase = ""
+        roadmap_path = proj_dir / "roadmap.json"
+        if roadmap_path.is_file():
+            try:
+                rm = json.loads(roadmap_path.read_text(encoding="utf-8"))
+                rm_version = rm.get("version", "")
+                containers = rm.get("phases", rm.get("milestones", []))
+                total = done = 0
+                for c in containers:
+                    for t in c.get("tasks", []):
+                        total += 1
+                        if t.get("status") == "done":
+                            done += 1
+                    if c.get("status") not in ("done",) and not rm_phase:
+                        rm_phase = c.get("id", "")
+                rm_pct = f"{round(done / total * 100, 1)}%" if total else "0%"
+            except Exception:
+                pass
+
+        # Recent commits (last 7 days)
+        recent: list[str] = []
+        try:
+            log_out = subprocess.check_output(
+                [
+                    "git", "log",
+                    "--format=%s",
+                    f"--since={_date_1w}",
+                    "-10",
+                    "--", str(proj_dir),
+                ],
+                cwd=str(repo_root),
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            ).decode(errors="replace")
+            recent = [l.strip() for l in log_out.splitlines() if l.strip()]
+        except Exception:
+            pass
+
+        # TODO count
+        todo_cnt = 0
+        for fp in proj_dir.rglob("*"):
+            if fp.suffix.lower() not in _t_exts:
+                continue
+            if any(p in _t_skip for p in fp.parts):
+                continue
+            try:
+                todo_cnt += len(_t_pat.findall(
+                    fp.read_text(encoding="utf-8", errors="replace")
+                ))
+            except Exception:
+                pass
+
+        # Last-modified
+        try:
+            mtime = max(fp.stat().st_mtime for fp in proj_dir.rglob("*") if fp.is_file())
+            last_modified = datetime.datetime.fromtimestamp(
+                mtime, tz=datetime.timezone.utc
+            ).strftime("%Y-%m-%d")
+        except Exception:
+            last_modified = ""
+
+        project_summaries.append({
+            "project":        proj,
+            "version":        rm_version,
+            "completion":     rm_pct,
+            "active_phase":   rm_phase,
+            "recent_commits": recent,
+            "open_todos":     todo_cnt,
+            "last_modified":  last_modified,
+        })
+
+    if not project_summaries:
+        return {"projects": [], "narrative": "No managed projects found.", "generated_at": ""}
+
+    # Build LLM prompt
+    proj_blurbs = []
+    for ps in project_summaries:
+        blurb = (
+            f"- {ps['project']} v{ps['version']}: "
+            f"{ps['completion']} complete, active phase: {ps['active_phase'] or 'N/A'}, "
+            f"{len(ps['recent_commits'])} commits this week, "
+            f"{ps['open_todos']} open TODOs"
+        )
+        if ps["recent_commits"]:
+            blurb += " | Recent: " + "; ".join(ps["recent_commits"][:3])
+        proj_blurbs.append(blurb)
+
+    system = (
+        "You are a technical project manager writing a brief executive summary.\n"
+        "Given a snapshot of multiple projects, write 2–4 sentences covering:\n"
+        "1. Overall workspace health\n"
+        "2. Most active project and what's happening\n"
+        "3. Any projects that appear stalled or have high outstanding work\n"
+        "Be factual, concise, and direct. No bullet points."
+    )
+    user_msg = "Workspace snapshot:\n" + "\n".join(proj_blurbs)
+
+    try:
+        narrative = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        narrative = f"[LLM error — raw snapshot]\n{user_msg}"
+
+    return {
+        "projects":     project_summaries,
+        "narrative":    narrative.strip(),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))

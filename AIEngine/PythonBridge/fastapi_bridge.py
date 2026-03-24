@@ -2457,6 +2457,21 @@ async def _phase8_project_stub(project_id: str, _req: _Request):
     }
 
 
+# Phase 9 — parameterised bridge stubs
+
+@app.get("/projects/{project_id}/coverage-report")
+@app.get("/projects/{project_id}/progress")
+@app.post("/projects/{project_id}/roadmap/task")
+async def _phase9_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 9 project-scoped endpoints (PA9-2, PA9-4, PA9-5)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase9",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
 def _stub_handler(feature: str):
     async def _h(_req: _Request):
         return {
@@ -2499,10 +2514,14 @@ for _stub_path, _stub_tag in [
     ("/plugins", "plugins"), ("/plugins/install", "plugins"),
     ("/plugins/reload", "plugins"), ("/plugins/generate", "plugins"),
     ("/terminal/session", "terminal"), ("/terminal/sessions", "terminal"),
-    # Phase 8 — Smart Automation & Workspace Productivity (stubs for bridge parity)
+    # Phase 8 — Smart Automation & Workspace Productivity
     ("/ai/project-refactor", "phase8"),
     ("/workspace/todos", "phase8"),
     ("/ai/migrate", "phase8"),
+    # Phase 9 — Advanced Collaboration & Knowledge Management
+    ("/ai/code-walkthrough", "phase9"),
+    ("/workspace/notes", "phase9"),
+    ("/workspace/summary", "phase9"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),
