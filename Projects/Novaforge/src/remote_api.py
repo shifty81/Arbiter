@@ -65,7 +65,13 @@ logger = logging.getLogger("novaforge.remote_api")
 _BIND_HOST  = os.environ.get("NOVAFORGE_HOST",    "0.0.0.0")
 _BIND_PORT  = int(os.environ.get("NOVAFORGE_PORT", "8010"))
 _API_KEY    = os.environ.get("NOVAFORGE_API_KEY", "")   # empty = no auth
-_ARBITER_URL = os.environ.get("ARBITER_ENGINE_URL", "http://127.0.0.1:8001")
+# AI backend URL — points to a local OpenAI-compatible server.
+# Supported backends and their default ports:
+#   Ollama   http://localhost:11434/v1  (default)
+#   LM Studio http://localhost:1234/v1
+#   LocalAI  http://localhost:8080/v1
+# No dependency on ArbiterEngine; Arbiter is only the dev-time IDE/chat for building Novaforge.
+_AI_URL     = os.environ.get("NOVAFORGE_AI_URL", "http://localhost:11434/v1")
 
 # Resource monitoring thresholds (NF2-7)
 _CPU_THROTTLE_PCT  = float(os.environ.get("NOVAFORGE_CPU_THROTTLE", "90"))
@@ -98,17 +104,19 @@ _active_theme: str = "dark"
 _theme_lock = asyncio.Lock()
 
 # ── Import AI layer ───────────────────────────────────────────────────────────
+# Novaforge AI is standalone — it calls a local OpenAI-compat server directly.
+# No runtime dependency on ArbiterEngine; _AI_URL points to Ollama / LM Studio.
 try:
     from AI.arbiter_ai import ArbiterAIManager, AIAction, WorkspaceContext
     _workspace = WorkspaceContext(str(_NF_ROOT))
     _ai = ArbiterAIManager(
-        arbiter_url=_ARBITER_URL,
-        project_name="Novaforge",
+        ai_url=_AI_URL,
+        project="Novaforge",
         workspace_context=_workspace,
     )
     _ai_available = True
 except Exception as _exc:
-    logger.warning("ArbiterAI unavailable: %s — responses will be stubbed", _exc)
+    logger.warning("NovaforgeAI unavailable: %s — responses will be stubbed", _exc)
     _ai_available = False
     _ai = None  # type: ignore[assignment]
 

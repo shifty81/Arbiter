@@ -184,7 +184,11 @@ namespace Novaforge.ToolingLayer
     // ── ArbiterAIManager singleton (NF1-6) ───────────────────────────────────
 
     /// <summary>
-    /// Singleton AI manager connecting Novaforge Tooling Layer to ArbiterEngine.
+    /// Novaforge Tooling Layer AI Manager — standalone, no ArbiterEngine dependency.
+    ///
+    /// Connects directly to a local OpenAI-compatible model server (Ollama by
+    /// default).  Arbiter is only the developer IDE/chat used while building
+    /// Novaforge; it is never called at runtime by this class.
     ///
     /// Features:
     ///   • 40-prompt live memory window in RAM
@@ -201,7 +205,15 @@ namespace Novaforge.ToolingLayer
             _instance ??= new ArbiterAIManager();
 
         // ── Config ────────────────────────────────────────────────────────────
-        public string  EngineUrl  { get; set; } = "http://127.0.0.1:8001";
+        /// <summary>
+        /// Base URL of the local OpenAI-compatible model server.
+        /// Supported backends: Ollama (11434/v1), LM Studio (1234/v1), LocalAI (8080/v1).
+        /// </summary>
+        public string  AiUrl      { get; set; } = "http://127.0.0.1:11434/v1";
+        /// <summary>Legacy alias for <see cref="AiUrl"/> — kept for source compatibility.</summary>
+        [System.Obsolete("Use AiUrl. EngineUrl is a legacy name from when Novaforge depended on ArbiterEngine.")]
+        public string  EngineUrl  { get => AiUrl; set => AiUrl = value; }
+        public string  Model      { get; set; } = "llama3";
         public string  Project    { get; set; } = "Novaforge";
         public int     MaxHistory { get; } = 40;
 
@@ -252,23 +264,30 @@ namespace Novaforge.ToolingLayer
 
         // ── NF1-8: Single-turn query ──────────────────────────────────────────
 
-        /// <summary>Send a single prompt and return the full response string.</summary>
+        /// <summary>Send a single prompt and return the full response string.
+        /// Uses OpenAI-compatible /v1/chat/completions endpoint (Ollama etc.).</summary>
         public async Task<string> QueryAsync(string prompt, CancellationToken ct = default)
         {
             _PushMemory("user", prompt);
+            // OpenAI-compatible chat completions format
             var payload = new
             {
-                project = Project,
-                message = prompt,
-                history = _BuildHistory(),
+                model    = Model,
+                messages = _BuildHistory(),
+                stream   = false,
             };
             var json    = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var resp    = await _http.PostAsync($"{EngineUrl}/chat", content, ct);
+            var resp    = await _http.PostAsync($"{AiUrl}/chat/completions", content, ct);
             resp.EnsureSuccessStatusCode();
             var body    = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
-            var reply = doc.RootElement.GetProperty("reply").GetString() ?? "";
+            // OpenAI format: choices[0].message.content
+            var reply = doc.RootElement
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString() ?? "";
             _PushMemory("assistant", reply);
             return reply;
         }
@@ -277,6 +296,7 @@ namespace Novaforge.ToolingLayer
 
         /// <summary>
         /// Stream AI response tokens as an <see cref="IAsyncEnumerable{T}"/>.
+        /// Uses OpenAI-compatible streaming (Ollama / LM Studio etc.).
         /// The ChatPanel subscribes to this and appends tokens in real time.
         /// </summary>
         public async IAsyncEnumerable<string> StreamAsync(
@@ -284,16 +304,17 @@ namespace Novaforge.ToolingLayer
             [EnumeratorCancellation] CancellationToken ct = default)
         {
             _PushMemory("user", prompt);
+            // OpenAI-compatible streaming chat completions
             var payload = new
             {
-                project = Project,
-                message = prompt,
-                history = _BuildHistory(),
+                model    = Model,
+                messages = _BuildHistory(),
+                stream   = true,
             };
             var json    = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var req = new HttpRequestMessage(HttpMethod.Post, $"{EngineUrl}/chat/stream")
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{AiUrl}/chat/completions")
             {
                 Content = content,
             };
@@ -309,26 +330,26 @@ namespace Novaforge.ToolingLayer
             {
                 var line = await reader.ReadLineAsync(ct);
                 if (line == null) break;
-                if (line.StartsWith("data: "))
+                if (!line.StartsWith("data: ")) continue;
+                var data = line[6..];
+                if (data == "[DONE]") break;
+                try
                 {
-                    var data = line[6..];
-                    if (data == "[DONE]") break;
-                    try
+                    using var doc = JsonDocument.Parse(data);
+                    // OpenAI streaming format: choices[0].delta.content
+                    var delta = doc.RootElement
+                        .GetProperty("choices")[0]
+                        .GetProperty("delta");
+                    var token = delta.TryGetProperty("content", out var c)
+                        ? c.GetString() ?? ""
+                        : "";
+                    if (!string.IsNullOrEmpty(token))
                     {
-                        using var doc = JsonDocument.Parse(data);
-                        var token = doc.RootElement.TryGetProperty("token", out var t)
-                            ? t.GetString() ?? ""
-                            : doc.RootElement.TryGetProperty("delta", out var d)
-                                ? d.GetString() ?? ""
-                                : "";
-                        if (!string.IsNullOrEmpty(token))
-                        {
-                            fullReply.Append(token);
-                            yield return token;
-                        }
+                        fullReply.Append(token);
+                        yield return token;
                     }
-                    catch { /* malformed chunk — skip */ }
                 }
+                catch { /* malformed chunk — skip */ }
             }
             _PushMemory("assistant", fullReply.ToString());
         }
@@ -336,36 +357,43 @@ namespace Novaforge.ToolingLayer
         // ── NF1-9: Generate AI actions ────────────────────────────────────────
 
         /// <summary>
-        /// Ask ArbiterEngine to generate a list of executable AIActions for the
-        /// current project goal.
+        /// Use the local AI to generate a list of executable AIActions for the
+        /// current project goal.  No dependency on ArbiterEngine.
         /// </summary>
         public async Task<List<AIAction>> GenerateActionsAsync(
             string prompt, CancellationToken ct = default)
         {
             var systemPrompt =
-                "You are an action planner. Given a development goal, return a JSON array of actions.\n"
+                "You are an action planner for the Novaforge game project. "
+                + "Given a development goal, return a JSON array of actions.\n"
                 + "Each action: {\"type\": \"insert_prefab|add_script|tooling_update|server_command|write_file\", "
                 + "\"title\": \"...\", \"description\": \"...\", \"payload\": {\"key\": \"value\"}}\n"
                 + "Output ONLY the JSON array.";
 
+            // OpenAI-compat: messages array
             var payload = new
             {
-                project = Project,
-                message = prompt,
-                history = new[]
+                model    = Model,
+                messages = new[]
                 {
                     new { role = "system", content = systemPrompt },
                     new { role = "user",   content = prompt },
                 },
+                stream = false,
             };
             var json    = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var resp    = await _http.PostAsync($"{EngineUrl}/chat", content, ct);
+            var resp    = await _http.PostAsync($"{AiUrl}/chat/completions", content, ct);
             if (!resp.IsSuccessStatusCode) return [];
 
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
-            var raw = doc.RootElement.GetProperty("reply").GetString() ?? "[]";
+            // OpenAI format: choices[0].message.content
+            var raw = doc.RootElement
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString() ?? "[]";
 
             // Extract JSON array from response
             var start = raw.IndexOf('[');
@@ -400,7 +428,8 @@ namespace Novaforge.ToolingLayer
 
         /// <summary>
         /// Safely apply an AIAction.  File writes stay within the project root.
-        /// Server commands are relayed via the SSA client stub.
+        /// Server commands are relayed via the SSA REST client (NF3).
+        /// Analysis is performed locally — no ArbiterEngine dependency.
         /// </summary>
         public async Task<(bool success, string message)> ExecuteActionAsync(
             AIAction action, CancellationToken ct = default)
@@ -432,15 +461,24 @@ namespace Novaforge.ToolingLayer
                     }
                     case AIActionType.RunAnalysis:
                     {
+                        // Local analysis — no ArbiterEngine dependency.
+                        // Reads the file and asks the local AI for a lint/review.
                         var filePath = action.Payload.GetValueOrDefault("path", "");
-                        // Delegate to ArbiterEngine lint endpoint
-                        var resp = await _http.GetAsync(
-                            $"{EngineUrl}/analysis/lint?project={Uri.EscapeDataString(Project)}&file_path={Uri.EscapeDataString(filePath)}", ct);
-                        return (resp.IsSuccessStatusCode, $"Analysis request status: {resp.StatusCode}");
+                        if (string.IsNullOrEmpty(filePath))
+                            return (false, "run_analysis: missing 'path' in payload");
+
+                        var fullPath = Path.Combine(Context.ProjectRoot, filePath);
+                        if (!File.Exists(fullPath))
+                            return (false, $"run_analysis: file not found — {filePath}");
+
+                        var fileContent = await File.ReadAllTextAsync(fullPath, ct);
+                        var analysisPrompt = $"Review the following code for bugs, style, and improvements:\n\n```\n{fileContent}\n```";
+                        var result = await QueryAsync(analysisPrompt, ct);
+                        return (true, result);
                     }
                     case AIActionType.ServerCommand:
                     {
-                        // Relay via SSA client — stub for NF3-2
+                        // Relay via SSA REST client — wired in NF3
                         var cmd = action.Payload.GetValueOrDefault("command", "");
                         return (false, $"Server command '{cmd}' — SSA integration pending (NF3)");
                     }

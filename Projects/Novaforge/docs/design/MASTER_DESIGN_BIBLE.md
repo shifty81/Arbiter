@@ -1,8 +1,16 @@
 # Novaforge — Master Design Bible
 
-> **Version:** 0.2.0  
+> **Version:** 0.2.1  
 > **Last updated:** 2026-03-24  
-> **Maintained by:** Arbiter AI (ArbiterEngine + PythonBridge)
+> **Maintained by:** Arbiter (used as the AI dev platform for building Novaforge)
+
+> ⚠️ **Standalone Project Notice**  
+> Novaforge is a **fully standalone project**, treated identically to SteamServerAdmin.  
+> **Arbiter is used only as the developer tool** (IDE + AI chat) while building Novaforge.  
+> There is **NO runtime dependency** between Novaforge and ArbiterEngine in either direction.  
+> Novaforge's own AI layer (`AI/arbiter_ai.py`, `ToolingLayer/ArbiterAIManager.cs`) calls a  
+> local OpenAI-compatible model server (Ollama by default) directly via `NOVAFORGE_AI_URL` —  
+> it never calls ArbiterEngine at runtime.
 
 ---
 
@@ -11,7 +19,7 @@
 1. [Project Overview](#1-project-overview)
 2. [System Architecture](#2-system-architecture)
 3. [Tooling Layer](#3-tooling-layer)
-4. [AI Integration (ArbiterAI)](#4-ai-integration-arbiterai)
+4. [AI Integration (Novaforge Standalone AI)](#4-ai-integration-novaforge-standalone-ai)
 5. [Game Systems — Atlas Core + ECS](#5-game-systems--atlas-core--ecs)
 6. [Mech Suit Upgrade System](#6-mech-suit-upgrade-system)
 7. [Procedural Content Generation (PCG)](#7-procedural-content-generation-pcg)

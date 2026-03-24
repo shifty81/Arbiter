@@ -1,15 +1,16 @@
 {
   "project": "Novaforge",
   "description": "Novaforge is a game development project managed inside Arbiter. It integrates a custom Atlas core + ECS game engine, AI-powered procedural content generation, and modular mech suit upgrade systems. Server administration is handled by the standalone SteamServerAdmin project (Projects/SteamServerAdmin) which Novaforge integrates with at runtime. Arbiter acts as the AI development platform for both — planning, generating code, iterating assets, and overseeing servers autonomously.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "last_updated": "2026-03-24",
   "arbiter_integration": {
     "managed_by": "Arbiter",
-    "chat_engine": true,
-    "self_build": true,
-    "vs_extension": true,
+    "chat_engine": false,
+    "self_build": false,
+    "vs_extension": false,
     "remote_web_ui": true,
-    "workspace_profile": "Projects/Novaforge/roadmap.json"
+    "workspace_profile": "Projects/Novaforge/roadmap.json",
+    "notes": "Novaforge is a fully standalone project — treated the same as SteamServerAdmin. Arbiter is used ONLY as the AI development platform (IDE + chat) while building Novaforge. There is NO runtime dependency between Novaforge code and ArbiterEngine in either direction. Novaforge's AI layer calls a local OpenAI-compatible model server (Ollama/LM Studio) directly via NOVAFORGE_AI_URL."
   },
   "tech_stack": {
     "game_engine": "Custom Atlas core + ECS (C++/C#)",
@@ -122,7 +123,7 @@
         },
         {
           "id": "NF1-6",
-          "title": "ArbiterAI singleton (ArbiterAIManager): workspace-aware context, 40-prompt live memory, archive older prompts to SQLite",
+          "title": "Novaforge AI singleton (NovaforgeAI): workspace-aware context, 40-prompt live memory, SQLite archive — standalone, calls local Ollama/LM Studio",
           "status": "done",
           "notes": "ArbiterAIManager.cs singleton: 40-prompt live memory (List<ChatMessage>), PromptArchive SQLite via _archive, WorkspaceContextManager injected into every prompt."
         },
@@ -164,7 +165,7 @@
         },
         {
           "id": "NF1-13",
-          "title": "Open-source model integration: Ollama / CodeGeeX for unrestricted free code assistance",
+          "title": "Local model backend selection: Ollama (default) / LM Studio / LocalAI — all via OpenAI-compat /v1/chat/completions; no ArbiterEngine dependency",
           "status": "done",
           "notes": "AI/arbiter_ai.py updated: generate_actions() parses /chat response JSON array into AIAction list; execute_action() implements write_file. ModelBackend constants + select_backend() calls /models/switch for Ollama/CodeGeeX hot-swap."
         }
@@ -245,7 +246,7 @@
         },
         {
           "id": "NF3-3",
-          "title": "ArbiterAI: feed Novaforge server logs into SteamServerAdmin AI monitoring thresholds",
+          "title": "Novaforge AI: feed server logs into SteamServerAdmin health monitoring thresholds via SSA REST API",
           "status": "pending"
         },
         {
@@ -255,7 +256,7 @@
         },
         {
           "id": "NF3-5",
-          "title": "End-to-end integration test: Novaforge game server start/stop/update via SteamServerAdmin from Arbiter Tooling Layer",
+          "title": "End-to-end integration test: Novaforge game server start/stop/update via SteamServerAdmin from Novaforge Tooling Layer",
           "status": "pending"
         }
       ]
@@ -326,7 +327,7 @@
       "tasks": [
         {
           "id": "NF5-1",
-          "title": "Repo monitoring: ArbiterAI watches Novaforge repo for new commits and proposes or implements follow-up changes",
+          "title": "Repo monitoring: Novaforge AI watches the Novaforge repo for new commits and proposes or implements follow-up changes",
           "status": "pending"
         },
         {
@@ -341,12 +342,12 @@
         },
         {
           "id": "NF5-4",
-          "title": "Server monitoring automation: AI triggers SteamServerAdmin scripts from log thresholds without manual input",
+          "title": "Server monitoring automation: Novaforge AI triggers SteamServerAdmin scripts from log thresholds without manual input",
           "status": "pending"
         },
         {
           "id": "NF5-5",
-          "title": "Prefab/template learning: AI archives all generated assets tagged by project/feature type for cross-project reuse",
+          "title": "Prefab/template learning: Novaforge AI archives all generated assets tagged by project/feature type for cross-session reuse",
           "status": "pending"
         },
         {
@@ -369,7 +370,7 @@
       "tasks": [
         {
           "id": "NF6-1",
-          "title": "Tooling Layer ↔ ArbiterAI ↔ Visual Studio: integration test suite verifying chat, action generation, and execution paths",
+          "title": "Tooling Layer ↔ Novaforge AI ↔ remote web interface: integration test suite verifying chat, action generation, and execution paths",
           "status": "pending"
         },
         {
@@ -379,7 +380,7 @@
         },
         {
           "id": "NF6-3",
-          "title": "Server monitoring ↔ SteamServerAdmin ↔ AI: end-to-end automated behavior tests (restart triggers, permission audits)",
+          "title": "Server monitoring ↔ SteamServerAdmin ↔ Novaforge AI: end-to-end automated behavior tests (restart triggers, permission audits)",
           "status": "pending"
         },
         {
@@ -389,7 +390,7 @@
         },
         {
           "id": "NF6-5",
-          "title": "Continuous refinement: AI identifies inefficiencies, suggests layout/asset improvements, and refactors code dynamically",
+          "title": "Continuous refinement: Novaforge AI identifies inefficiencies, suggests layout/asset improvements, and refactors code dynamically",
           "status": "pending"
         }
       ]
@@ -412,7 +413,7 @@
         },
         {
           "id": "NF7-3",
-          "title": "Enable full AI oversight: continuous project iteration and feedback loops from AI analytics",
+          "title": "Enable full Novaforge AI oversight: continuous project iteration and feedback loops using the standalone local AI",
           "status": "pending"
         },
         {
