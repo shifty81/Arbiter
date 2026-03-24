@@ -11990,6 +11990,810 @@ def project_changelog(project_id: str, req: _ChangelogReq) -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 8 — Smart Automation & Workspace Productivity
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA8-1: Project-wide code-smell & refactoring analysis ─────────────────────
+
+_MAX_REFACTOR_FILES = 30        # cap on source files sampled per project
+_MAX_REFACTOR_FILE_CHARS = 3_000  # chars read per file
+
+
+class _ProjectRefactorReq(BaseModel):
+    project_id: str
+    focus: str = ""   # optional hint e.g. "performance", "security", "readability"
+    max_files: int = _MAX_REFACTOR_FILES
+
+
+@app.post("/ai/project-refactor")
+def ai_project_refactor(req: _ProjectRefactorReq) -> dict:
+    """Analyse a managed project for code smells and architectural weaknesses.
+
+    Scans up to *max_files* source files from the project directory, builds a
+    compact summary, and asks the LLM to identify the top refactoring
+    opportunities ranked by impact.  An optional *focus* hint steers the
+    analysis (e.g. ``"security"``, ``"performance"``, ``"readability"``).
+
+    Returns a ranked list of refactoring opportunities with file references.
+
+    PA8-1
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / req.project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{req.project_id}' not found")
+
+    _source_exts = {
+        ".py", ".js", ".ts", ".cs", ".go", ".rs", ".java", ".cpp", ".c",
+        ".rb", ".php", ".swift", ".kt", ".ex", ".exs",
+    }
+    _skip_dirs = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+    file_summaries: list[str] = []
+    max_f = max(1, min(req.max_files, 60))
+
+    for fp in sorted(project_dir.rglob("*")):
+        if len(file_summaries) >= max_f:
+            break
+        if fp.suffix.lower() not in _source_exts:
+            continue
+        if any(part in _skip_dirs for part in fp.parts):
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+            excerpt = content[:_MAX_REFACTOR_FILE_CHARS]
+            rel = str(fp.relative_to(_PROJECTS_DIR))
+            file_summaries.append(f"### {rel}\n```\n{excerpt}\n```")
+        except Exception:
+            pass
+
+    if not file_summaries:
+        return {
+            "project_id":     req.project_id,
+            "opportunities":  [],
+            "summary":        "No source files found for analysis.",
+            "files_analysed": 0,
+        }
+
+    system = (
+        "You are a senior software architect performing a code quality audit.\n"
+        "Given excerpts from project source files, identify the top refactoring\n"
+        "opportunities ranked by impact. For each one provide:\n"
+        "OPPORTUNITY: <short title>\n"
+        "FILE: <relative file path>\n"
+        "IMPACT: High|Medium|Low\n"
+        "CATEGORY: one of: code-smell|duplication|coupling|complexity|"
+        "security|performance|readability|naming\n"
+        "DESCRIPTION: <one or two sentence explanation and suggested fix>\n"
+        "---\n"
+        "List up to 8 opportunities. Output ONLY the structured items above."
+    )
+    focus_prefix = f"Focus area: {req.focus}\n\n" if req.focus else ""
+    user_msg = (
+        f"{focus_prefix}Project: {req.project_id} ({len(file_summaries)} files sampled)\n\n"
+        + "\n\n".join(file_summaries)
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse structured response
+    opportunities: list[dict] = []
+    current: dict = {}
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("OPPORTUNITY:"):
+            if current:
+                opportunities.append(current)
+            current = {"opportunity": ls[len("OPPORTUNITY:"):].strip()}
+        elif ls.startswith("FILE:") and current:
+            current["file"] = ls[len("FILE:"):].strip()
+        elif ls.startswith("IMPACT:") and current:
+            current["impact"] = ls[len("IMPACT:"):].strip()
+        elif ls.startswith("CATEGORY:") and current:
+            current["category"] = ls[len("CATEGORY:"):].strip()
+        elif ls.startswith("DESCRIPTION:") and current:
+            current["description"] = ls[len("DESCRIPTION:"):].strip()
+        elif ls == "---" and current:
+            opportunities.append(current)
+            current = {}
+    if current:
+        opportunities.append(current)
+
+    return {
+        "project_id":     req.project_id,
+        "files_analysed": len(file_summaries),
+        "focus":          req.focus or "general",
+        "opportunities":  opportunities,
+        "raw":            raw,
+    }
+
+
+# ── PA8-2: AI-generated project documentation suite ──────────────────────────
+
+_MAX_DOCS_FILES = 20
+_MAX_DOCS_FILE_CHARS = 2_500
+
+
+class _ProjectDocsReq(BaseModel):
+    include_api: bool = True       # include API endpoint summary (if server.py present)
+    include_architecture: bool = True
+    include_modules: bool = True
+
+
+@app.post("/projects/{project_id}/docs")
+def project_docs_generate(project_id: str, req: _ProjectDocsReq) -> dict:
+    """Generate a documentation suite for a managed project from its source files.
+
+    Produces:
+    - ``overview`` — project purpose and description from roadmap + source
+    - ``architecture`` — high-level component and module breakdown
+    - ``modules`` — per-module summaries
+    - ``api_summary`` — list of detected API endpoints (if applicable)
+    - ``markdown`` — a ready-to-use README skeleton combining all sections
+
+    PA8-2
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    # Collect roadmap context
+    roadmap_context = ""
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.is_file():
+        try:
+            rm = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            desc = rm.get("description", "")
+            version = rm.get("version", "")
+            roadmap_context = f"Project: {project_id} v{version}\nDescription: {desc}\n"
+        except Exception:
+            pass
+
+    # Collect source file excerpts
+    _source_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java", ".cpp", ".c"}
+    _skip_dirs = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+    file_excerpts: list[str] = []
+    for fp in sorted(project_dir.rglob("*")):
+        if len(file_excerpts) >= _MAX_DOCS_FILES:
+            break
+        if fp.suffix.lower() not in _source_exts:
+            continue
+        if any(part in _skip_dirs for part in fp.parts):
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+            rel = str(fp.relative_to(project_dir))
+            file_excerpts.append(f"{rel}:\n{content[:_MAX_DOCS_FILE_CHARS]}")
+        except Exception:
+            pass
+
+    if not file_excerpts and not roadmap_context:
+        return {
+            "project_id": project_id,
+            "overview":   "No source files found.",
+            "markdown":   "",
+        }
+
+    sections_wanted = []
+    if req.include_architecture:
+        sections_wanted.append("ARCHITECTURE")
+    if req.include_modules:
+        sections_wanted.append("MODULES")
+    if req.include_api:
+        sections_wanted.append("API_SUMMARY")
+
+    system = (
+        "You are a technical documentation writer.\n"
+        "Given project source files and roadmap info, write documentation with these sections:\n"
+        "OVERVIEW: <2–3 sentence project summary>\n"
+    )
+    if req.include_architecture:
+        system += "ARCHITECTURE: <component and layer breakdown>\n"
+    if req.include_modules:
+        system += "MODULES:\n- <module_file>: <one-line description>\n...\n"
+    if req.include_api:
+        system += "API_SUMMARY:\n- <METHOD /path>: <description>\n...\n"
+    system += "Output ONLY the labelled sections above — no extra text."
+
+    user_msg = roadmap_context + "\n\nSource files:\n\n" + "\n\n".join(file_excerpts)
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse sections
+    overview = ""
+    architecture = ""
+    modules_list: list[str] = []
+    api_list: list[str] = []
+    in_section = ""
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("OVERVIEW:"):
+            in_section = "overview"
+            overview = ls[len("OVERVIEW:"):].strip()
+        elif ls.startswith("ARCHITECTURE:"):
+            in_section = "architecture"
+            architecture = ls[len("ARCHITECTURE:"):].strip()
+        elif ls.startswith("MODULES:"):
+            in_section = "modules"
+        elif ls.startswith("API_SUMMARY:"):
+            in_section = "api"
+        elif in_section == "overview" and ls:
+            overview += " " + ls
+        elif in_section == "architecture" and ls:
+            architecture += "\n" + ls
+        elif in_section == "modules" and ls.startswith("-"):
+            modules_list.append(ls[1:].strip())
+        elif in_section == "api" and ls.startswith("-"):
+            api_list.append(ls[1:].strip())
+
+    # Build Markdown README skeleton
+    md_parts = [f"# {project_id}\n\n{overview.strip()}\n"]
+    if architecture:
+        md_parts.append(f"\n## Architecture\n\n{architecture.strip()}\n")
+    if modules_list:
+        md_parts.append("\n## Modules\n\n" + "\n".join(f"- {m}" for m in modules_list) + "\n")
+    if api_list:
+        md_parts.append("\n## API\n\n" + "\n".join(f"- {a}" for a in api_list) + "\n")
+
+    return {
+        "project_id":   project_id,
+        "overview":     overview.strip(),
+        "architecture": architecture.strip(),
+        "modules":      modules_list,
+        "api_summary":  api_list,
+        "markdown":     "".join(md_parts),
+        "files_used":   len(file_excerpts),
+        "raw":          raw,
+    }
+
+
+# ── PA8-3: Aggregate workspace TODO / FIXME annotations ──────────────────────
+
+_TODO_PATTERNS = _re.compile(
+    r"(?:#|//|/\*|<!--)\s*(TODO|FIXME|HACK|NOTE|DEPRECATED|XXX)\b[:\s]*(.*)",
+    _re.IGNORECASE,
+)
+_TODO_EXTS = {
+    ".py", ".js", ".ts", ".cs", ".go", ".rs", ".java", ".cpp", ".c",
+    ".rb", ".php", ".swift", ".kt", ".html", ".css", ".json", ".yaml", ".toml",
+}
+_TODO_SKIP = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+_MAX_TODO_FILES_PER_PROJECT = 200
+_MAX_TODOS_TOTAL = 500
+
+
+@app.get("/workspace/todos")
+def workspace_todos(
+    project: str = "",           # restrict to a single project id
+    category: str = "",          # filter: TODO|FIXME|HACK|NOTE|DEPRECATED|XXX
+    limit: int = 200,
+) -> dict:
+    """Return all TODO / FIXME / HACK / NOTE / DEPRECATED annotations in the workspace.
+
+    Scans source files in every managed ``Projects/`` directory (or a single
+    project when *project* is supplied).  Results are grouped by project and
+    include the file path, line number, category, and comment text.
+
+    Query params:
+    - ``project`` — restrict to a single project id (optional)
+    - ``category`` — filter by annotation type, case-insensitive (optional)
+    - ``limit``    — maximum annotations returned (default 200, max 500)
+
+    PA8-3
+    """
+    limit = max(1, min(limit, _MAX_TODOS_TOTAL))
+    cat_filter = category.upper() if category else ""
+
+    if project:
+        if not _PROJECT_ID_PATTERN.fullmatch(project):
+            raise HTTPException(status_code=422, detail="Invalid project id")
+        project_dirs = [_PROJECTS_DIR / project]
+        if not project_dirs[0].is_dir():
+            raise HTTPException(status_code=404,
+                                detail=f"Project '{project}' not found")
+    else:
+        if not _PROJECTS_DIR.is_dir():
+            return {"total": 0, "projects": {}, "items": []}
+        project_dirs = [p for p in sorted(_PROJECTS_DIR.iterdir()) if p.is_dir()]
+
+    all_items: list[dict] = []
+    by_project: dict[str, int] = {}
+
+    for proj_dir in project_dirs:
+        proj_name = proj_dir.name
+        file_count = 0
+        for fp in sorted(proj_dir.rglob("*")):
+            if file_count >= _MAX_TODO_FILES_PER_PROJECT:
+                break
+            if fp.suffix.lower() not in _TODO_EXTS:
+                continue
+            if any(part in _TODO_SKIP for part in fp.parts):
+                continue
+            file_count += 1
+            try:
+                for lineno, line in enumerate(
+                    fp.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+                ):
+                    m = _TODO_PATTERNS.search(line)
+                    if not m:
+                        continue
+                    cat = m.group(1).upper()
+                    if cat_filter and cat != cat_filter:
+                        continue
+                    text = m.group(2).strip()
+                    rel = str(fp.relative_to(_PROJECTS_DIR))
+                    all_items.append({
+                        "project":  proj_name,
+                        "file":     rel,
+                        "line":     lineno,
+                        "category": cat,
+                        "text":     text,
+                    })
+                    by_project[proj_name] = by_project.get(proj_name, 0) + 1
+                    if len(all_items) >= limit:
+                        break
+            except Exception:
+                pass
+            if len(all_items) >= limit:
+                break
+        if len(all_items) >= limit:
+            break
+
+    return {
+        "total":       len(all_items),
+        "by_project":  by_project,
+        "items":       all_items,
+        "truncated":   len(all_items) >= limit,
+    }
+
+
+# ── PA8-4: AI framework / version migration planning ─────────────────────────
+
+class _MigrateReq(BaseModel):
+    project_id: str
+    from_framework: str          # e.g. "Django 3.2", "React 17", "Python 3.9"
+    to_framework: str            # e.g. "Django 5.0", "React 19", "Python 3.12"
+    notes: str = ""              # optional extra context from the developer
+
+
+@app.post("/ai/migrate")
+def ai_migrate(req: _MigrateReq) -> dict:
+    """Generate a structured migration plan for upgrading a project's framework or runtime.
+
+    Analyses the project's source files and roadmap for context, then uses the
+    LLM to produce a step-by-step migration guide with:
+    - A migration overview and key breaking changes
+    - Ordered steps with risk levels (Low / Medium / High)
+    - Code-change examples where applicable
+
+    PA8-4
+    """
+    if not req.from_framework.strip() or not req.to_framework.strip():
+        raise HTTPException(status_code=422,
+                            detail="'from_framework' and 'to_framework' are required")
+    if req.project_id and not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / req.project_id if req.project_id else None
+    project_context = ""
+    if project_dir and project_dir.is_dir():
+        # Collect a few representative source files
+        _src_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+        _skip = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist"}
+        excerpts: list[str] = []
+        for fp in sorted(project_dir.rglob("*")):
+            if len(excerpts) >= 10:
+                break
+            if fp.suffix.lower() not in _src_exts:
+                continue
+            if any(p in _skip for p in fp.parts):
+                continue
+            try:
+                content = fp.read_text(encoding="utf-8", errors="replace")[:2_000]
+                rel = str(fp.relative_to(project_dir))
+                excerpts.append(f"{rel}:\n{content}")
+            except Exception:
+                pass
+        if excerpts:
+            project_context = "\n\nProject source excerpts:\n" + "\n---\n".join(excerpts)
+
+    notes_section = f"\nDeveloper notes: {req.notes}" if req.notes else ""
+
+    system = (
+        "You are a senior software engineer specialising in framework migrations.\n"
+        "Given a migration goal, produce a structured plan:\n"
+        "OVERVIEW: <2–3 sentence summary of the migration scope and main challenges>\n"
+        "BREAKING_CHANGES:\n"
+        "- <change 1>\n"
+        "...\n"
+        "STEPS:\n"
+        "STEP 1 [Risk: Low|Medium|High]: <title>\n"
+        "  <description and any code-change example>\n"
+        "STEP 2 [Risk: ...]: ...\n"
+        "...\n"
+        "ESTIMATED_EFFORT: <e.g. '2–5 days', '1–2 weeks'>\n"
+        "Output ONLY the labelled sections — no extra prose."
+    )
+    user_msg = (
+        f"Project: {req.project_id or '(unspecified)'}\n"
+        f"Migrate from: {req.from_framework}\n"
+        f"Migrate to:   {req.to_framework}"
+        f"{notes_section}"
+        f"{project_context}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse the structured response
+    overview = ""
+    breaking_changes: list[str] = []
+    steps: list[dict] = []
+    estimated_effort = ""
+    in_section = ""
+    current_step: dict = {}
+
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("OVERVIEW:"):
+            in_section = "overview"
+            overview = ls[len("OVERVIEW:"):].strip()
+        elif ls.startswith("BREAKING_CHANGES:"):
+            in_section = "breaking"
+        elif ls.startswith("STEPS:"):
+            in_section = "steps"
+        elif ls.startswith("ESTIMATED_EFFORT:"):
+            in_section = ""
+            estimated_effort = ls[len("ESTIMATED_EFFORT:"):].strip()
+        elif in_section == "overview" and ls:
+            overview += " " + ls
+        elif in_section == "breaking" and ls.startswith("-"):
+            breaking_changes.append(ls[1:].strip())
+        elif in_section == "steps":
+            step_m = _re.match(r"STEP\s+(\d+)\s*\[Risk:\s*(\w+)\]:\s*(.*)", ls, _re.IGNORECASE)
+            if step_m:
+                if current_step:
+                    steps.append(current_step)
+                current_step = {
+                    "step":  int(step_m.group(1)),
+                    "risk":  step_m.group(2),
+                    "title": step_m.group(3).strip(),
+                    "detail": "",
+                }
+            elif current_step and ls:
+                current_step["detail"] = (current_step["detail"] + "\n" + ls).strip()
+
+    if current_step:
+        steps.append(current_step)
+
+    return {
+        "project_id":       req.project_id,
+        "from_framework":   req.from_framework,
+        "to_framework":     req.to_framework,
+        "overview":         overview.strip(),
+        "breaking_changes": breaking_changes,
+        "steps":            steps,
+        "estimated_effort": estimated_effort,
+        "raw":              raw,
+    }
+
+
+# ── PA8-5: AI effort & complexity estimation for pending roadmap tasks ────────
+
+@app.post("/projects/{project_id}/estimate")
+def project_estimate(project_id: str) -> dict:
+    """Estimate effort and complexity for every pending task in a project's roadmap.
+
+    Reads the project roadmap.json, extracts all tasks with
+    ``status != "done"``, and uses the LLM to provide per-task estimates:
+    - ``complexity``: Low / Medium / High
+    - ``hours``: rough numeric range (e.g. ``"2–4"``)
+    - ``risk``: free-text risk note
+    - ``dependencies``: any implied prerequisite tasks
+
+    PA8-5
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    roadmap_path = project_dir / "roadmap.json"
+    if not roadmap_path.is_file():
+        raise HTTPException(status_code=404,
+                            detail=f"No roadmap.json found for project '{project_id}'")
+
+    try:
+        roadmap_data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to parse roadmap.json: {exc}") from exc
+
+    # Collect pending tasks from phases / milestones
+    pending_tasks: list[dict] = []
+    for container in roadmap_data.get("phases", roadmap_data.get("milestones", [])):
+        for task in container.get("tasks", []):
+            if task.get("status") not in ("done",):
+                pending_tasks.append({
+                    "id":    task.get("id", ""),
+                    "title": task.get("title", ""),
+                    "phase": container.get("id", ""),
+                })
+
+    if not pending_tasks:
+        return {
+            "project_id":    project_id,
+            "pending_tasks": 0,
+            "estimates":     [],
+            "summary":       "All roadmap tasks are already marked done.",
+        }
+
+    task_list_text = "\n".join(
+        f"- [{t['phase']}/{t['id']}] {t['title']}" for t in pending_tasks
+    )
+
+    system = (
+        "You are a software project manager estimating task effort.\n"
+        "For each task in the list, provide:\n"
+        "TASK_ID: <phase/id>\n"
+        "COMPLEXITY: Low|Medium|High\n"
+        "HOURS: <numeric range e.g. '2-4' or '8-16'>\n"
+        "RISK: <one sentence about the main risk or unknowns>\n"
+        "DEPENDENCIES: <comma-separated task ids this depends on, or 'none'>\n"
+        "---\n"
+        "Output ONLY these structured blocks — one per task."
+    )
+    user_msg = (
+        f"Project: {project_id}\n"
+        f"Pending tasks ({len(pending_tasks)}):\n{task_list_text}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse estimates
+    estimates: list[dict] = []
+    current_est: dict = {}
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("TASK_ID:"):
+            if current_est:
+                estimates.append(current_est)
+            current_est = {"task_id": ls[len("TASK_ID:"):].strip()}
+        elif ls.startswith("COMPLEXITY:") and current_est:
+            current_est["complexity"] = ls[len("COMPLEXITY:"):].strip()
+        elif ls.startswith("HOURS:") and current_est:
+            current_est["hours"] = ls[len("HOURS:"):].strip()
+        elif ls.startswith("RISK:") and current_est:
+            current_est["risk"] = ls[len("RISK:"):].strip()
+        elif ls.startswith("DEPENDENCIES:") and current_est:
+            dep_str = ls[len("DEPENDENCIES:"):].strip()
+            current_est["dependencies"] = (
+                [] if dep_str.lower() in ("none", "n/a", "")
+                else [d.strip() for d in dep_str.split(",")]
+            )
+        elif ls == "---" and current_est:
+            estimates.append(current_est)
+            current_est = {}
+    if current_est:
+        estimates.append(current_est)
+
+    # Attach task title to each estimate — build map with both full and short ids
+    task_map: dict[str, str] = {}
+    for t in pending_tasks:
+        task_map[t["id"]] = t["title"]
+        short = t["id"].split("/")[-1] if "/" in t["id"] else t["id"]
+        task_map.setdefault(short, t["title"])
+    for est in estimates:
+        est["title"] = task_map.get(est.get("task_id", ""), "")
+
+    # Totals
+    total_low  = sum(1 for e in estimates if e.get("complexity", "").lower() == "low")
+    total_med  = sum(1 for e in estimates if e.get("complexity", "").lower() == "medium")
+    total_high = sum(1 for e in estimates if e.get("complexity", "").lower() == "high")
+
+    return {
+        "project_id":    project_id,
+        "pending_tasks": len(pending_tasks),
+        "estimates":     estimates,
+        "complexity_summary": {
+            "low":    total_low,
+            "medium": total_med,
+            "high":   total_high,
+        },
+        "raw":           raw,
+    }
+
+
+# ── PA8-6: AI unit-test stub generation ──────────────────────────────────────
+
+_MAX_TEST_GEN_FILES = 15
+_MAX_TEST_GEN_FILE_CHARS = 4_000
+
+
+class _TestGenerateReq(BaseModel):
+    file_path: str = ""    # relative path inside the project; empty = all source files
+    framework: str = ""    # e.g. "pytest", "xunit", "jest" — auto-detected if empty
+
+
+@app.post("/projects/{project_id}/test-generate")
+def project_test_generate(project_id: str, req: _TestGenerateReq) -> dict:
+    """Generate unit-test stubs for functions / classes that lack test coverage.
+
+    When *file_path* is empty, Arbiter scans all source files in the project
+    and identifies untested symbols by comparing source files against existing
+    test files.  For each untested function or class the LLM generates a test
+    stub with docstring, arrange/act/assert structure, and a TODO marker.
+
+    Body fields:
+    - ``file_path``  — restrict to a single source file (relative to project root)
+    - ``framework``  — test framework hint; auto-detected from existing tests if omitted
+
+    PA8-6
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    _src_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+    _test_globs = ["test_*.py", "*_test.py", "*.test.ts", "*.test.js",
+                   "*.spec.ts", "*.spec.js", "*Test.cs", "*Tests.cs"]
+    _skip = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+    # Identify existing test files for coverage awareness
+    existing_tests: set[str] = set()
+    for fp in project_dir.rglob("*"):
+        if any(fp.match(g) for g in _test_globs):
+            existing_tests.add(fp.name)
+
+    # Detect test framework if not supplied
+    framework = req.framework
+    if not framework:
+        if any(fp.suffix == ".py" for fp in project_dir.rglob("test_*.py")):
+            framework = "pytest"
+        elif any(fp.suffix in (".ts", ".js") for fp in project_dir.rglob("*.test.*")):
+            framework = "jest"
+        elif any(fp.suffix == ".cs" for fp in project_dir.rglob("*Test*.cs")):
+            framework = "xunit"
+        else:
+            framework = "auto"
+
+    # Collect source files to generate tests for
+    target_files: list[Path] = []
+    if req.file_path:
+        candidate = project_dir / req.file_path
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File '{req.file_path}' not found in project")
+        target_files = [candidate]
+    else:
+        for fp in sorted(project_dir.rglob("*")):
+            if len(target_files) >= _MAX_TEST_GEN_FILES:
+                break
+            if fp.suffix.lower() not in _src_exts:
+                continue
+            if any(p in _skip for p in fp.parts):
+                continue
+            # Skip files that are already test files
+            if any(fp.match(g) for g in _test_globs):
+                continue
+            target_files.append(fp)
+
+    if not target_files:
+        return {
+            "project_id": project_id,
+            "framework":  framework,
+            "test_files": [],
+            "summary":    "No source files found to generate tests for.",
+        }
+
+    generated: list[dict] = []
+
+    for src_file in target_files:
+        rel = str(src_file.relative_to(project_dir))
+        try:
+            content = src_file.read_text(encoding="utf-8", errors="replace")
+            excerpt = content[:_MAX_TEST_GEN_FILE_CHARS]
+        except Exception:
+            continue
+
+        system = (
+            f"You are a test engineer writing {framework} unit tests.\n"
+            "Given source code, generate test stubs for every public function and class method.\n"
+            "Each test must:\n"
+            "1. Have a descriptive name (test_<function>_<scenario>)\n"
+            "2. Include a one-line docstring\n"
+            "3. Follow Arrange / Act / Assert structure with TODO markers\n"
+            "4. NOT include implementation — stubs only\n"
+            "Output ONLY the complete test file content, ready to save."
+        )
+        user_msg = (
+            f"Source file: {rel}\n\n"
+            f"```\n{excerpt}\n```"
+        )
+
+        try:
+            test_content = _llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_msg},
+            ])
+        except Exception as exc:
+            test_content = f"# Test generation failed: {exc}"
+
+        # Strip any markdown fencing the LLM might add, then strip once at the end
+        test_content = _re.sub(r"^```[a-zA-Z]*\n?", "", test_content)
+        test_content = _re.sub(r"\n?```$", "", test_content).strip()
+
+        # Suggest output filename
+        stem = src_file.stem
+        if framework == "pytest":
+            suggested_name = f"test_{stem}.py"
+        elif framework in ("jest",):
+            suggested_name = f"{stem}.test{src_file.suffix}"
+        elif framework in ("xunit",):
+            suggested_name = f"{stem}Tests.cs"
+        else:
+            suggested_name = f"test_{stem}{src_file.suffix}"
+
+        generated.append({
+            "source_file":    rel,
+            "test_file_name": suggested_name,
+            "framework":      framework,
+            "content":        test_content,
+        })
+
+    return {
+        "project_id":  project_id,
+        "framework":   framework,
+        "test_files":  generated,
+        "files_count": len(generated),
+        "summary":     (
+            f"Generated {len(generated)} test file(s) for {project_id} "
+            f"using {framework}."
+        ),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))

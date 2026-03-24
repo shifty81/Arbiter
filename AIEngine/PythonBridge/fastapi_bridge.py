@@ -2442,6 +2442,21 @@ def git_create_branch(req: _GitBranchReq):
 from fastapi import Request as _Request
 
 
+# Phase 8 — parameterised bridge stubs (path params can't use the static stub loop)
+
+@app.post("/projects/{project_id}/docs")
+@app.post("/projects/{project_id}/estimate")
+@app.post("/projects/{project_id}/test-generate")
+async def _phase8_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 8 project-scoped endpoints (PA8-2, PA8-5, PA8-6)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase8",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
 def _stub_handler(feature: str):
     async def _h(_req: _Request):
         return {
@@ -2484,6 +2499,10 @@ for _stub_path, _stub_tag in [
     ("/plugins", "plugins"), ("/plugins/install", "plugins"),
     ("/plugins/reload", "plugins"), ("/plugins/generate", "plugins"),
     ("/terminal/session", "terminal"), ("/terminal/sessions", "terminal"),
+    # Phase 8 — Smart Automation & Workspace Productivity (stubs for bridge parity)
+    ("/ai/project-refactor", "phase8"),
+    ("/workspace/todos", "phase8"),
+    ("/ai/migrate", "phase8"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),

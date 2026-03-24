@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1404,6 +1404,50 @@
           "id": "PA7-6",
           "title": "POST /projects/{id}/changelog — generate a human-readable CHANGELOG from git log, grouped by version tag or date range",
           "status": "done"
+        }
+      ]
+    },
+    {
+      "id": "Phase8",
+      "title": "Smart Automation & Workspace Productivity",
+      "description": "Raise Arbiter's automation ceiling with project-wide code intelligence and workflow tools. New capabilities: whole-project refactoring analysis, AI-generated documentation suites, workspace TODO aggregation, framework migration planning, roadmap effort estimation, and AI unit-test stub generation.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA8-1",
+          "title": "POST /ai/project-refactor — project-wide code-smell & refactoring opportunity analysis across all source files",
+          "status": "done",
+          "notes": "POST /ai/project-refactor: scans up to 30 source files in the project, builds compact excerpts, asks LLM to rank up to 8 refactoring opportunities by impact. Each opportunity includes file, impact (High/Medium/Low), category, and description. Optional focus hint steers analysis."
+        },
+        {
+          "id": "PA8-2",
+          "title": "POST /projects/{id}/docs — AI-generated project documentation suite: overview, architecture, module summaries, API reference, and a Markdown README skeleton",
+          "status": "done",
+          "notes": "POST /projects/{id}/docs: reads roadmap.json + up to 20 source files, generates overview/architecture/modules/api_summary sections via LLM. Returns structured JSON plus a ready-to-use Markdown README skeleton."
+        },
+        {
+          "id": "PA8-3",
+          "title": "GET /workspace/todos — aggregate all TODO/FIXME/HACK/NOTE/DEPRECATED annotations across every managed project",
+          "status": "done",
+          "notes": "GET /workspace/todos: regex-scans source files in all Projects/ directories (or a single project). Returns items grouped by project with file, line, category, and text. Supports project/category/limit query params."
+        },
+        {
+          "id": "PA8-4",
+          "title": "POST /ai/migrate — AI-generated step-by-step framework/runtime migration plan with breaking changes, risk levels, and code examples",
+          "status": "done",
+          "notes": "POST /ai/migrate: accepts project_id, from_framework, to_framework, notes. Samples up to 10 source files for context. LLM returns overview, breaking_changes[], steps[] (each with step, risk, title, detail), and estimated_effort."
+        },
+        {
+          "id": "PA8-5",
+          "title": "POST /projects/{id}/estimate — AI effort and complexity estimation (Low/Medium/High + hours range + risk) for every pending roadmap task",
+          "status": "done",
+          "notes": "POST /projects/{id}/estimate: parses roadmap.json for pending tasks, asks LLM to produce per-task estimates. Returns estimates[] with complexity, hours, risk, dependencies, plus complexity_summary totals."
+        },
+        {
+          "id": "PA8-6",
+          "title": "POST /projects/{id}/test-generate — AI generates unit-test stubs (pytest/jest/xunit/auto) for all untested functions and classes in a project",
+          "status": "done",
+          "notes": "POST /projects/{id}/test-generate: detects test framework from existing test files, scans up to 15 source files, generates complete test stub files per source file with arrange/act/assert structure and TODO markers. Supports file_path restriction."
         }
       ]
     }

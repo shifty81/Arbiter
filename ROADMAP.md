@@ -7,7 +7,7 @@
 
 ## Current Status
 
-**Version:** 1.9.0 | **All M0–M14 milestones + Phases 1–7 complete** ✅
+**Version:** 1.10.0 | **All M0–M14 milestones + Phases 1–8 complete** ✅
 
 ---
 
@@ -44,6 +44,7 @@
 | **Phase 5** | Production & Deployment | Dockerfile, self-update, API keys + rate-limit, plugins | ✅ Done |
 | **Phase 6** | Cross-Project Intelligence | commit-message AI, AI plan, workspace timeline, dependencies, snapshots, context/summary, cross-project search | ✅ Done |
 | **Phase 7** | Observability & Developer Experience | /metrics, project activity feed, AI explain, workspace health, git blame-explain, project changelog | ✅ Done |
+| **Phase 8** | Smart Automation & Workspace Productivity | /ai/project-refactor, /projects/{id}/docs, /workspace/todos, /ai/migrate, /projects/{id}/estimate, /projects/{id}/test-generate | ✅ Done |
 
 ---
 
@@ -73,4 +74,4 @@ Monaco IDE. See [Self-Build Loop](docs/wiki/SELF_BUILD.md) for details.
 
 ---
 
-*Last updated: 2026-03-24*
+*Last updated: 2026-03-24 — v1.10.0*
