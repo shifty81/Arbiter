@@ -23,11 +23,14 @@ class LocalLLM(BaseLLM):
         "Set one up and select it in the model picker:\n\n"
         "| Backend | How to start |\n"
         "|---|---|\n"
-        "| **Ollama** *(recommended)* | Install from https://ollama.ai, then `ollama pull llama3` |\n"
+        "| **Embedded** *(recommended — no external app needed)* | `pip install llama-cpp-python`, then `POST /ai/embedded/load` with your `.gguf` file path |\n"
+        "| **Ollama** | Install from https://ollama.ai, then `ollama pull llama3` |\n"
         "| **LM Studio** | Download from https://lmstudio.ai and start the local server |\n"
         "| **LocalAI** | See https://localai.io |\n"
         "| **llama.cpp** | Run `./llama-server -m model.gguf --port 8080` |\n\n"
-        "Then pick the matching backend in the **model selector** at the bottom of the Chat panel."
+        "Then pick the matching backend in the **model selector** at the bottom of the Chat panel.\n\n"
+        "💡 **Tip:** Use the **Embedded** backend to run AI completely inside Arbiter "
+        "with no external applications — just a `.gguf` model file."
     )
 
     def chat(self, messages: list[dict[str, str]]) -> str:

@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.9.0",
+  "version": "1.16.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1404,6 +1404,326 @@
           "id": "PA7-6",
           "title": "POST /projects/{id}/changelog — generate a human-readable CHANGELOG from git log, grouped by version tag or date range",
           "status": "done"
+        }
+      ]
+    },
+    {
+      "id": "Phase8",
+      "title": "Smart Automation & Workspace Productivity",
+      "description": "Raise Arbiter's automation ceiling with project-wide code intelligence and workflow tools. New capabilities: whole-project refactoring analysis, AI-generated documentation suites, workspace TODO aggregation, framework migration planning, roadmap effort estimation, and AI unit-test stub generation.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA8-1",
+          "title": "POST /ai/project-refactor — project-wide code-smell & refactoring opportunity analysis across all source files",
+          "status": "done",
+          "notes": "POST /ai/project-refactor: scans up to 30 source files in the project, builds compact excerpts, asks LLM to rank up to 8 refactoring opportunities by impact. Each opportunity includes file, impact (High/Medium/Low), category, and description. Optional focus hint steers analysis."
+        },
+        {
+          "id": "PA8-2",
+          "title": "POST /projects/{id}/docs — AI-generated project documentation suite: overview, architecture, module summaries, API reference, and a Markdown README skeleton",
+          "status": "done",
+          "notes": "POST /projects/{id}/docs: reads roadmap.json + up to 20 source files, generates overview/architecture/modules/api_summary sections via LLM. Returns structured JSON plus a ready-to-use Markdown README skeleton."
+        },
+        {
+          "id": "PA8-3",
+          "title": "GET /workspace/todos — aggregate all TODO/FIXME/HACK/NOTE/DEPRECATED annotations across every managed project",
+          "status": "done",
+          "notes": "GET /workspace/todos: regex-scans source files in all Projects/ directories (or a single project). Returns items grouped by project with file, line, category, and text. Supports project/category/limit query params."
+        },
+        {
+          "id": "PA8-4",
+          "title": "POST /ai/migrate — AI-generated step-by-step framework/runtime migration plan with breaking changes, risk levels, and code examples",
+          "status": "done",
+          "notes": "POST /ai/migrate: accepts project_id, from_framework, to_framework, notes. Samples up to 10 source files for context. LLM returns overview, breaking_changes[], steps[] (each with step, risk, title, detail), and estimated_effort."
+        },
+        {
+          "id": "PA8-5",
+          "title": "POST /projects/{id}/estimate — AI effort and complexity estimation (Low/Medium/High + hours range + risk) for every pending roadmap task",
+          "status": "done",
+          "notes": "POST /projects/{id}/estimate: parses roadmap.json for pending tasks, asks LLM to produce per-task estimates. Returns estimates[] with complexity, hours, risk, dependencies, plus complexity_summary totals."
+        },
+        {
+          "id": "PA8-6",
+          "title": "POST /projects/{id}/test-generate — AI generates unit-test stubs (pytest/jest/xunit/auto) for all untested functions and classes in a project",
+          "status": "done",
+          "notes": "POST /projects/{id}/test-generate: detects test framework from existing test files, scans up to 15 source files, generates complete test stub files per source file with arrange/act/assert structure and TODO markers. Supports file_path restriction."
+        }
+      ]
+    },
+    {
+      "id": "Phase9",
+      "title": "Advanced Collaboration & Knowledge Management",
+      "description": "Deepen Arbiter's role as a knowledge hub for every workspace. New capabilities: narrative AI code walkthroughs, static test-coverage estimation, persistent developer notes, project velocity dashboards, programmatic roadmap task creation, and a cross-project executive workspace summary.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA9-1",
+          "title": "POST /ai/code-walkthrough — narrative AI walkthrough of any source file: purpose, execution flow, key decisions, and gotchas",
+          "status": "done",
+          "notes": "POST /ai/code-walkthrough: reads file_path (project-relative or absolute) or inline content, applies audience hint (developer/reviewer/onboarding). LLM returns structured PURPOSE/FLOW/KEY_DECISIONS/GOTCHAS sections."
+        },
+        {
+          "id": "PA9-2",
+          "title": "GET /projects/{id}/coverage-report — static test-coverage estimation via symbol name cross-reference (no test execution required)",
+          "status": "done",
+          "notes": "GET /projects/{id}/coverage-report: uses ast.walk for Python, regex for other langs to list public symbols; cross-references symbol names against test file content. Returns per-file breakdown and overall_coverage % with uncovered symbol lists."
+        },
+        {
+          "id": "PA9-3",
+          "title": "GET+POST+DELETE /workspace/notes — persistent multi-project developer scratchpad notes with full-text search",
+          "status": "done",
+          "notes": "Three endpoints: GET /workspace/notes (list, filter by project/q/limit), POST /workspace/notes (create note with title/body/project/tags), DELETE /workspace/notes/{id} (delete by id). Persisted to logs/workspace_notes.json with atomic writes."
+        },
+        {
+          "id": "PA9-4",
+          "title": "GET /projects/{id}/progress — velocity and progress dashboard: roadmap completion stats, commit frequency, open TODO count",
+          "status": "done",
+          "notes": "GET /projects/{id}/progress: combines roadmap completion pct, active phase, git commit frequency (by week over last N weeks), recent commits list, and open TODO/FIXME count from static scan."
+        },
+        {
+          "id": "PA9-5",
+          "title": "POST /projects/{id}/roadmap/task — add a new task to a project roadmap programmatically with AI-generated description",
+          "status": "done",
+          "notes": "POST /projects/{id}/roadmap/task: validates phase_id exists in roadmap.json, auto-generates task id, AI enriches description if blank, atomically rewrites roadmap.json. Supports status (pending/in_progress/done)."
+        },
+        {
+          "id": "PA9-6",
+          "title": "GET /workspace/summary — cross-project executive summary: status of all projects, recent activity, open TODOs, AI narrative",
+          "status": "done",
+          "notes": "GET /workspace/summary: iterates all Projects/ directories, collects roadmap completion, 7-day git commits, TODO count, last-modified. LLM writes 2-4 sentence executive narrative. Returns projects[] array plus narrative and generated_at timestamp."
+        }
+      ]
+    },
+    {
+      "id": "Phase10",
+      "title": "Embedded AI & Zero-External-Dependency Local Inference",
+      "description": "Eliminate the hard dependency on an external Ollama (or any other) server. Arbiter can now run LLM inference entirely in-process using llama-cpp-python and any GGUF model file. Full GPU acceleration (CUDA / Metal / CPU fallback) with a thread-safe singleton model state, hot-load/unload API, model file discovery, and seamless integration with the existing backend switcher.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA10-1",
+          "title": "POST /ai/embedded/load — load a GGUF model into process memory (no external server required)",
+          "status": "done",
+          "notes": "POST /ai/embedded/load: resolves model_path (relative to ArbiterEngine/ or absolute), calls llama-cpp-python Llama() in a thread, stores in global _ModelState singleton, optionally switches active backend to 'embedded'. Parameters: model_path, n_ctx (4096), n_gpu_layers (-1=all GPU), n_threads (0=auto), verbose, switch_active."
+        },
+        {
+          "id": "PA10-2",
+          "title": "GET /ai/embedded/status — model state, GPU hardware info, llama-cpp-python install status",
+          "status": "done",
+          "notes": "GET /ai/embedded/status: checks llama_cpp import, reads _ModelState (is_loaded, model_path, n_ctx, n_gpu_layers, n_threads), queries nvidia-smi for GPU name/memory. Returns install_hint if not installed."
+        },
+        {
+          "id": "PA10-3",
+          "title": "GET /ai/embedded/models — discover .gguf model files in ArbiterEngine/models/ and config path",
+          "status": "done",
+          "notes": "GET /ai/embedded/models: scans ArbiterEngine/models/ (auto-created), optional search_dir override, config-derived path. Returns list with name, path, size_mb. Auto-creates models/ directory."
+        },
+        {
+          "id": "PA10-4",
+          "title": "POST /ai/embedded/unload — free the loaded model from RAM/VRAM and revert active backend",
+          "status": "done",
+          "notes": "POST /ai/embedded/unload: calls _ModelState.unload() in a thread (del self._llm), reverts active backend to 'ollama' if it was 'embedded'. Returns was_loaded flag and new active_backend."
+        },
+        {
+          "id": "PA10-5",
+          "title": "llm/embedded.py — thread-safe in-process GGUF backend with GPU acceleration and graceful llama-cpp-python absence handling",
+          "status": "done",
+          "notes": "New llm/embedded.py: EmbeddedLLM class backed by _ModelState singleton. chat/generate/stream_chat/tool_call all delegate to singleton. Graceful _NOT_INSTALLED and _NO_MODEL strings when llama-cpp-python absent or model not loaded. factory.py updated with embedded case. config.toml updated with [llm.embedded] section."
+        },
+        {
+          "id": "PA10-6",
+          "title": "GET /models/backends updated to include embedded backend with in-process reachability check",
+          "status": "done",
+          "notes": "GET /models/backends: embedded entry added with is_loaded from _ModelState as reachability indicator (no HTTP probe needed). base.py _fmt_unavailable updated to mention embedded. local.py stub message updated to recommend embedded. requirements.txt has llama-cpp-python as commented optional dep."
+        },
+        {
+          "id": "PA10-7",
+          "title": "llm/hardware.py — cross-platform hardware profiler: RAM/VRAM/CPU detection + adaptive config suggestion (n_gpu_layers, n_ctx, n_threads)",
+          "status": "done",
+          "notes": "New llm/hardware.py: HardwareProfile dataclass, detect_hardware() (psutil + /proc/meminfo + sysctl + nvidia-smi + wmic fallbacks), suggest_model_config() (VRAM-aware n_gpu_layers, RAM-aware n_ctx, physical-core n_threads with rationale list). Embedded load now accepts auto_configure=True. _ModelState stores hardware + suggested_config at load time."
+        },
+        {
+          "id": "PA10-8",
+          "title": "GET /ai/hardware — hardware profile endpoint with model fit table and human-readable fit_summary",
+          "status": "done",
+          "notes": "GET /ai/hardware: calls detect_hardware() and suggest_model_config(), returns hardware dict, suggested_config, fit_summary (text with emoji), model_path, and available_models_fit list per .gguf file in models/. POST /ai/embedded/load updated with auto_configure param and chat_format='auto' (heuristic template detection). GET /ai/embedded/status updated to return stored hardware profile. GET /ai/embedded/models updated to include hardware_fit per model. config.toml updated with auto_configure, chat_format, new sentinel defaults."
+        }
+      ]
+    },
+    {
+      "id": "Phase11",
+      "title": "AI Code Intelligence & Semantic Workspace Search",
+      "description": "Intelligent code search, one-shot AI fixes, security auditing, auto context building, symbol rename, AI usage analytics, and hardware-adaptive model loading — all powered by the existing LLM infrastructure.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA11-1",
+          "title": "POST /ai/semantic-search — natural-language search across workspace source files with AI keyword expansion and re-ranking",
+          "status": "done",
+          "notes": "POST /ai/semantic-search: uses LLM to expand query into 10-15 keywords, scores source files by TF-weighted keyword frequency, returns top results with snippets. Optional AI re-ranking step ranks candidates and writes a summary. Parameters: query, project_id, max_results (1-20), include_snippet, ai_rank."
+        },
+        {
+          "id": "PA11-2",
+          "title": "POST /ai/fix — one-shot AI code fix given file + error/lint message; returns original, fixed, unified diff, and explanation",
+          "status": "done",
+          "notes": "POST /ai/fix: reads file (or inline content), sends to LLM with error description + optional context. LLM returns complete corrected source + EXPLANATION: section. Response includes original, fixed, unified diff (difflib), lines_changed count, explanation. Parameters: file_path, project_id, error, content, context."
+        },
+        {
+          "id": "PA11-3",
+          "title": "POST /projects/{id}/security-audit — AI-powered OWASP/CWE security scan of project source; structured findings with severity",
+          "status": "done",
+          "notes": "POST /projects/{id}/security-audit: iterates up to 30 source files, sends excerpts to LLM with OWASP/CWE audit prompt. Parses structured FINDING blocks (SEVERITY/FILE/LINE/CATEGORY/DESCRIPTION/RECOMMENDATION/END_FINDING). Returns findings sorted by severity + audit summary. Supports all major language extensions."
+        },
+        {
+          "id": "PA11-4",
+          "title": "POST /ai/context/build — auto-build focused AI context window by scoring project files for a query",
+          "status": "done",
+          "notes": "POST /ai/context/build: tokenises query, scores all project source files by keyword frequency, selects top max_files (capped at 10) within max_total_chars (capped at 20000). Returns assembled context string + per-file score/char breakdown + usage hint. Parameters: query, project_id, max_files, max_total_chars."
+        },
+        {
+          "id": "PA11-5",
+          "title": "POST /ai/rename-symbol — AI-assisted whole-project symbol rename with dry-run, word-boundary matching, and advisory notes",
+          "status": "done",
+          "notes": "POST /ai/rename-symbol: whole-word regex rename across all source files in a project. dry_run=true by default (returns plan without writing). AI advisory step identifies risky cases (serialised keys, reflection, config files). Parameters: project_id, old_name, new_name, dry_run, whole_word."
+        },
+        {
+          "id": "PA11-6",
+          "title": "GET /workspace/ai-stats — AI usage statistics: call count, token estimates, active backend, per-project breakdown, top endpoints, cache size, uptime",
+          "status": "done",
+          "notes": "GET /workspace/ai-stats: aggregates _budget (per-project calls + estimated tokens), _metrics (per-endpoint request/error/latency), _llm_cache size, _SERVER_START_TIME for uptime. Returns structured JSON: total_ai_calls, total_estimated_tokens, active_backend, projects[], top_endpoints[], cache_size, uptime_seconds, session_start."
+        }
+      ]
+    },
+    {
+      "id": "Phase12",
+      "title": "AI Agent Workflows & Multi-Step Task Pipelines",
+      "description": "Multi-step AI workflows with state passing, AI-driven source file generation, structured code review, and backend/model recommendation — all building on the existing LLM and hardware-profiling infrastructure.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA12-1",
+          "title": "POST /ai/workflow/run — execute a named multi-step AI workflow; steps pass output forward via {{output}} placeholder; returns run-id + per-step results",
+          "status": "done",
+          "notes": "POST /ai/workflow/run: accepts workflow_name, steps[] (name/prompt/system), project_id, initial_context. Executes up to 20 steps sequentially; each step can use {{output}} to reference prior result. In-memory store (_WORKFLOW_STORE, max 200 entries). Returns run_id, status, steps[], final_output. Chain stops on error unless last step."
+        },
+        {
+          "id": "PA12-2",
+          "title": "GET /ai/workflow/{run_id} — retrieve a stored workflow result by run ID",
+          "status": "done",
+          "notes": "GET /ai/workflow/{run_id}: looks up _WORKFLOW_STORE by UUID, 404 if not found. Returns full result including all step outputs."
+        },
+        {
+          "id": "PA12-3",
+          "title": "GET /ai/workflow/list — list stored workflow runs with optional project filter",
+          "status": "done",
+          "notes": "GET /ai/workflow/list: returns summary view (no step details) sorted newest-first. Query params: project_id (filter), limit (1-200, default 50). Returns total, runs[]."
+        },
+        {
+          "id": "PA12-4",
+          "title": "POST /projects/{id}/generate — AI-driven source file generation from a natural-language spec; writes file to project; dry_run supported",
+          "status": "done",
+          "notes": "POST /projects/{id}/generate: LLM writes complete production-ready source code from spec. Language detected from file_path extension or explicit hint. dry_run=false (default) writes to disk; overwrite=false (default) prevents clobbering. Strips markdown fences from output. Returns content, file_path, written, line_count, char_count."
+        },
+        {
+          "id": "PA12-5",
+          "title": "POST /ai/code-review — structured AI code review: quality/security/performance/style issues with severity, line hints, and recommendations",
+          "status": "done",
+          "notes": "POST /ai/code-review: reads file or inline content, sends to LLM with focus-aware system prompt (all/quality/security/performance/style). Parses ISSUE:...END_ISSUE blocks into structured findings (severity/line/category/description/suggestion). Returns issues[] sorted by severity + REVIEW_SUMMARY. Max 10000 chars reviewed. Uses _PA12ReviewReq to avoid class name conflict with existing M5-4 _ReviewReq."
+        },
+        {
+          "id": "PA12-6",
+          "title": "GET /ai/models/recommend — recommend best backend and model tier for a task type using hardware profile",
+          "status": "done",
+          "notes": "GET /ai/models/recommend: task types: code/chat/analysis/summarise/embedding/translation/vision/long_context. Uses llm/hardware.py detect_hardware() to assess VRAM/RAM, maps to model size tiers, ranks embedded/ollama/openai backends by quality. Returns top_recommendation, recommendations[] with setup instructions, hardware_summary."
+        }
+      ]
+    },
+    {
+      "id": "Phase13",
+      "title": "Web-Augmented Local AI — Local LLM with Live Web Search",
+      "description": "The local AI (embedded/Ollama) remains the sole inference backend. Web search results are fetched from DuckDuckGo Lite (no API key) or a self-hosted SearXNG instance and injected as RAG context into the LLM prompt, giving it access to live web information without any cloud API calls.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA13-1",
+          "title": "POST /ai/web-ask — web-augmented Q&A: search web → inject top results as RAG context → answer via local LLM; includes sources[] in response",
+          "status": "done",
+          "notes": "POST /ai/web-ask: calls _do_web_search(), builds RAG context block via llm/web_search.build_rag_context(), then asks local LLM with 'web-grounded assistant' system prompt. Returns answer, sources_used, sources[]. max_results clamped 1-10."
+        },
+        {
+          "id": "PA13-2",
+          "title": "POST /ai/web-search — raw web search: returns structured {title, url, snippet} results without LLM synthesis",
+          "status": "done",
+          "notes": "POST /ai/web-search: pure search endpoint — no LLM call. Returns query, provider, result_count, results[]. max_results clamped 1-20. Useful for debugging, custom prompting, or direct display."
+        },
+        {
+          "id": "PA13-3",
+          "title": "GET /ai/web-search/config — return current web search runtime configuration",
+          "status": "done",
+          "notes": "GET /ai/web-search/config: returns _ws_config dict (enabled, provider, max_results, timeout_s, searxng_url). Config initially loaded from [web_search] in config.toml, updatable at runtime."
+        },
+        {
+          "id": "PA13-4",
+          "title": "POST /ai/web-search/config — update web search config at runtime: enabled, provider, max_results, timeout_s, searxng_url",
+          "status": "done",
+          "notes": "POST /ai/web-search/config: updates _ws_config under _ws_lock. Validates provider against {duckduckgo, searxng}. Clamps max_results 1-20, timeout_s 1-60. Changes take effect immediately; not persisted to disk."
+        },
+        {
+          "id": "PA13-5",
+          "title": "POST /ai/chat/web — web-grounded chat with full conversation history; injects search context from last user message",
+          "status": "done",
+          "notes": "POST /ai/chat/web: accepts messages[] history + optional search_latest_message flag. Derives search query from last user message, fetches results, prepends as system context, forwards full history to local LLM. Returns answer, search_query, sources_used, sources[]."
+        },
+        {
+          "id": "PA13-6",
+          "title": "GET /ai/web-search/providers — list available search providers with configuration status and note about local-only inference",
+          "status": "done",
+          "notes": "GET /ai/web-search/providers: returns providers[] with name, description, requires, configured, selected flags. DuckDuckGo always configured=true; SearXNG configured=true only when searxng_url is set. Includes a note clarifying local-only inference architecture."
+        }
+      ]
+    },
+    {
+      "id": "Phase14",
+      "title": "AI Memory & Persistent Context — Long-Term Memory Store",
+      "description": "SQLite-backed long-term memory store. The AI remembers facts, decisions, and context across chat sessions. Memories can be tagged, importance-ranked, given an optional TTL, and retrieved via keyword/tag search or injected automatically as RAG context before LLM prompts.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA14-1",
+          "title": "POST /ai/memory — store a memory with content, tags[], source, importance (1-5), optional ttl_days",
+          "status": "done",
+          "notes": "POST /ai/memory: stores to .arbiter/memory.db SQLite (WAL mode). Generates UUID id. Encodes tags as comma-separated lowercase string. Computes expires_at from ttl_days. Returns id, created_at, expires_at, importance, tags[]."
+        },
+        {
+          "id": "PA14-2",
+          "title": "GET /ai/memory/search — keyword + tag search across stored memories; ranked by importance desc, recency desc",
+          "status": "done",
+          "notes": "GET /ai/memory/search: query params: q (keyword), tags (CSV), source, min_importance, include_expired, limit (1-100). Keyword match is case-insensitive substring in content. All specified tags must be present. Returns query, tag_filter, result_count, results[]."
+        },
+        {
+          "id": "PA14-3",
+          "title": "GET /ai/memory/list — list all memories with optional tag/source/importance filters and pagination",
+          "status": "done",
+          "notes": "GET /ai/memory/list: query params: tags, source, min_importance, include_expired, page, page_size (1-200). Returns total, page, page_size, pages, items[]. No keyword filter — use /search for that."
+        },
+        {
+          "id": "PA14-4",
+          "title": "DELETE /ai/memory/{id} — delete a specific memory by UUID; returns 404 if not found",
+          "status": "done",
+          "notes": "DELETE /ai/memory/{memory_id}: executes DELETE WHERE id=? and checks rowcount. Returns {deleted: true, id} on success, 404 HTTPException if not found."
+        },
+        {
+          "id": "PA14-5",
+          "title": "POST /ai/memory/inject — build RAG context block from relevant memories; optionally ask the local LLM grounded in retrieved memories",
+          "status": "done",
+          "notes": "POST /ai/memory/inject: retrieves memories matching query + tag/importance filters. Formats as '=== Relevant memories for: ... ===' block. Updates access_count + last_accessed for matched rows. Optional 'ask' field triggers local LLM call with memory context. Returns context_block, memories[], memories_used, optional answer."
+        },
+        {
+          "id": "PA14-6",
+          "title": "GET /ai/memory/stats — memory store statistics with optional prune=true to delete expired entries",
+          "status": "done",
+          "notes": "GET /ai/memory/stats: returns total, active, expired, pruned (0 unless prune=true), by_importance{1-5}, by_source{label:count}, all_tags[], oldest_entry, newest_entry, db_path. prune=true DELETEs expired rows then returns fresh counts."
         }
       ]
     }

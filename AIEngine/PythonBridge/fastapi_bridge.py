@@ -2442,6 +2442,73 @@ def git_create_branch(req: _GitBranchReq):
 from fastapi import Request as _Request
 
 
+# Phase 8 — parameterised bridge stubs (path params can't use the static stub loop)
+
+@app.post("/projects/{project_id}/docs")
+@app.post("/projects/{project_id}/estimate")
+@app.post("/projects/{project_id}/test-generate")
+async def _phase8_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 8 project-scoped endpoints (PA8-2, PA8-5, PA8-6)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase8",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
+# Phase 9 — parameterised bridge stubs
+
+@app.get("/projects/{project_id}/coverage-report")
+@app.get("/projects/{project_id}/progress")
+@app.post("/projects/{project_id}/roadmap/task")
+async def _phase9_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 9 project-scoped endpoints (PA9-2, PA9-4, PA9-5)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase9",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
+# Phase 11 — parameterised bridge stubs
+
+@app.post("/projects/{project_id}/security-audit")
+async def _phase11_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 11 project-scoped endpoints (PA11-3)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase11",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
+# Phase 12 — parameterised bridge stubs
+
+@app.post("/projects/{project_id}/generate")
+async def _phase12_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 12 project-scoped endpoints (PA12-4)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase12",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
+@app.get("/ai/workflow/{run_id}")
+async def _phase12_workflow_stub(run_id: str, _req: _Request):
+    """Bridge stub for Phase 12 workflow retrieval (PA12-2)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase12",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
 def _stub_handler(feature: str):
     async def _h(_req: _Request):
         return {
@@ -2484,6 +2551,43 @@ for _stub_path, _stub_tag in [
     ("/plugins", "plugins"), ("/plugins/install", "plugins"),
     ("/plugins/reload", "plugins"), ("/plugins/generate", "plugins"),
     ("/terminal/session", "terminal"), ("/terminal/sessions", "terminal"),
+    # Phase 8 — Smart Automation & Workspace Productivity
+    ("/ai/project-refactor", "phase8"),
+    ("/workspace/todos", "phase8"),
+    ("/ai/migrate", "phase8"),
+    # Phase 9 — Advanced Collaboration & Knowledge Management
+    ("/ai/code-walkthrough", "phase9"),
+    ("/workspace/notes", "phase9"),
+    ("/workspace/summary", "phase9"),
+    # Phase 10 — Embedded AI & Zero-External-Dependency Local Inference
+    ("/ai/embedded/load", "phase10"),
+    ("/ai/embedded/status", "phase10"),
+    ("/ai/embedded/models", "phase10"),
+    ("/ai/embedded/unload", "phase10"),
+    # Phase 11 — AI Code Intelligence & Semantic Workspace Search
+    ("/ai/semantic-search", "phase11"),
+    ("/ai/fix", "phase11"),
+    ("/ai/context/build", "phase11"),
+    ("/ai/rename-symbol", "phase11"),
+    ("/workspace/ai-stats", "phase11"),
+    ("/ai/hardware", "phase11"),
+    # Phase 12 — AI Agent Workflows & Multi-Step Task Pipelines
+    ("/ai/workflow/run", "phase12"),
+    ("/ai/workflow/list", "phase12"),
+    ("/ai/code-review", "phase12"),
+    ("/ai/models/recommend", "phase12"),
+    # Phase 13 — Web-Augmented Local AI
+    ("/ai/web-ask", "phase13"),
+    ("/ai/web-search", "phase13"),
+    ("/ai/web-search/config", "phase13"),
+    ("/ai/web-search/providers", "phase13"),
+    ("/ai/chat/web", "phase13"),
+    # Phase 14 — AI Memory & Persistent Context
+    ("/ai/memory", "phase14"),
+    ("/ai/memory/search", "phase14"),
+    ("/ai/memory/list", "phase14"),
+    ("/ai/memory/inject", "phase14"),
+    ("/ai/memory/stats", "phase14"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),

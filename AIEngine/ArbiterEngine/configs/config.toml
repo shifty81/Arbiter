@@ -30,6 +30,18 @@ model = "codestral"
 [llm.local]
 model_path = "models/model.gguf"
 
+[llm.embedded]
+# In-process GGUF inference via llama-cpp-python — no external server required.
+# Install: pip install llama-cpp-python
+# GPU (CUDA): pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+model_path     = "models/model.gguf"  # relative to ArbiterEngine/ or absolute
+auto_configure = true                  # auto-detect RAM/VRAM/CPU and tune parameters
+n_ctx          = 0                     # 0 = auto (hardware-adaptive); or set explicitly e.g. 4096
+n_gpu_layers   = -2                    # -2 = auto; -1 = all layers on GPU; 0 = CPU only
+n_threads      = 0                     # 0 = auto; or set explicitly e.g. 8
+chat_format    = "auto"                # "auto" detects from filename; or "chatml"/"llama-2" etc.
+verbose        = false
+
 [llm.lmstudio]
 base_url = "http://localhost:1234"
 model = ""
@@ -78,3 +90,13 @@ max_size_mb = 512
 #   database_engineer, mobile_developer, devops_engineer, security_auditor,
 #   test_engineer, code_reviewer, performance_engineer, documentation_writer, ai_ml_engineer
 active = ""
+
+[web_search]
+# Web search augmentation for the local AI — no API key required.
+# When enabled, /ai/web-ask and /ai/chat/web fetch live search results and
+# inject them as context into the local LLM's prompt.
+enabled     = true
+provider    = "duckduckgo"   # "duckduckgo" (no API key) | "searxng" (self-hosted)
+max_results = 5              # number of search results to retrieve per query
+timeout_s   = 8              # HTTP timeout for each search request (seconds)
+searxng_url = ""             # required only when provider = "searxng", e.g. "http://localhost:8080"

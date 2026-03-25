@@ -113,6 +113,7 @@ _PERSONAS = [
 ]
 _active_personas: dict[str, str] = {}
 _MAX_CHAT_HISTORY_TURNS = 40
+_SERVER_START_TIME: float = time.time()   # recorded once at server boot for uptime tracking
 
 # ─── M13: Metrics, Budget tracking, and LRU response cache ───────────────────
 
@@ -8521,6 +8522,7 @@ def models_backends() -> dict:
     import importlib
 
     backends_config = {
+        "embedded":  {"label": "Embedded (in-process)", "url": "",                                                          "model": _config.get("llm.embedded.model_path", "models/model.gguf")},
         "ollama":    {"label": "Ollama",    "url": _config.get("llm.ollama.base_url",    "http://localhost:11434"), "model": _config.get("llm.ollama.model", "llama3")},
         "lmstudio":  {"label": "LM Studio", "url": _config.get("llm.lmstudio.base_url",  "http://localhost:1234"),  "model": _config.get("llm.lmstudio.model", "")},
         "localai":   {"label": "LocalAI",   "url": _config.get("llm.localai.base_url",   "http://localhost:8080"),  "model": _config.get("llm.localai.model", "codestral")},
@@ -8537,8 +8539,15 @@ def models_backends() -> dict:
     result = []
     for key, info in backends_config.items():
         url = info["url"]
-        reachable = False
-        if url.startswith("http"):
+        reachable: bool = False
+        if key == "embedded":
+            try:
+                from llm.embedded import get_state as _get_emb_state
+                _es = _get_emb_state()
+                reachable = _es.is_loaded
+            except Exception:
+                reachable = False
+        elif url.startswith("http"):
             try:
                 _req_mod.get(url, timeout=2)
                 reachable = True
@@ -11985,6 +11994,4486 @@ def project_changelog(project_id: str, req: _ChangelogReq) -> dict:
         "sections":   len(changelog_sections),
         "changelog":  full_changelog,
         "entries":    changelog_sections,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 8 — Smart Automation & Workspace Productivity
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA8-1: Project-wide code-smell & refactoring analysis ─────────────────────
+
+_MAX_REFACTOR_FILES = 30        # cap on source files sampled per project
+_MAX_REFACTOR_FILE_CHARS = 3_000  # chars read per file
+
+
+class _ProjectRefactorReq(BaseModel):
+    project_id: str
+    focus: str = ""   # optional hint e.g. "performance", "security", "readability"
+    max_files: int = _MAX_REFACTOR_FILES
+
+
+@app.post("/ai/project-refactor")
+def ai_project_refactor(req: _ProjectRefactorReq) -> dict:
+    """Analyse a managed project for code smells and architectural weaknesses.
+
+    Scans up to *max_files* source files from the project directory, builds a
+    compact summary, and asks the LLM to identify the top refactoring
+    opportunities ranked by impact.  An optional *focus* hint steers the
+    analysis (e.g. ``"security"``, ``"performance"``, ``"readability"``).
+
+    Returns a ranked list of refactoring opportunities with file references.
+
+    PA8-1
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / req.project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{req.project_id}' not found")
+
+    _source_exts = {
+        ".py", ".js", ".ts", ".cs", ".go", ".rs", ".java", ".cpp", ".c",
+        ".rb", ".php", ".swift", ".kt", ".ex", ".exs",
+    }
+    _skip_dirs = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+    file_summaries: list[str] = []
+    max_f = max(1, min(req.max_files, 60))
+
+    for fp in sorted(project_dir.rglob("*")):
+        if len(file_summaries) >= max_f:
+            break
+        if fp.suffix.lower() not in _source_exts:
+            continue
+        if any(part in _skip_dirs for part in fp.parts):
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+            excerpt = content[:_MAX_REFACTOR_FILE_CHARS]
+            rel = str(fp.relative_to(_PROJECTS_DIR))
+            file_summaries.append(f"### {rel}\n```\n{excerpt}\n```")
+        except Exception:
+            pass
+
+    if not file_summaries:
+        return {
+            "project_id":     req.project_id,
+            "opportunities":  [],
+            "summary":        "No source files found for analysis.",
+            "files_analysed": 0,
+        }
+
+    system = (
+        "You are a senior software architect performing a code quality audit.\n"
+        "Given excerpts from project source files, identify the top refactoring\n"
+        "opportunities ranked by impact. For each one provide:\n"
+        "OPPORTUNITY: <short title>\n"
+        "FILE: <relative file path>\n"
+        "IMPACT: High|Medium|Low\n"
+        "CATEGORY: one of: code-smell|duplication|coupling|complexity|"
+        "security|performance|readability|naming\n"
+        "DESCRIPTION: <one or two sentence explanation and suggested fix>\n"
+        "---\n"
+        "List up to 8 opportunities. Output ONLY the structured items above."
+    )
+    focus_prefix = f"Focus area: {req.focus}\n\n" if req.focus else ""
+    user_msg = (
+        f"{focus_prefix}Project: {req.project_id} ({len(file_summaries)} files sampled)\n\n"
+        + "\n\n".join(file_summaries)
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse structured response
+    opportunities: list[dict] = []
+    current: dict = {}
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("OPPORTUNITY:"):
+            if current:
+                opportunities.append(current)
+            current = {"opportunity": ls[len("OPPORTUNITY:"):].strip()}
+        elif ls.startswith("FILE:") and current:
+            current["file"] = ls[len("FILE:"):].strip()
+        elif ls.startswith("IMPACT:") and current:
+            current["impact"] = ls[len("IMPACT:"):].strip()
+        elif ls.startswith("CATEGORY:") and current:
+            current["category"] = ls[len("CATEGORY:"):].strip()
+        elif ls.startswith("DESCRIPTION:") and current:
+            current["description"] = ls[len("DESCRIPTION:"):].strip()
+        elif ls == "---" and current:
+            opportunities.append(current)
+            current = {}
+    if current:
+        opportunities.append(current)
+
+    return {
+        "project_id":     req.project_id,
+        "files_analysed": len(file_summaries),
+        "focus":          req.focus or "general",
+        "opportunities":  opportunities,
+        "raw":            raw,
+    }
+
+
+# ── PA8-2: AI-generated project documentation suite ──────────────────────────
+
+_MAX_DOCS_FILES = 20
+_MAX_DOCS_FILE_CHARS = 2_500
+
+
+class _ProjectDocsReq(BaseModel):
+    include_api: bool = True       # include API endpoint summary (if server.py present)
+    include_architecture: bool = True
+    include_modules: bool = True
+
+
+@app.post("/projects/{project_id}/docs")
+def project_docs_generate(project_id: str, req: _ProjectDocsReq) -> dict:
+    """Generate a documentation suite for a managed project from its source files.
+
+    Produces:
+    - ``overview`` — project purpose and description from roadmap + source
+    - ``architecture`` — high-level component and module breakdown
+    - ``modules`` — per-module summaries
+    - ``api_summary`` — list of detected API endpoints (if applicable)
+    - ``markdown`` — a ready-to-use README skeleton combining all sections
+
+    PA8-2
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    # Collect roadmap context
+    roadmap_context = ""
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.is_file():
+        try:
+            rm = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            desc = rm.get("description", "")
+            version = rm.get("version", "")
+            roadmap_context = f"Project: {project_id} v{version}\nDescription: {desc}\n"
+        except Exception:
+            pass
+
+    # Collect source file excerpts
+    _source_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java", ".cpp", ".c"}
+    _skip_dirs = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+    file_excerpts: list[str] = []
+    for fp in sorted(project_dir.rglob("*")):
+        if len(file_excerpts) >= _MAX_DOCS_FILES:
+            break
+        if fp.suffix.lower() not in _source_exts:
+            continue
+        if any(part in _skip_dirs for part in fp.parts):
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+            rel = str(fp.relative_to(project_dir))
+            file_excerpts.append(f"{rel}:\n{content[:_MAX_DOCS_FILE_CHARS]}")
+        except Exception:
+            pass
+
+    if not file_excerpts and not roadmap_context:
+        return {
+            "project_id": project_id,
+            "overview":   "No source files found.",
+            "markdown":   "",
+        }
+
+    sections_wanted = []
+    if req.include_architecture:
+        sections_wanted.append("ARCHITECTURE")
+    if req.include_modules:
+        sections_wanted.append("MODULES")
+    if req.include_api:
+        sections_wanted.append("API_SUMMARY")
+
+    system = (
+        "You are a technical documentation writer.\n"
+        "Given project source files and roadmap info, write documentation with these sections:\n"
+        "OVERVIEW: <2–3 sentence project summary>\n"
+    )
+    if req.include_architecture:
+        system += "ARCHITECTURE: <component and layer breakdown>\n"
+    if req.include_modules:
+        system += "MODULES:\n- <module_file>: <one-line description>\n...\n"
+    if req.include_api:
+        system += "API_SUMMARY:\n- <METHOD /path>: <description>\n...\n"
+    system += "Output ONLY the labelled sections above — no extra text."
+
+    user_msg = roadmap_context + "\n\nSource files:\n\n" + "\n\n".join(file_excerpts)
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse sections
+    overview = ""
+    architecture = ""
+    modules_list: list[str] = []
+    api_list: list[str] = []
+    in_section = ""
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("OVERVIEW:"):
+            in_section = "overview"
+            overview = ls[len("OVERVIEW:"):].strip()
+        elif ls.startswith("ARCHITECTURE:"):
+            in_section = "architecture"
+            architecture = ls[len("ARCHITECTURE:"):].strip()
+        elif ls.startswith("MODULES:"):
+            in_section = "modules"
+        elif ls.startswith("API_SUMMARY:"):
+            in_section = "api"
+        elif in_section == "overview" and ls:
+            overview += " " + ls
+        elif in_section == "architecture" and ls:
+            architecture += "\n" + ls
+        elif in_section == "modules" and ls.startswith("-"):
+            modules_list.append(ls[1:].strip())
+        elif in_section == "api" and ls.startswith("-"):
+            api_list.append(ls[1:].strip())
+
+    # Build Markdown README skeleton
+    md_parts = [f"# {project_id}\n\n{overview.strip()}\n"]
+    if architecture:
+        md_parts.append(f"\n## Architecture\n\n{architecture.strip()}\n")
+    if modules_list:
+        md_parts.append("\n## Modules\n\n" + "\n".join(f"- {m}" for m in modules_list) + "\n")
+    if api_list:
+        md_parts.append("\n## API\n\n" + "\n".join(f"- {a}" for a in api_list) + "\n")
+
+    return {
+        "project_id":   project_id,
+        "overview":     overview.strip(),
+        "architecture": architecture.strip(),
+        "modules":      modules_list,
+        "api_summary":  api_list,
+        "markdown":     "".join(md_parts),
+        "files_used":   len(file_excerpts),
+        "raw":          raw,
+    }
+
+
+# ── PA8-3: Aggregate workspace TODO / FIXME annotations ──────────────────────
+
+_TODO_PATTERNS = _re.compile(
+    r"(?:#|//|/\*|<!--)\s*(TODO|FIXME|HACK|NOTE|DEPRECATED|XXX)\b[:\s]*(.*)",
+    _re.IGNORECASE,
+)
+_TODO_EXTS = {
+    ".py", ".js", ".ts", ".cs", ".go", ".rs", ".java", ".cpp", ".c",
+    ".rb", ".php", ".swift", ".kt", ".html", ".css", ".json", ".yaml", ".toml",
+}
+_TODO_SKIP = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+_MAX_TODO_FILES_PER_PROJECT = 200
+_MAX_TODOS_TOTAL = 500
+
+
+@app.get("/workspace/todos")
+def workspace_todos(
+    project: str = "",           # restrict to a single project id
+    category: str = "",          # filter: TODO|FIXME|HACK|NOTE|DEPRECATED|XXX
+    limit: int = 200,
+) -> dict:
+    """Return all TODO / FIXME / HACK / NOTE / DEPRECATED annotations in the workspace.
+
+    Scans source files in every managed ``Projects/`` directory (or a single
+    project when *project* is supplied).  Results are grouped by project and
+    include the file path, line number, category, and comment text.
+
+    Query params:
+    - ``project`` — restrict to a single project id (optional)
+    - ``category`` — filter by annotation type, case-insensitive (optional)
+    - ``limit``    — maximum annotations returned (default 200, max 500)
+
+    PA8-3
+    """
+    limit = max(1, min(limit, _MAX_TODOS_TOTAL))
+    cat_filter = category.upper() if category else ""
+
+    if project:
+        if not _PROJECT_ID_PATTERN.fullmatch(project):
+            raise HTTPException(status_code=422, detail="Invalid project id")
+        project_dirs = [_PROJECTS_DIR / project]
+        if not project_dirs[0].is_dir():
+            raise HTTPException(status_code=404,
+                                detail=f"Project '{project}' not found")
+    else:
+        if not _PROJECTS_DIR.is_dir():
+            return {"total": 0, "projects": {}, "items": []}
+        project_dirs = [p for p in sorted(_PROJECTS_DIR.iterdir()) if p.is_dir()]
+
+    all_items: list[dict] = []
+    by_project: dict[str, int] = {}
+
+    for proj_dir in project_dirs:
+        proj_name = proj_dir.name
+        file_count = 0
+        for fp in sorted(proj_dir.rglob("*")):
+            if file_count >= _MAX_TODO_FILES_PER_PROJECT:
+                break
+            if fp.suffix.lower() not in _TODO_EXTS:
+                continue
+            if any(part in _TODO_SKIP for part in fp.parts):
+                continue
+            file_count += 1
+            try:
+                for lineno, line in enumerate(
+                    fp.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+                ):
+                    m = _TODO_PATTERNS.search(line)
+                    if not m:
+                        continue
+                    cat = m.group(1).upper()
+                    if cat_filter and cat != cat_filter:
+                        continue
+                    text = m.group(2).strip()
+                    rel = str(fp.relative_to(_PROJECTS_DIR))
+                    all_items.append({
+                        "project":  proj_name,
+                        "file":     rel,
+                        "line":     lineno,
+                        "category": cat,
+                        "text":     text,
+                    })
+                    by_project[proj_name] = by_project.get(proj_name, 0) + 1
+                    if len(all_items) >= limit:
+                        break
+            except Exception:
+                pass
+            if len(all_items) >= limit:
+                break
+        if len(all_items) >= limit:
+            break
+
+    return {
+        "total":       len(all_items),
+        "by_project":  by_project,
+        "items":       all_items,
+        "truncated":   len(all_items) >= limit,
+    }
+
+
+# ── PA8-4: AI framework / version migration planning ─────────────────────────
+
+class _MigrateReq(BaseModel):
+    project_id: str
+    from_framework: str          # e.g. "Django 3.2", "React 17", "Python 3.9"
+    to_framework: str            # e.g. "Django 5.0", "React 19", "Python 3.12"
+    notes: str = ""              # optional extra context from the developer
+
+
+@app.post("/ai/migrate")
+def ai_migrate(req: _MigrateReq) -> dict:
+    """Generate a structured migration plan for upgrading a project's framework or runtime.
+
+    Analyses the project's source files and roadmap for context, then uses the
+    LLM to produce a step-by-step migration guide with:
+    - A migration overview and key breaking changes
+    - Ordered steps with risk levels (Low / Medium / High)
+    - Code-change examples where applicable
+
+    PA8-4
+    """
+    if not req.from_framework.strip() or not req.to_framework.strip():
+        raise HTTPException(status_code=422,
+                            detail="'from_framework' and 'to_framework' are required")
+    if req.project_id and not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / req.project_id if req.project_id else None
+    project_context = ""
+    if project_dir and project_dir.is_dir():
+        # Collect a few representative source files
+        _src_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+        _skip = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist"}
+        excerpts: list[str] = []
+        for fp in sorted(project_dir.rglob("*")):
+            if len(excerpts) >= 10:
+                break
+            if fp.suffix.lower() not in _src_exts:
+                continue
+            if any(p in _skip for p in fp.parts):
+                continue
+            try:
+                content = fp.read_text(encoding="utf-8", errors="replace")[:2_000]
+                rel = str(fp.relative_to(project_dir))
+                excerpts.append(f"{rel}:\n{content}")
+            except Exception:
+                pass
+        if excerpts:
+            project_context = "\n\nProject source excerpts:\n" + "\n---\n".join(excerpts)
+
+    notes_section = f"\nDeveloper notes: {req.notes}" if req.notes else ""
+
+    system = (
+        "You are a senior software engineer specialising in framework migrations.\n"
+        "Given a migration goal, produce a structured plan:\n"
+        "OVERVIEW: <2–3 sentence summary of the migration scope and main challenges>\n"
+        "BREAKING_CHANGES:\n"
+        "- <change 1>\n"
+        "...\n"
+        "STEPS:\n"
+        "STEP 1 [Risk: Low|Medium|High]: <title>\n"
+        "  <description and any code-change example>\n"
+        "STEP 2 [Risk: ...]: ...\n"
+        "...\n"
+        "ESTIMATED_EFFORT: <e.g. '2–5 days', '1–2 weeks'>\n"
+        "Output ONLY the labelled sections — no extra prose."
+    )
+    user_msg = (
+        f"Project: {req.project_id or '(unspecified)'}\n"
+        f"Migrate from: {req.from_framework}\n"
+        f"Migrate to:   {req.to_framework}"
+        f"{notes_section}"
+        f"{project_context}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse the structured response
+    overview = ""
+    breaking_changes: list[str] = []
+    steps: list[dict] = []
+    estimated_effort = ""
+    in_section = ""
+    current_step: dict = {}
+
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("OVERVIEW:"):
+            in_section = "overview"
+            overview = ls[len("OVERVIEW:"):].strip()
+        elif ls.startswith("BREAKING_CHANGES:"):
+            in_section = "breaking"
+        elif ls.startswith("STEPS:"):
+            in_section = "steps"
+        elif ls.startswith("ESTIMATED_EFFORT:"):
+            in_section = ""
+            estimated_effort = ls[len("ESTIMATED_EFFORT:"):].strip()
+        elif in_section == "overview" and ls:
+            overview += " " + ls
+        elif in_section == "breaking" and ls.startswith("-"):
+            breaking_changes.append(ls[1:].strip())
+        elif in_section == "steps":
+            step_m = _re.match(r"STEP\s+(\d+)\s*\[Risk:\s*(\w+)\]:\s*(.*)", ls, _re.IGNORECASE)
+            if step_m:
+                if current_step:
+                    steps.append(current_step)
+                current_step = {
+                    "step":  int(step_m.group(1)),
+                    "risk":  step_m.group(2),
+                    "title": step_m.group(3).strip(),
+                    "detail": "",
+                }
+            elif current_step and ls:
+                current_step["detail"] = (current_step["detail"] + "\n" + ls).strip()
+
+    if current_step:
+        steps.append(current_step)
+
+    return {
+        "project_id":       req.project_id,
+        "from_framework":   req.from_framework,
+        "to_framework":     req.to_framework,
+        "overview":         overview.strip(),
+        "breaking_changes": breaking_changes,
+        "steps":            steps,
+        "estimated_effort": estimated_effort,
+        "raw":              raw,
+    }
+
+
+# ── PA8-5: AI effort & complexity estimation for pending roadmap tasks ────────
+
+@app.post("/projects/{project_id}/estimate")
+def project_estimate(project_id: str) -> dict:
+    """Estimate effort and complexity for every pending task in a project's roadmap.
+
+    Reads the project roadmap.json, extracts all tasks with
+    ``status != "done"``, and uses the LLM to provide per-task estimates:
+    - ``complexity``: Low / Medium / High
+    - ``hours``: rough numeric range (e.g. ``"2–4"``)
+    - ``risk``: free-text risk note
+    - ``dependencies``: any implied prerequisite tasks
+
+    PA8-5
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    roadmap_path = project_dir / "roadmap.json"
+    if not roadmap_path.is_file():
+        raise HTTPException(status_code=404,
+                            detail=f"No roadmap.json found for project '{project_id}'")
+
+    try:
+        roadmap_data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to parse roadmap.json: {exc}") from exc
+
+    # Collect pending tasks from phases / milestones
+    pending_tasks: list[dict] = []
+    for container in roadmap_data.get("phases", roadmap_data.get("milestones", [])):
+        for task in container.get("tasks", []):
+            if task.get("status") not in ("done",):
+                pending_tasks.append({
+                    "id":    task.get("id", ""),
+                    "title": task.get("title", ""),
+                    "phase": container.get("id", ""),
+                })
+
+    if not pending_tasks:
+        return {
+            "project_id":    project_id,
+            "pending_tasks": 0,
+            "estimates":     [],
+            "summary":       "All roadmap tasks are already marked done.",
+        }
+
+    task_list_text = "\n".join(
+        f"- [{t['phase']}/{t['id']}] {t['title']}" for t in pending_tasks
+    )
+
+    system = (
+        "You are a software project manager estimating task effort.\n"
+        "For each task in the list, provide:\n"
+        "TASK_ID: <phase/id>\n"
+        "COMPLEXITY: Low|Medium|High\n"
+        "HOURS: <numeric range e.g. '2-4' or '8-16'>\n"
+        "RISK: <one sentence about the main risk or unknowns>\n"
+        "DEPENDENCIES: <comma-separated task ids this depends on, or 'none'>\n"
+        "---\n"
+        "Output ONLY these structured blocks — one per task."
+    )
+    user_msg = (
+        f"Project: {project_id}\n"
+        f"Pending tasks ({len(pending_tasks)}):\n{task_list_text}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse estimates
+    estimates: list[dict] = []
+    current_est: dict = {}
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.startswith("TASK_ID:"):
+            if current_est:
+                estimates.append(current_est)
+            current_est = {"task_id": ls[len("TASK_ID:"):].strip()}
+        elif ls.startswith("COMPLEXITY:") and current_est:
+            current_est["complexity"] = ls[len("COMPLEXITY:"):].strip()
+        elif ls.startswith("HOURS:") and current_est:
+            current_est["hours"] = ls[len("HOURS:"):].strip()
+        elif ls.startswith("RISK:") and current_est:
+            current_est["risk"] = ls[len("RISK:"):].strip()
+        elif ls.startswith("DEPENDENCIES:") and current_est:
+            dep_str = ls[len("DEPENDENCIES:"):].strip()
+            current_est["dependencies"] = (
+                [] if dep_str.lower() in ("none", "n/a", "")
+                else [d.strip() for d in dep_str.split(",")]
+            )
+        elif ls == "---" and current_est:
+            estimates.append(current_est)
+            current_est = {}
+    if current_est:
+        estimates.append(current_est)
+
+    # Attach task title to each estimate — build map with both full and short ids
+    task_map: dict[str, str] = {}
+    for t in pending_tasks:
+        task_map[t["id"]] = t["title"]
+        short = t["id"].split("/")[-1] if "/" in t["id"] else t["id"]
+        task_map.setdefault(short, t["title"])
+    for est in estimates:
+        est["title"] = task_map.get(est.get("task_id", ""), "")
+
+    # Totals
+    total_low  = sum(1 for e in estimates if e.get("complexity", "").lower() == "low")
+    total_med  = sum(1 for e in estimates if e.get("complexity", "").lower() == "medium")
+    total_high = sum(1 for e in estimates if e.get("complexity", "").lower() == "high")
+
+    return {
+        "project_id":    project_id,
+        "pending_tasks": len(pending_tasks),
+        "estimates":     estimates,
+        "complexity_summary": {
+            "low":    total_low,
+            "medium": total_med,
+            "high":   total_high,
+        },
+        "raw":           raw,
+    }
+
+
+# ── PA8-6: AI unit-test stub generation ──────────────────────────────────────
+
+_MAX_TEST_GEN_FILES = 15
+_MAX_TEST_GEN_FILE_CHARS = 4_000
+
+
+class _TestGenerateReq(BaseModel):
+    file_path: str = ""    # relative path inside the project; empty = all source files
+    framework: str = ""    # e.g. "pytest", "xunit", "jest" — auto-detected if empty
+
+
+@app.post("/projects/{project_id}/test-generate")
+def project_test_generate(project_id: str, req: _TestGenerateReq) -> dict:
+    """Generate unit-test stubs for functions / classes that lack test coverage.
+
+    When *file_path* is empty, Arbiter scans all source files in the project
+    and identifies untested symbols by comparing source files against existing
+    test files.  For each untested function or class the LLM generates a test
+    stub with docstring, arrange/act/assert structure, and a TODO marker.
+
+    Body fields:
+    - ``file_path``  — restrict to a single source file (relative to project root)
+    - ``framework``  — test framework hint; auto-detected from existing tests if omitted
+
+    PA8-6
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    _src_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+    _test_globs = ["test_*.py", "*_test.py", "*.test.ts", "*.test.js",
+                   "*.spec.ts", "*.spec.js", "*Test.cs", "*Tests.cs"]
+    _skip = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+    # Identify existing test files for coverage awareness
+    existing_tests: set[str] = set()
+    for fp in project_dir.rglob("*"):
+        if any(fp.match(g) for g in _test_globs):
+            existing_tests.add(fp.name)
+
+    # Detect test framework if not supplied
+    framework = req.framework
+    if not framework:
+        if any(fp.suffix == ".py" for fp in project_dir.rglob("test_*.py")):
+            framework = "pytest"
+        elif any(fp.suffix in (".ts", ".js") for fp in project_dir.rglob("*.test.*")):
+            framework = "jest"
+        elif any(fp.suffix == ".cs" for fp in project_dir.rglob("*Test*.cs")):
+            framework = "xunit"
+        else:
+            framework = "auto"
+
+    # Collect source files to generate tests for
+    target_files: list[Path] = []
+    if req.file_path:
+        candidate = project_dir / req.file_path
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File '{req.file_path}' not found in project")
+        target_files = [candidate]
+    else:
+        for fp in sorted(project_dir.rglob("*")):
+            if len(target_files) >= _MAX_TEST_GEN_FILES:
+                break
+            if fp.suffix.lower() not in _src_exts:
+                continue
+            if any(p in _skip for p in fp.parts):
+                continue
+            # Skip files that are already test files
+            if any(fp.match(g) for g in _test_globs):
+                continue
+            target_files.append(fp)
+
+    if not target_files:
+        return {
+            "project_id": project_id,
+            "framework":  framework,
+            "test_files": [],
+            "summary":    "No source files found to generate tests for.",
+        }
+
+    generated: list[dict] = []
+
+    for src_file in target_files:
+        rel = str(src_file.relative_to(project_dir))
+        try:
+            content = src_file.read_text(encoding="utf-8", errors="replace")
+            excerpt = content[:_MAX_TEST_GEN_FILE_CHARS]
+        except Exception:
+            continue
+
+        system = (
+            f"You are a test engineer writing {framework} unit tests.\n"
+            "Given source code, generate test stubs for every public function and class method.\n"
+            "Each test must:\n"
+            "1. Have a descriptive name (test_<function>_<scenario>)\n"
+            "2. Include a one-line docstring\n"
+            "3. Follow Arrange / Act / Assert structure with TODO markers\n"
+            "4. NOT include implementation — stubs only\n"
+            "Output ONLY the complete test file content, ready to save."
+        )
+        user_msg = (
+            f"Source file: {rel}\n\n"
+            f"```\n{excerpt}\n```"
+        )
+
+        try:
+            test_content = _llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_msg},
+            ])
+        except Exception as exc:
+            test_content = f"# Test generation failed: {exc}"
+
+        # Strip any markdown fencing the LLM might add, then strip once at the end
+        test_content = _re.sub(r"^```[a-zA-Z]*\n?", "", test_content)
+        test_content = _re.sub(r"\n?```$", "", test_content).strip()
+
+        # Suggest output filename
+        stem = src_file.stem
+        if framework == "pytest":
+            suggested_name = f"test_{stem}.py"
+        elif framework in ("jest",):
+            suggested_name = f"{stem}.test{src_file.suffix}"
+        elif framework in ("xunit",):
+            suggested_name = f"{stem}Tests.cs"
+        else:
+            suggested_name = f"test_{stem}{src_file.suffix}"
+
+        generated.append({
+            "source_file":    rel,
+            "test_file_name": suggested_name,
+            "framework":      framework,
+            "content":        test_content,
+        })
+
+    return {
+        "project_id":  project_id,
+        "framework":   framework,
+        "test_files":  generated,
+        "files_count": len(generated),
+        "summary":     (
+            f"Generated {len(generated)} test file(s) for {project_id} "
+            f"using {framework}."
+        ),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 9 — Advanced Collaboration & Knowledge Management
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA9-1: Narrative AI code walkthrough ─────────────────────────────────────
+
+_MAX_WALKTHROUGH_CHARS = 10_000
+
+
+class _CodeWalkthroughReq(BaseModel):
+    project_id: str = ""   # optional — restricts path resolution to Projects/{id}/
+    file_path: str         # relative path inside project (when project_id set) OR absolute path
+    content: str = ""      # inline source content — when supplied, file_path is only used as label
+    audience: str = "developer"    # "developer" | "reviewer" | "onboarding"
+
+
+@app.post("/ai/code-walkthrough")
+def ai_code_walkthrough(req: _CodeWalkthroughReq) -> dict:
+    """Generate a narrative walkthrough for a source file.
+
+    Reads the file from *file_path* (or uses inline *content*) and asks the
+    LLM to produce a human-readable narrative covering:
+    - **Purpose** — what the module/file is for
+    - **Flow** — step-by-step execution path through the main logic
+    - **Key decisions** — notable design choices and why they exist
+    - **Gotchas** — non-obvious behaviour, edge cases, or known limitations
+
+    The *audience* hint adapts the language level:
+    - ``developer``  — technical, concise
+    - ``reviewer``   — focus on correctness and edge cases
+    - ``onboarding`` — friendly, avoids jargon
+
+    PA9-1
+    """
+    # Resolve content
+    code = req.content.strip()
+    resolved_path = req.file_path
+
+    if not code:
+        candidate: Path | None = None
+        if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+            candidate = _PROJECTS_DIR / req.project_id / req.file_path
+        if candidate is None or not candidate.is_file():
+            candidate = Path(req.file_path)
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {req.file_path}")
+        try:
+            code = candidate.read_text(encoding="utf-8", errors="replace")
+            resolved_path = str(candidate)
+        except Exception as exc:
+            raise HTTPException(status_code=500,
+                                detail=f"Could not read file: {exc}") from exc
+
+    truncated = len(code) > _MAX_WALKTHROUGH_CHARS
+    excerpt = code[:_MAX_WALKTHROUGH_CHARS]
+
+    audience_notes = {
+        "developer":  "Write for an experienced developer. Be concise and technical.",
+        "reviewer":   "Write for a code reviewer. Focus on correctness, edge cases, "
+                      "and potential bugs.",
+        "onboarding": "Write for a developer who is new to this codebase. "
+                      "Avoid jargon and explain all non-obvious concepts.",
+    }
+    style = audience_notes.get(req.audience, audience_notes["developer"])
+
+    system = (
+        f"You are a senior software engineer writing a code walkthrough. {style}\n"
+        "Structure your response with exactly these labelled sections:\n"
+        "PURPOSE: <one sentence — what this file/module does>\n"
+        "FLOW:\n"
+        "<numbered steps describing the main execution path>\n"
+        "KEY_DECISIONS:\n"
+        "- <decision 1 and why>\n"
+        "- <decision 2 and why>\n"
+        "GOTCHAS:\n"
+        "- <gotcha or edge case 1>\n"
+        "Output ONLY the labelled sections — no preamble or conclusion."
+    )
+    user_msg = (
+        f"File: {req.file_path}"
+        + (f" (project: {req.project_id})" if req.project_id else "")
+        + ("\n[Content truncated to first 10 000 chars]" if truncated else "")
+        + f"\n\n```\n{excerpt}\n```"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Parse sections
+    purpose = ""
+    flow_lines: list[str] = []
+    key_decisions: list[str] = []
+    gotchas: list[str] = []
+    in_section = ""
+
+    for line in raw.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith("PURPOSE:"):
+            in_section = "purpose"
+            purpose = ls[len("PURPOSE:"):].strip()
+        elif ls.upper().startswith("FLOW:"):
+            in_section = "flow"
+        elif ls.upper().startswith("KEY_DECISIONS:"):
+            in_section = "decisions"
+        elif ls.upper().startswith("GOTCHAS:"):
+            in_section = "gotchas"
+        elif in_section == "purpose" and ls:
+            purpose += " " + ls
+        elif in_section == "flow" and ls:
+            flow_lines.append(ls)
+        elif in_section == "decisions" and ls.startswith("-"):
+            key_decisions.append(ls[1:].strip())
+        elif in_section == "gotchas" and ls.startswith("-"):
+            gotchas.append(ls[1:].strip())
+
+    return {
+        "file_path":      resolved_path,
+        "project_id":     req.project_id,
+        "audience":       req.audience,
+        "truncated":      truncated,
+        "purpose":        purpose.strip(),
+        "flow":           flow_lines,
+        "key_decisions":  key_decisions,
+        "gotchas":        gotchas,
+        "raw":            raw,
+    }
+
+
+# ── PA9-2: Static test-coverage estimation ───────────────────────────────────
+
+_COV_SOURCE_EXTS = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+_COV_TEST_PATTERNS = [
+    "test_*.py", "*_test.py",
+    "*.test.ts", "*.test.js", "*.spec.ts", "*.spec.js",
+    "*Test.cs", "*Tests.cs",
+    "*_test.go",
+]
+_COV_SKIP_DIRS = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist", "build"}
+
+
+def _is_test_file(fp: Path) -> bool:
+    return any(fp.match(g) for g in _COV_TEST_PATTERNS)
+
+
+@app.get("/projects/{project_id}/coverage-report")
+def project_coverage_report(project_id: str) -> dict:
+    """Estimate test coverage for a project via static source analysis.
+
+    Does NOT execute tests. Instead it:
+    1. Enumerates all source files and test files in the project.
+    2. For Python files, uses ``ast.walk`` to list all function/method names.
+    3. Cross-references those names against test file content to determine
+       which symbols appear to be tested (heuristic, not execution-based).
+    4. Returns a per-file breakdown and overall coverage estimate.
+
+    PA9-2
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    import ast as _ast_cov
+
+    # Collect all test file content as a single blob for name lookups
+    test_blob = ""
+    test_files_found: list[str] = []
+    for fp in project_dir.rglob("*"):
+        if fp.suffix.lower() not in _COV_SOURCE_EXTS:
+            continue
+        if any(p in _COV_SKIP_DIRS for p in fp.parts):
+            continue
+        if _is_test_file(fp):
+            try:
+                test_blob += fp.read_text(encoding="utf-8", errors="replace") + "\n"
+                test_files_found.append(str(fp.relative_to(project_dir)))
+            except Exception:
+                pass
+
+    # Analyse each source file
+    file_reports: list[dict] = []
+    total_symbols = 0
+    total_covered = 0
+
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _COV_SOURCE_EXTS:
+            continue
+        if any(p in _COV_SKIP_DIRS for p in fp.parts):
+            continue
+        if _is_test_file(fp):
+            continue
+
+        rel = str(fp.relative_to(project_dir))
+        symbols: list[str] = []
+
+        # Python: AST symbol extraction
+        if fp.suffix == ".py":
+            try:
+                tree = _ast_cov.parse(fp.read_text(encoding="utf-8", errors="replace"))
+                for node in _ast_cov.walk(tree):
+                    if isinstance(node, (_ast_cov.FunctionDef, _ast_cov.AsyncFunctionDef)):
+                        if not node.name.startswith("_"):
+                            symbols.append(node.name)
+                    elif isinstance(node, _ast_cov.ClassDef):
+                        symbols.append(node.name)
+            except SyntaxError:
+                pass
+        else:
+            # Non-Python: heuristic — scan for function/class keywords
+            try:
+                src = fp.read_text(encoding="utf-8", errors="replace")
+                for m in _re.finditer(
+                    r"(?:def |function |func |public |private |class )\s+(\w+)\s*[\({]",
+                    src,
+                ):
+                    name = m.group(1)
+                    if not name.startswith("_"):
+                        symbols.append(name)
+            except Exception:
+                pass
+
+        covered = sum(1 for s in symbols if s in test_blob)
+        total_symbols += len(symbols)
+        total_covered += covered
+
+        pct = round(covered / len(symbols) * 100, 1) if symbols else None
+        file_reports.append({
+            "file":            rel,
+            "symbols":         len(symbols),
+            "covered":         covered,
+            "uncovered":       [s for s in symbols if s not in test_blob],
+            "coverage_pct":    pct,
+        })
+
+    overall_pct = (
+        round(total_covered / total_symbols * 100, 1) if total_symbols else None
+    )
+
+    return {
+        "project_id":         project_id,
+        "method":             "static-heuristic",
+        "test_files":         test_files_found,
+        "source_files":       len(file_reports),
+        "total_symbols":      total_symbols,
+        "covered_symbols":    total_covered,
+        "overall_coverage":   overall_pct,
+        "files":              file_reports,
+        "note": (
+            "Coverage is estimated via static name-matching (no test execution). "
+            "Use /analysis/coverage for execution-based coverage."
+        ),
+    }
+
+
+# ── PA9-3: Persistent developer notes scratchpad ─────────────────────────────
+
+_WORKSPACE_NOTES_FILE = _BASE / "logs" / "workspace_notes.json"
+_workspace_notes: list[dict] = []
+_notes_lock = threading.Lock()
+
+
+def _load_workspace_notes() -> None:
+    global _workspace_notes
+    if _WORKSPACE_NOTES_FILE.is_file():
+        try:
+            _workspace_notes = json.loads(
+                _WORKSPACE_NOTES_FILE.read_text(encoding="utf-8")
+            )
+        except Exception:
+            _workspace_notes = []
+
+
+def _save_workspace_notes() -> None:
+    try:
+        _WORKSPACE_NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _WORKSPACE_NOTES_FILE.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(_workspace_notes, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(_WORKSPACE_NOTES_FILE)
+    except Exception as exc:
+        logger.warning("Could not save workspace notes: %s", exc)
+
+
+_load_workspace_notes()
+
+
+class _WorkspaceNoteReq(BaseModel):
+    title: str
+    body: str
+    project: str = ""             # associate with a specific project (optional)
+    tags: list[str] = []
+
+
+@app.get("/workspace/notes")
+def workspace_notes_list(project: str = "", q: str = "", limit: int = 50) -> dict:
+    """List developer scratchpad notes, optionally filtered by project or search query.
+
+    Query params:
+    - ``project`` — restrict to notes tagged with this project id
+    - ``q``       — full-text search across title and body
+    - ``limit``   — max results (default 50)
+
+    PA9-3
+    """
+    limit = max(1, min(limit, 500))
+    with _notes_lock:
+        notes = list(_workspace_notes)
+
+    if project:
+        notes = [n for n in notes if n.get("project", "") == project]
+    if q:
+        q_lower = q.lower()
+        notes = [
+            n for n in notes
+            if q_lower in n.get("title", "").lower()
+            or q_lower in n.get("body", "").lower()
+        ]
+
+    return {
+        "total": len(notes),
+        "notes": notes[-limit:][::-1],  # newest first
+    }
+
+
+@app.post("/workspace/notes")
+def workspace_notes_create(req: _WorkspaceNoteReq) -> dict:
+    """Create a new developer scratchpad note.
+
+    Body fields:
+    - ``title``   — note title (required)
+    - ``body``    — note content in Markdown
+    - ``project`` — optional project id to associate the note with
+    - ``tags``    — optional list of string tags
+
+    PA9-3
+    """
+    if not req.title.strip():
+        raise HTTPException(status_code=422, detail="'title' must not be empty")
+
+    note_id = f"note_{int(time.time() * 1000)}"
+    note = {
+        "id":         note_id,
+        "title":      req.title.strip(),
+        "body":       req.body,
+        "project":    req.project,
+        "tags":       req.tags,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    with _notes_lock:
+        _workspace_notes.append(note)
+        _save_workspace_notes()
+
+    return {"status": "ok", "id": note_id, "note": note}
+
+
+@app.delete("/workspace/notes/{note_id}")
+def workspace_notes_delete(note_id: str) -> dict:
+    """Delete a developer scratchpad note by its id.
+
+    PA9-3
+    """
+    with _notes_lock:
+        before = len(_workspace_notes)
+        _workspace_notes[:] = [n for n in _workspace_notes if n.get("id") != note_id]
+        removed = before - len(_workspace_notes)
+        if removed:
+            _save_workspace_notes()
+
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found")
+    return {"status": "ok", "deleted": note_id}
+
+
+# ── PA9-4: Project velocity & progress dashboard ──────────────────────────────
+
+@app.get("/projects/{project_id}/progress")
+def project_progress(
+    project_id: str,
+    weeks: int = 4,            # how many trailing weeks to report velocity for
+) -> dict:
+    """Return a velocity and progress dashboard for a managed project.
+
+    Combines:
+    - Roadmap completion statistics (total / done / pending tasks, completion %)
+    - Git commit frequency over the last *weeks* weeks (commits per week)
+    - Recent commit list
+    - Open TODO/FIXME count (from workspace annotation scan)
+    - Active phase identification
+
+    PA9-4
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    weeks = max(1, min(weeks, 52))
+    repo_root = _BASE.parent.parent
+
+    # ── Roadmap stats ─────────────────────────────────────────────────────────
+    roadmap_stats: dict = {}
+    active_phase = ""
+    roadmap_path = project_dir / "roadmap.json"
+    if roadmap_path.is_file():
+        try:
+            rm = json.loads(roadmap_path.read_text(encoding="utf-8"))
+            containers = rm.get("phases", rm.get("milestones", []))
+            total = done = 0
+            for container in containers:
+                for task in container.get("tasks", []):
+                    total += 1
+                    if task.get("status") == "done":
+                        done += 1
+                if container.get("status") not in ("done",) and not active_phase:
+                    active_phase = container.get("id", "")
+            pending = total - done
+            roadmap_stats = {
+                "version":          rm.get("version", ""),
+                "total_tasks":      total,
+                "done_tasks":       done,
+                "pending_tasks":    pending,
+                "completion_pct":   round(done / total * 100, 1) if total else 0.0,
+                "active_phase":     active_phase,
+            }
+        except Exception:
+            pass
+
+    # ── Git commit velocity ───────────────────────────────────────────────────
+    since_date = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(weeks=weeks)
+    ).strftime("%Y-%m-%d")
+
+    commits_by_week: dict[str, int] = {}
+    recent_commits: list[dict] = []
+    try:
+        raw_log = subprocess.check_output(
+            [
+                "git", "log",
+                "--format=%H\x1f%ad\x1f%an\x1f%s",
+                "--date=short",
+                f"--since={since_date}",
+                "-100",
+                "--", str(project_dir),
+            ],
+            cwd=str(repo_root),
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        ).decode(errors="replace")
+
+        for line in raw_log.splitlines():
+            parts = line.split("\x1f", 3)
+            if len(parts) == 4:
+                sha, date, author, message = parts
+                commit = {
+                    "sha":     sha[:12],
+                    "date":    date.strip(),
+                    "author":  author.strip(),
+                    "message": message.strip(),
+                }
+                recent_commits.append(commit)
+                try:
+                    dt = datetime.date.fromisoformat(date.strip())
+                    yr, wk, _ = dt.isocalendar()
+                    wk_key = f"{yr}-W{wk:02d}"
+                    commits_by_week[wk_key] = commits_by_week.get(wk_key, 0) + 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    total_commits = sum(commits_by_week.values())
+    avg_per_week = round(total_commits / weeks, 1) if weeks else 0.0
+
+    # ── TODO count (lightweight scan) ────────────────────────────────────────
+    todo_count = 0
+    _t_exts = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+    _t_skip = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist"}
+    _t_pat  = _re.compile(r"#\s*(TODO|FIXME|HACK)\b", _re.IGNORECASE)
+    files_scanned = 0
+    for fp in project_dir.rglob("*"):
+        if files_scanned >= 200:
+            break
+        if fp.suffix.lower() not in _t_exts:
+            continue
+        if any(p in _t_skip for p in fp.parts):
+            continue
+        try:
+            todo_count += len(_t_pat.findall(
+                fp.read_text(encoding="utf-8", errors="replace")
+            ))
+            files_scanned += 1
+        except Exception:
+            pass
+
+    return {
+        "project_id":       project_id,
+        "roadmap":          roadmap_stats,
+        "git_velocity": {
+            "period_weeks":  weeks,
+            "since":         since_date,
+            "total_commits": total_commits,
+            "avg_per_week":  avg_per_week,
+            "by_week":       commits_by_week,
+        },
+        "recent_commits":   recent_commits[:20],
+        "open_todos":       todo_count,
+    }
+
+
+# ── PA9-5: Add task to a project roadmap via API ─────────────────────────────
+
+class _RoadmapTaskAddReq(BaseModel):
+    phase_id: str              # which phase/milestone to append the task to
+    title: str                 # task title (required)
+    description: str = ""      # optional; AI will enrich if omitted
+    status: str = "pending"    # pending | in_progress | done
+
+
+@app.post("/projects/{project_id}/roadmap/task")
+def project_roadmap_task_add(project_id: str, req: _RoadmapTaskAddReq) -> dict:
+    """Append a new task to a phase in a project's roadmap.json.
+
+    The task is added to the phase identified by *phase_id*.  If *description*
+    is omitted, the LLM generates a one-sentence description from the title.
+    The roadmap file is atomically updated on disk.
+
+    Body fields:
+    - ``phase_id``    — id of the phase/milestone to add the task to (required)
+    - ``title``       — task title (required)
+    - ``description`` — optional description; AI-generated if blank
+    - ``status``      — ``pending`` (default) | ``in_progress`` | ``done``
+
+    PA9-5
+    """
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if not req.title.strip():
+        raise HTTPException(status_code=422, detail="'title' must not be empty")
+    if req.status not in ("pending", "in_progress", "done"):
+        raise HTTPException(status_code=422,
+                            detail="'status' must be pending, in_progress, or done")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    roadmap_path = project_dir / "roadmap.json"
+    if not roadmap_path.is_file():
+        raise HTTPException(status_code=404,
+                            detail=f"No roadmap.json for project '{project_id}'")
+
+    try:
+        roadmap_data = json.loads(roadmap_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"Could not parse roadmap.json: {exc}") from exc
+
+    containers = roadmap_data.get("phases", roadmap_data.get("milestones", []))
+    target = next((c for c in containers if c.get("id") == req.phase_id), None)
+    if target is None:
+        raise HTTPException(status_code=404,
+                            detail=f"Phase '{req.phase_id}' not found in roadmap")
+
+    # Auto-generate task id based on phase id and current task count
+    existing_ids = {t.get("id", "") for t in target.get("tasks", [])}
+    base = _re.sub(r"[^A-Za-z0-9]", "", req.phase_id)
+    idx = len(target.get("tasks", [])) + 1
+    task_id = f"{base}-custom-{idx}"
+    while task_id in existing_ids:
+        idx += 1
+        task_id = f"{base}-custom-{idx}"
+
+    # AI-enrich description if not provided
+    description = req.description.strip()
+    if not description:
+        try:
+            description = _llm.chat([
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a project manager writing concise roadmap task descriptions. "
+                        "Given a task title, write a single clear sentence describing what "
+                        "needs to be implemented and its expected outcome. No bullet points."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Task: {req.title}\nProject: {project_id}",
+                },
+            ]).strip()
+        except Exception:
+            description = req.title
+
+    new_task = {
+        "id":          task_id,
+        "title":       req.title.strip(),
+        "description": description,
+        "status":      req.status,
+    }
+    target.setdefault("tasks", []).append(new_task)
+
+    # Atomic write
+    try:
+        tmp = roadmap_path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(roadmap_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(roadmap_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to write roadmap.json: {exc}") from exc
+
+    return {
+        "status":     "ok",
+        "project_id": project_id,
+        "phase_id":   req.phase_id,
+        "task":       new_task,
+    }
+
+
+# ── PA9-6: Cross-project executive workspace summary ─────────────────────────
+
+@app.get("/workspace/summary")
+def workspace_summary() -> dict:
+    """Return a concise executive summary of the entire managed workspace.
+
+    For each managed project (under ``Projects/``) collects:
+    - Roadmap version, completion %, active phase
+    - Recent git commits (last 7 days)
+    - Open TODO/FIXME count
+    - Last-modified timestamp
+
+    Then uses the LLM to write a short narrative executive summary across all
+    projects.
+
+    PA9-6
+    """
+    if not _PROJECTS_DIR.is_dir():
+        return {"projects": [], "narrative": "No managed projects found.", "generated_at": ""}
+
+    _t_exts  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java"}
+    _t_skip  = {"node_modules", ".git", "__pycache__", "bin", "obj", "dist"}
+    _t_pat   = _re.compile(r"#\s*(TODO|FIXME|HACK)\b", _re.IGNORECASE)
+    _date_1w = (
+        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+    ).strftime("%Y-%m-%d")
+    repo_root = _BASE.parent.parent
+
+    project_summaries: list[dict] = []
+
+    for proj_dir in sorted(_PROJECTS_DIR.iterdir()):
+        if not proj_dir.is_dir():
+            continue
+        proj = proj_dir.name
+
+        # Roadmap stats
+        rm_version = rm_pct = rm_phase = ""
+        roadmap_path = proj_dir / "roadmap.json"
+        if roadmap_path.is_file():
+            try:
+                rm = json.loads(roadmap_path.read_text(encoding="utf-8"))
+                rm_version = rm.get("version", "")
+                containers = rm.get("phases", rm.get("milestones", []))
+                total = done = 0
+                for c in containers:
+                    for t in c.get("tasks", []):
+                        total += 1
+                        if t.get("status") == "done":
+                            done += 1
+                    if c.get("status") not in ("done",) and not rm_phase:
+                        rm_phase = c.get("id", "")
+                rm_pct = f"{round(done / total * 100, 1)}%" if total else "0%"
+            except Exception:
+                pass
+
+        # Recent commits (last 7 days)
+        recent: list[str] = []
+        try:
+            log_out = subprocess.check_output(
+                [
+                    "git", "log",
+                    "--format=%s",
+                    f"--since={_date_1w}",
+                    "-10",
+                    "--", str(proj_dir),
+                ],
+                cwd=str(repo_root),
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            ).decode(errors="replace")
+            recent = [l.strip() for l in log_out.splitlines() if l.strip()]
+        except Exception:
+            pass
+
+        # TODO count
+        todo_cnt = 0
+        for fp in proj_dir.rglob("*"):
+            if fp.suffix.lower() not in _t_exts:
+                continue
+            if any(p in _t_skip for p in fp.parts):
+                continue
+            try:
+                todo_cnt += len(_t_pat.findall(
+                    fp.read_text(encoding="utf-8", errors="replace")
+                ))
+            except Exception:
+                pass
+
+        # Last-modified
+        try:
+            mtime = max(fp.stat().st_mtime for fp in proj_dir.rglob("*") if fp.is_file())
+            last_modified = datetime.datetime.fromtimestamp(
+                mtime, tz=datetime.timezone.utc
+            ).strftime("%Y-%m-%d")
+        except Exception:
+            last_modified = ""
+
+        project_summaries.append({
+            "project":        proj,
+            "version":        rm_version,
+            "completion":     rm_pct,
+            "active_phase":   rm_phase,
+            "recent_commits": recent,
+            "open_todos":     todo_cnt,
+            "last_modified":  last_modified,
+        })
+
+    if not project_summaries:
+        return {"projects": [], "narrative": "No managed projects found.", "generated_at": ""}
+
+    # Build LLM prompt
+    proj_blurbs = []
+    for ps in project_summaries:
+        blurb = (
+            f"- {ps['project']} v{ps['version']}: "
+            f"{ps['completion']} complete, active phase: {ps['active_phase'] or 'N/A'}, "
+            f"{len(ps['recent_commits'])} commits this week, "
+            f"{ps['open_todos']} open TODOs"
+        )
+        if ps["recent_commits"]:
+            blurb += " | Recent: " + "; ".join(ps["recent_commits"][:3])
+        proj_blurbs.append(blurb)
+
+    system = (
+        "You are a technical project manager writing a brief executive summary.\n"
+        "Given a snapshot of multiple projects, write 2–4 sentences covering:\n"
+        "1. Overall workspace health\n"
+        "2. Most active project and what's happening\n"
+        "3. Any projects that appear stalled or have high outstanding work\n"
+        "Be factual, concise, and direct. No bullet points."
+    )
+    user_msg = "Workspace snapshot:\n" + "\n".join(proj_blurbs)
+
+    try:
+        narrative = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        narrative = f"[LLM error — raw snapshot]\n{user_msg}"
+
+    return {
+        "projects":     project_summaries,
+        "narrative":    narrative.strip(),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 10 — Embedded AI & Zero-External-Dependency Local Inference
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA10-1: Load a GGUF model into the embedded in-process backend ─────────────
+
+class _EmbeddedLoadReq(BaseModel):
+    model_path: str = ""        # path to .gguf file (relative to ArbiterEngine/ or absolute)
+    auto_configure: bool = True # detect hardware and auto-tune n_gpu_layers / n_ctx / n_threads
+    n_ctx: int = -2             # -2 = auto; or explicit token count e.g. 4096
+    n_gpu_layers: int = -2      # -2 = auto; -1 = all GPU; 0 = CPU only
+    n_threads: int = -2         # -2 = auto; or explicit thread count
+    chat_format: str = "auto"   # "auto" | "chatml" | "llama-2" | "alpaca" | …
+    verbose: bool = False
+    switch_active: bool = True  # also make 'embedded' the active backend
+
+
+@app.post("/ai/embedded/load")
+async def ai_embedded_load(req: _EmbeddedLoadReq) -> dict:
+    """Load a GGUF model file into Arbiter's embedded in-process LLM.
+
+    Once loaded the model stays resident in RAM/VRAM until
+    ``POST /ai/embedded/unload`` is called or the server restarts.
+
+    The ``embedded`` backend requires **no external application** — no Ollama,
+    no LM Studio, nothing.  Install ``llama-cpp-python`` once and point it at
+    any ``.gguf`` file.
+
+    Hardware-adaptive loading
+    -------------------------
+    When ``auto_configure=true`` (the default) Arbiter detects your system's
+    RAM, VRAM, and CPU core count and automatically selects the best values
+    for ``n_gpu_layers``, ``n_ctx``, and ``n_threads``.  Any field explicitly
+    set to a value other than ``-2`` overrides the auto-detected value.
+
+    For example, on a machine with 32 GiB RAM and 11 GiB VRAM:
+    - A 7B Q4 model (~4 GiB) → ``n_gpu_layers=-1`` (full GPU), ``n_ctx=8192``
+    - A 30B Q4 model (~17 GiB) → partial GPU offload, ``n_ctx=8192``
+
+    Parameters
+    ----------
+    model_path
+        Path to the ``.gguf`` model file.  Relative paths are resolved from
+        the ``ArbiterEngine/`` directory.  Defaults to
+        ``llm.embedded.model_path`` in ``config.toml``.
+    auto_configure
+        Default ``true`` — detect hardware and tune parameters automatically.
+        Set to ``false`` to use exact values from the other fields.
+    n_ctx
+        Context window in tokens.  ``-2`` = auto (hardware-adaptive).
+    n_gpu_layers
+        GPU layer offload.  ``-2`` = auto; ``-1`` = all layers; ``0`` = CPU only.
+    n_threads
+        CPU inference threads.  ``-2`` = auto.
+    chat_format
+        Chat template format.  ``"auto"`` guesses from the model filename.
+    verbose
+        Print llama.cpp progress/debug output.
+    switch_active
+        If ``true`` (default), also set ``embedded`` as the active backend so
+        all subsequent AI calls use the newly loaded model immediately.
+
+    PA10-1
+    """
+    global _llm
+
+    model_path = req.model_path.strip() or _config.get("llm.embedded.model_path", "")
+    if not model_path:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Provide model_path in the request body or set "
+                "llm.embedded.model_path in configs/config.toml"
+            ),
+        )
+
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+
+    try:
+        await _asyncio.to_thread(
+            state.load,
+            model_path,
+            req.n_ctx,
+            req.n_gpu_layers,
+            req.n_threads,
+            req.verbose,
+            req.chat_format,
+            req.auto_configure,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        # llama-cpp-python not installed
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load model: {exc}"
+        ) from exc
+
+    if req.switch_active:
+        from llm.embedded import EmbeddedLLM as _EmbeddedLLM
+        _config.set("agent.default_llm_backend", "embedded")
+        # The model is already in the singleton state; create a wrapper without reloading
+        _llm = _EmbeddedLLM(model_path="", auto_load=False)
+
+    return {
+        "status":           "ok",
+        "model_path":       state.model_path,
+        "n_ctx":            state.n_ctx,
+        "n_gpu_layers":     state.n_gpu_layers,
+        "n_threads":        state.n_threads,
+        "chat_format":      state.chat_format,
+        "auto_configure":   req.auto_configure,
+        "hardware":         state.hardware,
+        "suggested_config": state.suggested_config,
+        "active_backend":   _config.get("agent.default_llm_backend", "ollama"),
+    }
+
+
+# ── PA10-2: Embedded LLM status ──────────────────────────────────────────────
+
+@app.get("/ai/embedded/status")
+def ai_embedded_status() -> dict:
+    """Report the status of the in-process embedded LLM.
+
+    Returns:
+    - Whether ``llama-cpp-python`` is installed and its version
+    - Whether a model is currently loaded and which file
+    - Current configuration (context size, GPU layers, threads, chat_format)
+    - The hardware profile that was detected at load time
+    - The suggested config that was applied at load time
+    - Active backend name
+
+    PA10-2
+    """
+    # Check llama-cpp-python installation
+    try:
+        import llama_cpp  # type: ignore[import]
+        installed = True
+        llama_version: str | None = getattr(llama_cpp, "__version__", "unknown")
+    except ImportError:
+        installed = False
+        llama_version = None
+
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+
+    return {
+        "installed":          installed,
+        "llama_cpp_version":  llama_version,
+        "model_loaded":       state.is_loaded,
+        "model_path":         state.model_path     if state.is_loaded else None,
+        "n_ctx":              state.n_ctx           if state.is_loaded else None,
+        "n_gpu_layers":       state.n_gpu_layers    if state.is_loaded else None,
+        "n_threads":          state.n_threads       if state.is_loaded else None,
+        "chat_format":        state.chat_format     if state.is_loaded else None,
+        "hardware":           state.hardware,
+        "suggested_config":   state.suggested_config,
+        "active_backend":     _config.get("agent.default_llm_backend", "ollama"),
+        "install_hint":       None if installed else "pip install llama-cpp-python",
+    }
+
+
+# ── PA10-3: List available GGUF model files ───────────────────────────────────
+
+@app.get("/ai/embedded/models")
+def ai_embedded_models(search_dir: str = "") -> dict:
+    """Scan for ``.gguf`` model files available for the embedded backend.
+
+    Looks in:
+    1. The path given by ``search_dir`` (if provided)
+    2. ``ArbiterEngine/models/`` — created automatically if absent
+    3. The directory of ``llm.embedded.model_path`` from ``config.toml``
+
+    Each model entry includes hardware-fit information: whether it fits in
+    VRAM, the estimated GPU layer count, and the recommended context window
+    size for the current hardware.
+
+    PA10-3
+    """
+    # Get hardware profile for fit calculations
+    hw_profile = None
+    try:
+        from llm.hardware import detect_hardware as _detect_hw, suggest_model_config as _suggest
+        hw_profile = _detect_hw()
+    except Exception:
+        pass
+
+    search_dirs: list[Path] = []
+
+    if search_dir:
+        p = Path(search_dir)
+        if p.is_dir():
+            search_dirs.append(p)
+
+    # Default models directory (auto-created for convenience)
+    default_models = _BASE / "models"
+    default_models.mkdir(exist_ok=True)
+    search_dirs.append(default_models)
+
+    # Directory derived from config model_path
+    cfg_path = _config.get("llm.embedded.model_path", "")
+    if cfg_path:
+        p = Path(cfg_path)
+        if not p.is_absolute():
+            p = _BASE / p
+        if p.parent.is_dir():
+            search_dirs.append(p.parent)
+
+    seen: set[str] = set()
+    models: list[dict] = []
+    for d in search_dirs:
+        try:
+            for f in sorted(d.glob("*.gguf")):
+                key = str(f.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                size_bytes = f.stat().st_size
+                entry: dict = {
+                    "name":       f.name,
+                    "path":       str(f),
+                    "size_mb":    round(size_bytes / 1_048_576, 1),
+                    "size_bytes": size_bytes,
+                    "hardware_fit": None,
+                }
+                # Add hardware fit if profile is available
+                if hw_profile is not None:
+                    try:
+                        sug = _suggest(str(f), hw_profile)
+                        entry["hardware_fit"] = {
+                            "fits_in_vram":  sug["fits_in_vram"],
+                            "n_gpu_layers":  sug["n_gpu_layers"],
+                            "n_ctx":         sug["n_ctx"],
+                            "n_threads":     sug["n_threads"],
+                            "rationale":     sug["rationale"],
+                        }
+                    except Exception:
+                        pass
+                models.append(entry)
+        except Exception as exc:
+            logger.warning("Could not scan %s for GGUF files: %s", d, exc)
+
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+
+    return {
+        "models":       models,
+        "count":        len(models),
+        "models_dir":   str(default_models),
+        "active_model": state.model_path if state.is_loaded else None,
+        "hardware":     hw_profile.to_dict() if hw_profile else None,
+    }
+
+
+# ── PA10-4: Unload the embedded model ────────────────────────────────────────
+
+@app.post("/ai/embedded/unload")
+async def ai_embedded_unload() -> dict:
+    """Unload the in-process embedded model and free RAM/VRAM.
+
+    After unloading, any AI call will fall back to the next configured backend
+    (Ollama, OpenAI API, etc.).  Call ``POST /ai/embedded/load`` to reload.
+
+    If the active backend is ``embedded`` when this endpoint is called, the
+    active backend is automatically reverted to ``ollama``.
+
+    PA10-4
+    """
+    global _llm
+    from llm.embedded import get_state as _get_emb_state
+    state = _get_emb_state()
+    was_loaded = state.is_loaded
+
+    await _asyncio.to_thread(state.unload)
+
+    # Revert active backend if it was pointing at embedded
+    if _config.get("agent.default_llm_backend", "ollama") == "embedded":
+        _config.set("agent.default_llm_backend", "ollama")
+        try:
+            from llm.factory import create_llm as _create_llm
+            _llm = await _asyncio.to_thread(_create_llm, "ollama", _config)
+        except Exception as exc:
+            logger.warning("Could not restore ollama backend after unload: %s", exc)
+
+    return {
+        "status":         "ok",
+        "was_loaded":     was_loaded,
+        "active_backend": _config.get("agent.default_llm_backend", "ollama"),
+    }
+
+
+# ── PA10-5: Hardware profile & model-fit advisor ──────────────────────────────
+
+@app.get("/ai/hardware")
+def ai_hardware(model_path: str = "") -> dict:
+    """Return the host hardware profile and AI configuration recommendations.
+
+    Detects available RAM, VRAM, CPU core count, and GPU model, then
+    provides:
+    - A complete hardware inventory
+    - Recommended ``n_gpu_layers``, ``n_ctx``, ``n_threads`` for the
+      currently configured or specified model
+    - A ``fit_summary`` describing how well your hardware suits local AI
+    - Per-model fit data for every ``.gguf`` file found in ``models/``
+
+    Query parameters
+    ----------------
+    model_path
+        Optional path to a specific ``.gguf`` file to evaluate.  If omitted,
+        uses ``llm.embedded.model_path`` from ``config.toml``.
+
+    Example response (32 GiB RAM, 11 GiB VRAM, 7B model):
+    ::
+
+        {
+          "hardware": {
+            "ram_total_gb": 32.0,
+            "vram_total_gb": 11.0,
+            "gpu_name": "NVIDIA GeForce RTX 3080",
+            ...
+          },
+          "suggested_config": {
+            "n_gpu_layers": -1,
+            "n_ctx": 8192,
+            "n_threads": 4,
+            "fits_in_vram": true,
+            "rationale": [...]
+          },
+          "fit_summary": "Excellent — your GPU has enough VRAM...",
+          ...
+        }
+
+    PA10-5
+    """
+    try:
+        from llm.hardware import detect_hardware as _detect_hw, suggest_model_config as _suggest
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Hardware detection module unavailable: {exc}"
+        ) from exc
+
+    hw = _detect_hw()
+
+    # Determine which model to evaluate
+    target_model = (
+        model_path.strip()
+        or _config.get("llm.embedded.model_path", "")
+    )
+    if target_model and not Path(target_model).is_absolute():
+        target_model = str(_BASE / target_model)
+
+    suggestion: dict = {}
+    if target_model:
+        try:
+            suggestion = _suggest(target_model, hw)
+        except Exception as exc:
+            logger.warning("suggest_model_config failed: %s", exc)
+
+    # Build a human-readable fit summary
+    def _fit_summary(hw_profile: "Any", sug: dict) -> str:
+        vram = hw_profile.vram_total_gb
+        ram  = hw_profile.ram_total_gb
+        if vram <= 0:
+            return (
+                "⚠️ No GPU detected. All inference will run on CPU, which is "
+                "significantly slower. For best performance, a CUDA-capable GPU "
+                "or Apple Silicon Mac is recommended."
+            )
+        if sug.get("fits_in_vram"):
+            return (
+                f"✅ Excellent — your {hw_profile.gpu_name or 'GPU'} has enough VRAM "
+                f"({vram:.1f} GiB) to run the selected model entirely on GPU. "
+                f"With {ram:.0f} GiB RAM, a context window of "
+                f"{sug.get('n_ctx', 4096)} tokens is configured."
+            )
+        else:
+            layers = sug.get("n_gpu_layers", 0)
+            return (
+                f"⚡ Partial GPU offload — {vram:.1f} GiB VRAM fits ~{layers} "
+                "transformer layers on GPU; remaining layers use CPU RAM. "
+                f"Performance will be slower than full GPU but faster than pure CPU. "
+                f"Consider a smaller quantisation (Q4_K_M or Q3_K_S) to fit more in VRAM."
+            )
+
+    fit_summary = _fit_summary(hw, suggestion) if suggestion else (
+        "No model specified — hardware profile available but no config suggestion."
+    )
+
+    # Per-model fit table for all models in the models dir
+    default_models = _BASE / "models"
+    models_fit: list[dict] = []
+    try:
+        for f in sorted(default_models.glob("*.gguf")):
+            try:
+                sug = _suggest(str(f), hw)
+                size_gb = f.stat().st_size / 1_073_741_824
+                models_fit.append({
+                    "name":          f.name,
+                    "size_gb":       round(size_gb, 2),
+                    "fits_in_vram":  sug["fits_in_vram"],
+                    "n_gpu_layers":  sug["n_gpu_layers"],
+                    "n_ctx":         sug["n_ctx"],
+                    "n_threads":     sug["n_threads"],
+                })
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return {
+        "hardware":        hw.to_dict(),
+        "suggested_config": suggestion if suggestion else None,
+        "fit_summary":     fit_summary,
+        "model_path":      target_model or None,
+        "available_models_fit": models_fit,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 11 — AI Code Intelligence & Semantic Workspace Search
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PA11-1: Natural-language semantic search across workspace source files ─────
+
+_SEMANTIC_SEARCH_EXTS = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                         ".cpp", ".c", ".h", ".hpp", ".rb", ".php", ".swift"}
+_SEMANTIC_SEARCH_SKIP = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                         "dist", "build", ".venv", "venv", "env"}
+_SEMANTIC_SEARCH_MAX_FILE_CHARS = 8_000
+_SEMANTIC_SEARCH_MAX_RESULTS    = 20
+
+
+class _SemanticSearchReq(BaseModel):
+    query: str                      # natural-language search query
+    project_id: str = ""            # if set, restrict to Projects/{id}/
+    max_results: int = 10           # number of results to return (1–20)
+    include_snippet: bool = True    # include a context snippet per result
+    ai_rank: bool = True            # ask the LLM to re-rank and summarise results
+
+
+@app.post("/ai/semantic-search")
+def ai_semantic_search(req: _SemanticSearchReq) -> dict:
+    """Search workspace source files by natural-language meaning.
+
+    Steps:
+    1. Use the LLM to expand the query into concrete keywords / identifiers.
+    2. Score every source file by keyword-frequency (BM25-style TF weighting).
+    3. Return the top-N files with matched lines and an optional AI summary.
+
+    Parameters
+    ----------
+    query
+        Natural-language description of what you are looking for
+        (e.g. "rate limiting middleware", "database connection pool",
+        "authentication token validation").
+    project_id
+        If set, restrict the search to ``Projects/{project_id}/``.
+    max_results
+        Maximum number of files to return (capped at 20).
+    include_snippet
+        Include up to 3 matching lines per file.
+    ai_rank
+        Re-rank the raw results and add a 1-sentence relevance note for each
+        match using the LLM.
+
+    PA11-1
+    """
+    import re as _re11
+
+    max_r = max(1, min(req.max_results, _SEMANTIC_SEARCH_MAX_RESULTS))
+
+    # ── Step 1: Keyword expansion ─────────────────────────────────────────────
+    kw_system = (
+        "You are a code search assistant. "
+        "Given a natural-language query, output ONLY a comma-separated list of "
+        "10–15 keywords, function names, class names, or identifiers that a "
+        "developer would use in source code to implement the described concept. "
+        "No explanation. Output only the comma-separated list."
+    )
+    try:
+        kw_raw = _llm.chat([
+            {"role": "system", "content": kw_system},
+            {"role": "user",   "content": req.query},
+        ])
+        keywords = [
+            kw.strip().lower()
+            for kw in kw_raw.replace("\n", ",").split(",")
+            if kw.strip() and len(kw.strip()) > 1
+        ]
+    except Exception:
+        # Fallback: split the query itself into keywords
+        keywords = [
+            w.lower() for w in _re11.split(r"\W+", req.query) if len(w) > 2
+        ]
+
+    if not keywords:
+        return {"query": req.query, "keywords": [], "results": [], "summary": ""}
+
+    # ── Step 2: Scan files ────────────────────────────────────────────────────
+    if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        search_root = _PROJECTS_DIR / req.project_id
+        if not search_root.is_dir():
+            raise HTTPException(status_code=404,
+                                detail=f"Project '{req.project_id}' not found")
+    else:
+        search_root = _PROJECTS_DIR if _PROJECTS_DIR.is_dir() else _BASE
+
+    scored: list[dict] = []
+    for fp in sorted(search_root.rglob("*")):
+        if fp.suffix.lower() not in _SEMANTIC_SEARCH_EXTS:
+            continue
+        if any(p in _SEMANTIC_SEARCH_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        excerpt = content[:_SEMANTIC_SEARCH_MAX_FILE_CHARS].lower()
+        # TF-style score: sum of keyword occurrence counts (unique keywords weighted)
+        score = 0
+        matched_lines: list[str] = []
+        for kw in set(keywords):
+            cnt = excerpt.count(kw)
+            if cnt:
+                score += 1 + (cnt - 1) * 0.1   # diminishing returns for repetition
+        # Collect matching lines if requested
+        if req.include_snippet and score > 0:
+            for line in content.splitlines():
+                if any(kw in line.lower() for kw in keywords):
+                    matched_lines.append(line.rstrip())
+                    if len(matched_lines) >= 3:
+                        break
+
+        if score > 0:
+            try:
+                rel = str(fp.relative_to(search_root))
+            except ValueError:
+                rel = str(fp)
+            scored.append({
+                "file":    rel,
+                "score":   round(score, 2),
+                "snippet": matched_lines if req.include_snippet else [],
+            })
+
+    # Sort by score descending, take top candidates for AI ranking
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    top = scored[:max_r * 2]
+
+    # ── Step 3: AI re-ranking & summary ──────────────────────────────────────
+    summary = ""
+    if req.ai_rank and top:
+        rank_payload = "\n".join(
+            f"{i+1}. {r['file']} (score {r['score']})"
+            + (f"\n   Sample: {r['snippet'][0][:120]}" if r["snippet"] else "")
+            for i, r in enumerate(top)
+        )
+        rank_system = (
+            "You are a code search assistant. "
+            "Given a search query and a list of candidate files with scores, "
+            "re-rank the files by true relevance, remove obvious noise, "
+            "and output ONLY a JSON object:\n"
+            '{"ranked": ["file1", "file2", ...], '
+            '"summary": "One sentence explaining what was found."}'
+        )
+        rank_user = f"Query: {req.query}\n\nCandidates:\n{rank_payload}"
+        try:
+            import json as _json11
+            raw_rank = _llm.chat([
+                {"role": "system", "content": rank_system},
+                {"role": "user",   "content": rank_user},
+            ])
+            start = raw_rank.find("{")
+            end   = raw_rank.rfind("}") + 1
+            if start >= 0 and end > start:
+                parsed = _json11.loads(raw_rank[start:end])
+                ranked_names = parsed.get("ranked", [])
+                summary = parsed.get("summary", "")
+                # Re-order top results by ranked list
+                name_to_item = {r["file"]: r for r in top}
+                reranked = [name_to_item[n] for n in ranked_names if n in name_to_item]
+                # Append any items the LLM dropped
+                seen = {n for n in ranked_names}
+                for r in top:
+                    if r["file"] not in seen:
+                        reranked.append(r)
+                top = reranked
+        except Exception:
+            pass
+
+    results = top[:max_r]
+    return {
+        "query":    req.query,
+        "keywords": keywords,
+        "results":  results,
+        "total_candidates": len(scored),
+        "summary":  summary,
+    }
+
+
+# ── PA11-2: One-shot AI code fix ──────────────────────────────────────────────
+
+_MAX_FIX_FILE_CHARS = 12_000
+
+
+class _AIFixReq(BaseModel):
+    file_path: str              # absolute or relative path to the file to fix
+    project_id: str = ""        # restrict path resolution to Projects/{id}/
+    error: str                  # error message / lint output / description of the problem
+    content: str = ""           # inline source content (overrides file_path if provided)
+    context: str = ""           # optional extra context (stack trace, related file snippet)
+
+
+@app.post("/ai/fix")
+def ai_fix(req: _AIFixReq) -> dict:
+    """Apply a one-shot AI code fix to a file given an error or lint message.
+
+    The LLM receives the file content and the error description, then returns
+    a complete corrected version. The endpoint diffs the original against the
+    fixed version and returns both alongside a unified diff and a plain-English
+    explanation.
+
+    Parameters
+    ----------
+    file_path
+        Path to the source file that needs fixing. Relative paths are resolved
+        within ``project_id`` if provided, otherwise treated as absolute.
+    project_id
+        Optional project scope — restricts path resolution to
+        ``Projects/{project_id}/``.
+    error
+        The error message, lint warning, or free-text description of the
+        problem to fix.
+    content
+        Inline source content. When provided, ``file_path`` is used only as a
+        label and no disk read is performed.
+    context
+        Optional extra context (e.g. stack trace, related code snippet) passed
+        to the LLM as additional background.
+
+    PA11-2
+    """
+    import difflib as _diff11
+
+    # ── Resolve source content ────────────────────────────────────────────────
+    code = req.content.strip()
+    resolved_path = req.file_path
+
+    if not code:
+        candidate: Path | None = None
+        if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+            candidate = _PROJECTS_DIR / req.project_id / req.file_path
+        if candidate is None or not candidate.is_file():
+            candidate = Path(req.file_path)
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {req.file_path}")
+        try:
+            code = candidate.read_text(encoding="utf-8", errors="replace")
+            resolved_path = str(candidate)
+        except Exception as exc:
+            raise HTTPException(status_code=500,
+                                detail=f"Could not read file: {exc}") from exc
+
+    truncated = len(code) > _MAX_FIX_FILE_CHARS
+    excerpt = code[:_MAX_FIX_FILE_CHARS]
+
+    # ── Ask the LLM for a fixed version ──────────────────────────────────────
+    ctx_section = f"\n\nAdditional context:\n{req.context}" if req.context else ""
+    system = (
+        "You are an expert software engineer performing a code fix. "
+        "You will be given a source file and an error or problem description.\n"
+        "Output ONLY the complete corrected source code — no markdown fences, "
+        "no explanation, no preamble. "
+        "After the corrected code, on a NEW line output exactly:\n"
+        "EXPLANATION: <one paragraph explaining what you changed and why>"
+    )
+    user_msg = (
+        f"File: {req.file_path}"
+        + (f" (project: {req.project_id})" if req.project_id else "")
+        + ("\n[Content truncated to first 12 000 chars]" if truncated else "")
+        + ctx_section
+        + f"\n\nError / Problem:\n{req.error}"
+        + f"\n\nSource code:\n{excerpt}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # ── Parse explanation from the response ───────────────────────────────────
+    explanation = ""
+    fixed_code  = raw
+    exp_marker  = "EXPLANATION:"
+    marker_idx  = raw.upper().rfind(exp_marker)
+    if marker_idx >= 0:
+        explanation = raw[marker_idx + len(exp_marker):].strip()
+        fixed_code  = raw[:marker_idx].strip()
+
+    # Strip accidental markdown fences
+    import re as _re11b
+    fixed_code = _re11b.sub(r"^```[^\n]*\n?", "", fixed_code, flags=_re11b.MULTILINE)
+    fixed_code = _re11b.sub(r"\n?```$", "", fixed_code, flags=_re11b.MULTILINE)
+    fixed_code = fixed_code.strip()
+
+    # ── Build unified diff ────────────────────────────────────────────────────
+    diff_lines = list(_diff11.unified_diff(
+        excerpt.splitlines(keepends=True),
+        fixed_code.splitlines(keepends=True),
+        fromfile=f"a/{req.file_path}",
+        tofile=f"b/{req.file_path}",
+        lineterm="",
+    ))
+    diff_text  = "".join(diff_lines)
+    lines_changed = sum(1 for l in diff_lines if l.startswith(("+", "-"))
+                        and not l.startswith(("+++", "---")))
+
+    return {
+        "file_path":     resolved_path,
+        "project_id":    req.project_id,
+        "truncated":     truncated,
+        "original":      excerpt,
+        "fixed":         fixed_code,
+        "diff":          diff_text,
+        "lines_changed": lines_changed,
+        "explanation":   explanation,
+    }
+
+
+# ── PA11-3: AI-powered security audit ────────────────────────────────────────
+
+_SEC_AUDIT_EXTS  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                    ".php", ".rb", ".cpp", ".c", ".h"}
+_SEC_AUDIT_SKIP  = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                    "dist", "build", ".venv", "venv", "env"}
+_SEC_AUDIT_MAX_FILE_CHARS  = 6_000
+_SEC_AUDIT_MAX_FILES       = 30
+
+
+@app.post("/projects/{project_id}/security-audit")
+def project_security_audit(project_id: str) -> dict:
+    """Run an AI-powered security audit on a project's source code.
+
+    Iterates source files (up to ``_SEC_AUDIT_MAX_FILES``) and asks the LLM
+    to identify OWASP-Top-10-style vulnerabilities, insecure patterns, and
+    hardcoded secrets. Returns a structured list of findings.
+
+    Each finding includes:
+    - ``severity`` — CRITICAL / HIGH / MEDIUM / LOW / INFO
+    - ``file``     — relative file path
+    - ``line_hint`` — approximate line number or range (best effort)
+    - ``category`` — vulnerability category (e.g. "Injection", "Hardcoded Secret")
+    - ``description`` — plain-English explanation
+    - ``recommendation`` — how to fix it
+
+    PA11-3
+    """
+    import re as _re11c
+
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    # Collect source files (skip test files to focus on production code)
+    source_files: list[Path] = []
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _SEC_AUDIT_EXTS:
+            continue
+        if any(p in _SEC_AUDIT_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        source_files.append(fp)
+        if len(source_files) >= _SEC_AUDIT_MAX_FILES:
+            break
+
+    if not source_files:
+        return {
+            "project_id": project_id,
+            "files_audited": 0,
+            "findings": [],
+            "summary": "No auditable source files found.",
+        }
+
+    # Build audit prompt with all file excerpts
+    file_sections: list[str] = []
+    for fp in source_files:
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+            excerpt = content[:_SEC_AUDIT_MAX_FILE_CHARS]
+            rel = str(fp.relative_to(project_dir))
+            file_sections.append(f"=== FILE: {rel} ===\n{excerpt}")
+        except Exception:
+            pass
+
+    combined = "\n\n".join(file_sections)
+
+    system = (
+        "You are an expert application security engineer performing a code audit. "
+        "Identify security vulnerabilities, insecure patterns, and hardcoded "
+        "secrets using OWASP Top 10 and CWE as your reference.\n\n"
+        "For each issue found output EXACTLY this format (one block per finding):\n"
+        "FINDING:\n"
+        "SEVERITY: CRITICAL|HIGH|MEDIUM|LOW|INFO\n"
+        "FILE: <relative path>\n"
+        "LINE: <approximate line number or range>\n"
+        "CATEGORY: <vulnerability category>\n"
+        "DESCRIPTION: <plain-English explanation>\n"
+        "RECOMMENDATION: <how to fix it>\n"
+        "END_FINDING\n\n"
+        "After all findings output:\n"
+        "AUDIT_SUMMARY: <2-3 sentence overall assessment>\n\n"
+        "If no issues are found output: NO_FINDINGS"
+    )
+    user_msg = (
+        f"Audit the following source files from project '{project_id}':\n\n"
+        f"{combined}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # ── Parse findings ────────────────────────────────────────────────────────
+    findings: list[dict] = []
+    audit_summary = ""
+
+    if "NO_FINDINGS" in raw.upper():
+        audit_summary = "No security issues identified."
+    else:
+        # Parse structured findings
+        for block in _re11c.split(r"FINDING:", raw, flags=_re11c.IGNORECASE):
+            block = block.strip()
+            if not block:
+                continue
+            end = block.upper().find("END_FINDING")
+            if end >= 0:
+                block = block[:end].strip()
+
+            def _extract(label: str, text: str) -> str:
+                m = _re11c.search(
+                    rf"^{label}\s*:\s*(.+)$", text,
+                    _re11c.IGNORECASE | _re11c.MULTILINE,
+                )
+                return m.group(1).strip() if m else ""
+
+            severity    = _extract("SEVERITY", block)
+            file_hint   = _extract("FILE", block)
+            line_hint   = _extract("LINE", block)
+            category    = _extract("CATEGORY", block)
+            description = _extract("DESCRIPTION", block)
+            recommend   = _extract("RECOMMENDATION", block)
+
+            if severity or category or description:
+                findings.append({
+                    "severity":       severity or "INFO",
+                    "file":           file_hint,
+                    "line_hint":      line_hint,
+                    "category":       category,
+                    "description":    description,
+                    "recommendation": recommend,
+                })
+
+        # Extract audit summary
+        summ_m = _re11c.search(r"AUDIT_SUMMARY\s*:\s*(.+?)(?:$|\nFINDING:)",
+                                raw, _re11c.IGNORECASE | _re11c.DOTALL)
+        if summ_m:
+            audit_summary = summ_m.group(1).strip()
+
+    # Severity ordering for sort
+    _sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+    findings.sort(key=lambda f: _sev_order.get(f["severity"].upper(), 5))
+
+    return {
+        "project_id":    project_id,
+        "files_audited": len(source_files),
+        "findings":      findings,
+        "finding_count": len(findings),
+        "summary":       audit_summary,
+    }
+
+
+# ── PA11-4: Auto-build AI context window ─────────────────────────────────────
+
+_CTX_BUILD_EXTS  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                    ".cpp", ".c", ".h", ".rb", ".php"}
+_CTX_BUILD_SKIP  = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                    "dist", "build", ".venv", "venv", "env"}
+_CTX_BUILD_MAX_CONTEXT_CHARS = 20_000
+_CTX_BUILD_MAX_FILE_CHARS    = 4_000
+
+
+class _ContextBuildReq(BaseModel):
+    query: str               # what you want to ask the AI about
+    project_id: str          # project to pull context from
+    max_files: int = 5       # maximum number of files to include (1–10)
+    max_total_chars: int = 16_000   # cap on total context characters
+
+
+@app.post("/ai/context/build")
+def ai_context_build(req: _ContextBuildReq) -> dict:
+    """Auto-build a focused AI context window for a natural-language query.
+
+    Scores all source files in the project by keyword relevance to the query,
+    selects the most pertinent ones up to ``max_files`` and ``max_total_chars``,
+    and returns the assembled context string ready to paste into an AI prompt.
+
+    This is useful for feeding just the right code into a follow-up AI call
+    without blowing the context window with irrelevant files.
+
+    Parameters
+    ----------
+    query
+        What you want to ask the AI — used for file relevance scoring.
+    project_id
+        The project to mine for context.
+    max_files
+        Maximum number of source files to include (capped at 10).
+    max_total_chars
+        Hard limit on the total size of the assembled context (capped at 20 000).
+
+    PA11-4
+    """
+    import re as _re11d
+
+    if not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+
+    project_dir = _PROJECTS_DIR / req.project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{req.project_id}' not found")
+
+    max_files = max(1, min(req.max_files, 10))
+    max_chars = max(1_000, min(req.max_total_chars, _CTX_BUILD_MAX_CONTEXT_CHARS))
+
+    # Tokenise the query for scoring
+    query_words = {w.lower() for w in _re11d.split(r"\W+", req.query) if len(w) > 2}
+
+    # Score files
+    scored: list[tuple[float, Path]] = []
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _CTX_BUILD_EXTS:
+            continue
+        if any(p in _CTX_BUILD_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        low = content.lower()
+        score = sum(low.count(w) for w in query_words)
+        if score > 0:
+            scored.append((score, fp))
+
+    scored.sort(reverse=True)
+    selected = scored[:max_files]
+
+    # Assemble context
+    context_parts: list[str] = []
+    selected_files: list[dict] = []
+    total_chars = 0
+
+    for score, fp in selected:
+        if total_chars >= max_chars:
+            break
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        remaining = max_chars - total_chars
+        excerpt = content[:min(_CTX_BUILD_MAX_FILE_CHARS, remaining)]
+        rel = str(fp.relative_to(project_dir))
+        header = f"// File: {rel}\n"
+        context_parts.append(header + excerpt)
+        total_chars += len(header) + len(excerpt)
+        selected_files.append({
+            "file":  rel,
+            "score": score,
+            "chars": len(excerpt),
+        })
+
+    context_str = "\n\n".join(context_parts)
+
+    return {
+        "query":          req.query,
+        "project_id":     req.project_id,
+        "files_selected": selected_files,
+        "file_count":     len(selected_files),
+        "total_chars":    total_chars,
+        "context":        context_str,
+        "usage_hint":     (
+            "Prepend this context to your AI prompt with a system message like: "
+            "'Here is the relevant project code:\\n{context}'"
+        ),
+    }
+
+
+# ── PA11-5: AI-assisted symbol rename across a project ───────────────────────
+
+_RENAME_EXTS  = {".py", ".js", ".ts", ".cs", ".go", ".rs", ".java",
+                 ".cpp", ".c", ".h", ".hpp", ".rb", ".php"}
+_RENAME_SKIP  = {"node_modules", ".git", "__pycache__", "bin", "obj",
+                 "dist", "build", ".venv", "venv", "env"}
+
+
+class _RenameSymbolReq(BaseModel):
+    project_id: str          # project to rename within
+    old_name: str            # current symbol name (exact, case-sensitive)
+    new_name: str            # desired new symbol name
+    dry_run: bool = True     # if true, return the plan but do not write files
+    whole_word: bool = True  # match whole words only (avoids partial matches)
+
+
+@app.post("/ai/rename-symbol")
+def ai_rename_symbol(req: _RenameSymbolReq) -> dict:
+    """Rename a symbol across an entire project with AI-generated migration advice.
+
+    Scans all source files for occurrences of ``old_name`` and replaces them
+    with ``new_name``. By default runs in **dry-run** mode — set
+    ``dry_run=false`` to write changes to disk.
+
+    The endpoint also asks the LLM to flag any tricky cases where a simple
+    text substitution might not be enough (e.g. serialised JSON keys,
+    documentation strings, generated code, reflection-based access).
+
+    Parameters
+    ----------
+    project_id
+        Project to operate on.
+    old_name
+        Exact current symbol name (case-sensitive).
+    new_name
+        Desired replacement name.
+    dry_run
+        Default ``true`` — returns the change plan without writing any files.
+    whole_word
+        Default ``true`` — only replace whole-word occurrences (uses
+        ``\\b`` word-boundary regex).
+
+    PA11-5
+    """
+    import re as _re11e
+
+    if not _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if not req.old_name.strip():
+        raise HTTPException(status_code=422, detail="old_name must not be empty")
+    if not req.new_name.strip():
+        raise HTTPException(status_code=422, detail="new_name must not be empty")
+    if req.old_name == req.new_name:
+        raise HTTPException(status_code=422,
+                            detail="old_name and new_name must differ")
+
+    project_dir = _PROJECTS_DIR / req.project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{req.project_id}' not found")
+
+    if req.whole_word:
+        pattern = _re11e.compile(rf"\b{_re11e.escape(req.old_name)}\b")
+    else:
+        pattern = _re11e.compile(_re11e.escape(req.old_name))
+
+    changes: list[dict] = []
+    total_occurrences = 0
+
+    for fp in sorted(project_dir.rglob("*")):
+        if fp.suffix.lower() not in _RENAME_EXTS:
+            continue
+        if any(p in _RENAME_SKIP for p in fp.parts):
+            continue
+        if not fp.is_file():
+            continue
+        try:
+            original = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        occurrences = len(pattern.findall(original))
+        if occurrences == 0:
+            continue
+
+        updated = pattern.sub(req.new_name, original)
+        rel     = str(fp.relative_to(project_dir))
+
+        if not req.dry_run:
+            try:
+                fp.write_text(updated, encoding="utf-8")
+            except Exception as exc:
+                logger.warning("Could not write renamed file %s: %s", fp, exc)
+
+        changes.append({
+            "file":        rel,
+            "occurrences": occurrences,
+            "written":     not req.dry_run,
+        })
+        total_occurrences += occurrences
+
+    # ── AI advisory ──────────────────────────────────────────────────────────
+    advisory = ""
+    if total_occurrences > 0:
+        adv_system = (
+            "You are a software engineer reviewing a symbol rename. "
+            "Given the old name, new name, and the list of changed files, "
+            "identify any risky cases where a simple text replacement might "
+            "not be sufficient — for example: serialised keys, documentation, "
+            "dynamic/reflection-based access, migration scripts, generated code, "
+            "config files, or external API contracts. "
+            "Output only 1–3 short bullet points. If no risks exist, output: "
+            "'No additional risks identified.'"
+        )
+        files_list = "\n".join(f"- {c['file']} ({c['occurrences']} occurrence(s))"
+                                for c in changes)
+        adv_user = (
+            f"Rename: `{req.old_name}` → `{req.new_name}` "
+            f"in project `{req.project_id}`\n\n"
+            f"Changed files:\n{files_list}"
+        )
+        try:
+            advisory = _llm.chat([
+                {"role": "system", "content": adv_system},
+                {"role": "user",   "content": adv_user},
+            ])
+        except Exception:
+            advisory = ""
+
+    return {
+        "project_id":       req.project_id,
+        "old_name":         req.old_name,
+        "new_name":         req.new_name,
+        "dry_run":          req.dry_run,
+        "whole_word":       req.whole_word,
+        "files_changed":    len(changes),
+        "total_occurrences": total_occurrences,
+        "changes":          changes,
+        "advisory":         advisory.strip(),
+    }
+
+
+# ── PA11-6: AI usage statistics ──────────────────────────────────────────────
+
+@app.get("/workspace/ai-stats")
+def workspace_ai_stats() -> dict:
+    """Return AI usage statistics for the current server session.
+
+    Aggregates data from the budget tracker (per-project call counts and
+    token estimates), the metrics store (per-endpoint request counts), and
+    the active backend configuration to give a complete view of AI activity.
+
+    Returns
+    -------
+    total_ai_calls
+        Total number of AI inference calls made since the server started.
+    total_estimated_tokens
+        Rough token count across all calls (1 token ≈ 4 characters).
+    active_backend
+        The currently configured LLM backend name.
+    projects
+        Per-project breakdown of call counts and estimated tokens, sorted
+        by call count descending.
+    top_endpoints
+        The 5 most-called API endpoints (all routes, not just AI ones).
+    cache_size
+        Number of entries currently in the LRU response cache.
+    uptime_seconds
+        Approximate server uptime in seconds (since first request or boot).
+    session_start
+        ISO-8601 timestamp of the first recorded request (if available).
+
+    PA11-6
+    """
+    # Aggregate budget data
+    with _budget_lock:
+        budget_snapshot = dict(_budget)
+
+    total_calls  = sum(v["calls"] for v in budget_snapshot.values())
+    total_tokens = sum(v["estimated_tokens"] for v in budget_snapshot.values())
+
+    projects_list = sorted(
+        [
+            {
+                "project":          proj,
+                "calls":            stats["calls"],
+                "estimated_tokens": stats["estimated_tokens"],
+            }
+            for proj, stats in budget_snapshot.items()
+        ],
+        key=lambda x: x["calls"],
+        reverse=True,
+    )
+
+    # Top endpoints by request count
+    with _metrics_lock:
+        metrics_snapshot = {
+            route: dict(m) for route, m in _metrics.items()
+        }
+
+    top_endpoints = sorted(
+        [
+            {
+                "endpoint": route,
+                "requests": m["requests"],
+                "errors":   m["errors"],
+                "avg_ms":   round(m["total_ms"] / m["requests"], 1)
+                            if m["requests"] else 0,
+            }
+            for route, m in metrics_snapshot.items()
+        ],
+        key=lambda x: x["requests"],
+        reverse=True,
+    )[:5]
+
+    # Cache size
+    with _llm_cache_lock:
+        cache_size = len(_llm_cache)
+
+    # Uptime approximation
+    session_start_iso = ""
+    uptime_secs: float = 0.0
+    try:
+        uptime_secs = round(time.time() - _SERVER_START_TIME, 1)
+        session_start_iso = datetime.datetime.fromtimestamp(
+            _SERVER_START_TIME, tz=datetime.timezone.utc
+        ).isoformat()
+    except Exception:
+        pass
+
+    return {
+        "total_ai_calls":         total_calls,
+        "total_estimated_tokens": total_tokens,
+        "active_backend":         _config.get("agent.default_llm_backend", "ollama"),
+        "projects":               projects_list,
+        "top_endpoints":          top_endpoints,
+        "cache_size":             cache_size,
+        "uptime_seconds":         uptime_secs,
+        "session_start":          session_start_iso,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 12 — AI Agent Workflows & Multi-Step Task Pipelines
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Workflow storage ──────────────────────────────────────────────────────────
+
+import uuid as _uuid
+
+_WORKFLOW_STORE: dict[str, dict] = {}   # run_id → result dict
+_workflow_lock = threading.Lock()
+
+
+def _workflow_save(run_id: str, data: dict) -> None:
+    with _workflow_lock:
+        _WORKFLOW_STORE[run_id] = data
+        # Keep only the last 200 runs to avoid unbounded growth.
+        # dict preserves insertion order in Python 3.7+; first key is oldest.
+        if len(_WORKFLOW_STORE) > 200:
+            oldest = next(iter(_WORKFLOW_STORE))
+            del _WORKFLOW_STORE[oldest]
+
+
+# ── PA12-1: Multi-step AI workflow runner ─────────────────────────────────────
+
+class _WorkflowStep(BaseModel):
+    name: str                       # human label for this step
+    prompt: str                     # user-turn prompt; use {{output}} to inject prior step result
+    system: str = ""                # optional system message override for this step
+    role: str = "user"              # "user" | "assistant" (rarely needed)
+
+
+class _WorkflowRunReq(BaseModel):
+    workflow_name: str              # descriptive name for the workflow
+    steps: list[_WorkflowStep]      # ordered list of steps (min 1, max 20)
+    project_id: str = ""            # optional — included in stored result for filtering
+    initial_context: str = ""       # text prepended to the first step's prompt
+
+
+@app.post("/ai/workflow/run")
+def ai_workflow_run(req: _WorkflowRunReq) -> dict:
+    """Execute a named multi-step AI workflow.
+
+    A workflow is a sequence of LLM prompts where each step can reference the
+    output of the previous step using the ``{{output}}`` placeholder.  The
+    engine feeds results forward automatically, letting you build chains like:
+
+    1. *"Summarise this code"* → summary
+    2. *"Based on the summary: {{output}}, identify the top 3 risks"* → risk list
+    3. *"For each risk in {{output}}, suggest a mitigation"* → mitigations
+
+    Parameters
+    ----------
+    workflow_name
+        A human-readable label for this workflow run (stored with the result).
+    steps
+        Ordered list of up to 20 steps.  Each step has:
+        - ``name``   — label used in the response
+        - ``prompt`` — user message; ``{{output}}`` is replaced with the
+          previous step's output
+        - ``system`` — optional system-message override for this step
+    project_id
+        If set, stored with the run result for filtering via
+        ``GET /ai/workflow/list``.
+    initial_context
+        Text prepended to the first step's prompt (e.g. file content).
+
+    Returns a ``run_id`` that can be used with ``GET /ai/workflow/{run_id}``
+    to retrieve the result later.
+
+    PA12-1
+    """
+    if not req.steps:
+        raise HTTPException(status_code=422, detail="Workflow must have at least one step")
+    if len(req.steps) > 20:
+        raise HTTPException(status_code=422, detail="Workflow may have at most 20 steps")
+
+    run_id = str(_uuid.uuid4())
+    started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    step_results: list[dict] = []
+    last_output = ""
+    overall_ok = True
+
+    for i, step in enumerate(req.steps):
+        # Inject previous output and optional initial context
+        user_content = step.prompt.replace("{{output}}", last_output)
+        if i == 0 and req.initial_context:
+            user_content = req.initial_context + "\n\n" + user_content
+
+        system_content = step.system or (
+            "You are a helpful AI assistant performing a multi-step workflow task. "
+            "Be concise and structured."
+        )
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user",   "content": user_content},
+        ]
+
+        step_start = time.time()
+        error_msg = ""
+        output = ""
+        try:
+            output = _llm.chat(messages)
+        except Exception as exc:
+            error_msg = str(exc)
+            overall_ok = False
+            output = f"[STEP ERROR] {exc}"
+
+        step_results.append({
+            "step":      i + 1,
+            "name":      step.name,
+            "elapsed_s": round(time.time() - step_start, 2),
+            "output":    output,
+            "error":     error_msg,
+        })
+        last_output = output
+
+        # Stop chain on error unless it's the last step
+        if error_msg and i < len(req.steps) - 1:
+            break
+
+    finished_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    result = {
+        "run_id":        run_id,
+        "workflow_name": req.workflow_name,
+        "project_id":    req.project_id,
+        "status":        "ok" if overall_ok else "error",
+        "steps_run":     len(step_results),
+        "steps_total":   len(req.steps),
+        "started_at":    started_at,
+        "finished_at":   finished_at,
+        "steps":         step_results,
+        "final_output":  last_output,
+    }
+    _workflow_save(run_id, result)
+    return result
+
+
+# ── PA12-3: List stored workflow runs ────────────────────────────────────────
+
+@app.get("/ai/workflow/list")
+def ai_workflow_list(project_id: str = "", limit: int = 50) -> dict:
+    """List stored workflow run summaries.
+
+    Returns a summary (no step details) of the most recent workflow runs,
+    optionally filtered by project.
+
+    Parameters
+    ----------
+    project_id
+        If set, only return runs associated with this project.
+    limit
+        Maximum number of runs to return (default 50, max 200).
+
+    PA12-3
+    """
+    limit = max(1, min(limit, 200))
+    with _workflow_lock:
+        runs = list(_WORKFLOW_STORE.values())
+
+    if project_id:
+        runs = [r for r in runs if r.get("project_id") == project_id]
+
+    # Sort most recent first using finished_at ISO string (lexicographic is fine for ISO-8601)
+    runs.sort(key=lambda r: r.get("finished_at", ""), reverse=True)
+    runs = runs[:limit]
+
+    summaries = [
+        {
+            "run_id":        r["run_id"],
+            "workflow_name": r["workflow_name"],
+            "project_id":    r.get("project_id", ""),
+            "status":        r.get("status", ""),
+            "steps_run":     r.get("steps_run", 0),
+            "steps_total":   r.get("steps_total", 0),
+            "started_at":    r.get("started_at", ""),
+            "finished_at":   r.get("finished_at", ""),
+        }
+        for r in runs
+    ]
+    return {
+        "total":   len(summaries),
+        "limit":   limit,
+        "project_id": project_id,
+        "runs":    summaries,
+    }
+
+
+# ── PA12-2: Retrieve a workflow run by ID ────────────────────────────────────
+
+@app.get("/ai/workflow/{run_id}")
+def ai_workflow_get(run_id: str) -> dict:
+    """Retrieve a stored workflow run result by its ID.
+
+    Workflow runs are stored in memory for the lifetime of the server session
+    (up to 200 most recent runs).
+
+    Parameters
+    ----------
+    run_id
+        The UUID returned by ``POST /ai/workflow/run``.
+
+    PA12-2
+    """
+    with _workflow_lock:
+        result = _WORKFLOW_STORE.get(run_id)
+    if result is None:
+        raise HTTPException(status_code=404,
+                            detail=f"Workflow run '{run_id}' not found")
+    return result
+
+
+# ── PA12-4: AI-driven source file generation from spec ───────────────────────
+
+_GEN_EXTS_BY_LANG = {
+    "python":     ".py",
+    "javascript": ".js",
+    "typescript": ".ts",
+    "csharp":     ".cs",
+    "go":         ".go",
+    "rust":       ".rs",
+    "java":       ".java",
+    "cpp":        ".cpp",
+    "c":          ".c",
+    "ruby":       ".rb",
+    "php":        ".php",
+    "swift":      ".swift",
+    "kotlin":     ".kt",
+    "html":       ".html",
+    "css":        ".css",
+    "bash":       ".sh",
+    "yaml":       ".yaml",
+    "json":       ".json",
+    "markdown":   ".md",
+}
+
+
+class _GenerateReq(BaseModel):
+    project_id: str              # project to generate into
+    spec: str                    # natural-language description of the file(s) to generate
+    file_path: str = ""          # desired output path (relative to project root)
+    language: str = ""           # hint: "python" | "typescript" | ... (auto-detected if blank)
+    overwrite: bool = False      # overwrite if the file already exists
+    dry_run: bool = False        # return generated content without writing to disk
+
+
+@app.post("/projects/{project_id}/generate")
+def project_generate(project_id: str, req: _GenerateReq) -> dict:
+    """Generate a source file from a natural-language specification.
+
+    Asks the LLM to write a complete, production-ready source file based on
+    the description in ``spec``.  The file is written to
+    ``Projects/{project_id}/{file_path}`` unless ``dry_run=true``.
+
+    Parameters
+    ----------
+    project_id
+        The target project.
+    spec
+        Plain-English description of what to generate, e.g.
+        ``"A FastAPI router with CRUD endpoints for a User model backed by
+        SQLite using aiosqlite"``.
+    file_path
+        Desired output path relative to the project root.  If omitted, the
+        LLM infers an appropriate filename.
+    language
+        Optional language hint (``"python"``, ``"typescript"``, etc.).
+        Auto-detected from ``file_path`` extension when not supplied.
+    overwrite
+        Default ``false`` — refuse to overwrite existing files.
+    dry_run
+        Default ``false`` — set to ``true`` to get the generated content
+        without writing anything to disk.
+
+    PA12-4
+    """
+    import re as _re12
+
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if req.project_id and req.project_id != project_id:
+        raise HTTPException(status_code=422,
+                            detail="project_id in URL and body must match")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    # Resolve language from file extension or hint
+    language = req.language.lower().strip()
+    ext_hint = ""
+    if req.file_path:
+        fp_ext = Path(req.file_path).suffix.lower()
+        for lang, ext in _GEN_EXTS_BY_LANG.items():
+            if ext == fp_ext:
+                language = language or lang
+                break
+        ext_hint = fp_ext
+    if not language:
+        language = "python"   # safe default
+    file_ext = _GEN_EXTS_BY_LANG.get(language, ext_hint or ".py")
+
+    # Ask LLM to generate the file
+    system = (
+        f"You are an expert {language} developer. "
+        "Generate a complete, production-ready source file based on the specification. "
+        "Output ONLY the source code — no markdown fences, no explanations, no preamble. "
+        "The code must be immediately runnable/compilable with no placeholders."
+    )
+    file_label = req.file_path or f"(inferred){file_ext}"
+    user_msg = (
+        f"Project: {project_id}\n"
+        f"Target file: {file_label}\n"
+        f"Language: {language}\n\n"
+        f"Specification:\n{req.spec}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Strip accidental markdown fences
+    generated = _re12.sub(r"^```[^\n]*\n?", "", raw, flags=_re12.MULTILINE)
+    generated = _re12.sub(r"\n?```$", "", generated, flags=_re12.MULTILINE)
+    generated = generated.strip()
+
+    # Determine output path
+    if req.file_path:
+        out_rel = req.file_path
+    else:
+        # Ask the LLM to suggest a filename from the first comment or class/module name
+        first_line = generated.splitlines()[0] if generated else ""
+        name_match = _re12.search(r"\b([A-Za-z][A-Za-z0-9_]+)\b", first_line)
+        suggested_name = (name_match.group(1).lower() if name_match else "generated") + file_ext
+        out_rel = suggested_name
+
+    out_path = project_dir / out_rel
+    written = False
+    write_error = ""
+
+    if not req.dry_run:
+        if out_path.exists() and not req.overwrite:
+            raise HTTPException(
+                status_code=409,
+                detail=f"File already exists: {out_rel}. Set overwrite=true to replace it.",
+            )
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(generated, encoding="utf-8")
+            written = True
+        except Exception as exc:
+            write_error = str(exc)
+            logger.warning("Could not write generated file %s: %s", out_path, exc)
+
+    return {
+        "project_id":  project_id,
+        "file_path":   out_rel,
+        "language":    language,
+        "dry_run":     req.dry_run,
+        "written":     written,
+        "write_error": write_error,
+        "line_count":  len(generated.splitlines()),
+        "char_count":  len(generated),
+        "content":     generated,
+    }
+
+
+# ── PA12-5: Structured AI code review ────────────────────────────────────────
+
+_REVIEW_MAX_FILE_CHARS = 10_000
+
+
+class _PA12ReviewReq(BaseModel):
+    file_path: str              # path to the file to review
+    project_id: str = ""        # optional — restricts path resolution to project dir
+    content: str = ""           # inline source; overrides file_path read if provided
+    focus: str = "all"          # "quality" | "security" | "performance" | "style" | "all"
+
+
+@app.post("/ai/code-review")
+def ai_code_review_structured(req: _PA12ReviewReq) -> dict:
+    """Perform a structured AI code review on a source file.
+
+    Unlike ``POST /projects/{id}/security-audit`` (which focuses on OWASP
+    vulnerabilities), this review covers:
+    - **Code quality** — logic errors, unreachable code, edge-case gaps
+    - **Best practices** — design patterns, SOLID principles, naming
+    - **Performance** — inefficient algorithms, unnecessary allocations
+    - **Style** — formatting, consistency, documentation
+    - **Security** — basic credential exposure, injection vectors
+
+    Each finding includes a severity (CRITICAL / HIGH / MEDIUM / LOW / INFO),
+    the approximate line number, a category, and a specific recommendation.
+
+    Parameters
+    ----------
+    file_path
+        Path to the source file.  Relative paths are resolved inside
+        ``project_id`` if set.
+    project_id
+        Scope path resolution to ``Projects/{project_id}/``.
+    content
+        Inline source content — overrides disk read.
+    focus
+        Review focus: ``"all"`` (default), ``"quality"``, ``"security"``,
+        ``"performance"``, or ``"style"``.
+
+    PA12-5
+    """
+    import re as _re12b
+
+    # ── Resolve content ────────────────────────────────────────────────────────
+    code = req.content.strip()
+    resolved_path = req.file_path
+
+    if not code:
+        candidate: Path | None = None
+        if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+            candidate = _PROJECTS_DIR / req.project_id / req.file_path
+        if candidate is None or not candidate.is_file():
+            candidate = Path(req.file_path)
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {req.file_path}")
+        try:
+            code = candidate.read_text(encoding="utf-8", errors="replace")
+            resolved_path = str(candidate)
+        except Exception as exc:
+            raise HTTPException(status_code=500,
+                                detail=f"Could not read file: {exc}") from exc
+
+    truncated = len(code) > _REVIEW_MAX_FILE_CHARS
+    excerpt = code[:_REVIEW_MAX_FILE_CHARS]
+
+    # ── Build focus-aware system prompt ───────────────────────────────────────
+    focus_notes = {
+        "quality":     "Focus exclusively on code quality: logic errors, missing edge cases, unreachable code, unclear naming.",
+        "security":    "Focus exclusively on security: credential exposure, injection, insecure defaults, missing validation.",
+        "performance": "Focus exclusively on performance: algorithmic complexity, unnecessary loops, memory allocation, I/O efficiency.",
+        "style":       "Focus exclusively on style: formatting, naming conventions, documentation coverage, consistency.",
+        "all":         "Cover all aspects: quality, security, performance, and style.",
+    }
+    focus_instruction = focus_notes.get(req.focus, focus_notes["all"])
+
+    system = (
+        "You are a senior code reviewer. "
+        f"{focus_instruction}\n\n"
+        "For each issue output EXACTLY this block:\n"
+        "ISSUE:\n"
+        "SEVERITY: CRITICAL|HIGH|MEDIUM|LOW|INFO\n"
+        "LINE: <approximate line number or range>\n"
+        "CATEGORY: <Code Quality|Security|Performance|Style|Best Practice>\n"
+        "DESCRIPTION: <specific explanation of the problem>\n"
+        "SUGGESTION: <concrete fix>\n"
+        "END_ISSUE\n\n"
+        "After all issues output:\n"
+        "REVIEW_SUMMARY: <2-3 sentence overall assessment with a score out of 10>\n\n"
+        "If the code has no issues output: NO_ISSUES"
+    )
+    user_msg = (
+        f"Review the following code from `{req.file_path}`"
+        + (f" (project: {req.project_id})" if req.project_id else "")
+        + ("\n[Content truncated to first 10 000 chars]" if truncated else "")
+        + f":\n\n{excerpt}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # ── Parse issues ──────────────────────────────────────────────────────────
+    issues: list[dict] = []
+    review_summary = ""
+
+    if "NO_ISSUES" in raw.upper():
+        review_summary = "No issues identified — code looks clean."
+    else:
+        for block in _re12b.split(r"ISSUE:", raw, flags=_re12b.IGNORECASE):
+            block = block.strip()
+            if not block:
+                continue
+            end_pos = block.upper().find("END_ISSUE")
+            if end_pos >= 0:
+                block = block[:end_pos].strip()
+
+            def _get(label: str, text: str) -> str:
+                m = _re12b.search(
+                    rf"^{label}\s*:\s*(.+)$", text,
+                    _re12b.IGNORECASE | _re12b.MULTILINE,
+                )
+                return m.group(1).strip() if m else ""
+
+            severity    = _get("SEVERITY", block)
+            line_hint   = _get("LINE", block)
+            category    = _get("CATEGORY", block)
+            description = _get("DESCRIPTION", block)
+            suggestion  = _get("SUGGESTION", block)
+
+            if severity or description:
+                issues.append({
+                    "severity":    severity or "INFO",
+                    "line":        line_hint,
+                    "category":    category,
+                    "description": description,
+                    "suggestion":  suggestion,
+                })
+
+        summ_m = _re12b.search(
+            r"REVIEW_SUMMARY\s*:\s*(.+?)(?:$|\nISSUE:)",
+            raw, _re12b.IGNORECASE | _re12b.DOTALL,
+        )
+        if summ_m:
+            review_summary = summ_m.group(1).strip()
+
+    # Sort by severity
+    _sev = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+    issues.sort(key=lambda i: _sev.get(i["severity"].upper(), 5))
+
+    return {
+        "file_path":     resolved_path,
+        "project_id":    req.project_id,
+        "focus":         req.focus,
+        "truncated":     truncated,
+        "issue_count":   len(issues),
+        "issues":        issues,
+        "summary":       review_summary,
+    }
+
+
+# ── PA12-6: Model / backend recommendation ────────────────────────────────────
+
+# Task-type → recommended model size tier and capabilities
+_TASK_PROFILES: dict[str, dict] = {
+    "code":          {"min_size_gb": 4,  "ideal_size_gb": 7,  "note": "Code generation/editing — needs strong reasoning"},
+    "chat":          {"min_size_gb": 2,  "ideal_size_gb": 4,  "note": "General chat — any decent model works well"},
+    "analysis":      {"min_size_gb": 7,  "ideal_size_gb": 13, "note": "Deep analysis/audit — bigger models perform better"},
+    "summarise":     {"min_size_gb": 2,  "ideal_size_gb": 4,  "note": "Summarisation — medium models are sufficient"},
+    "embedding":     {"min_size_gb": 0,  "ideal_size_gb": 1,  "note": "Embedding models are tiny (< 1 GiB typically)"},
+    "translation":   {"min_size_gb": 4,  "ideal_size_gb": 7,  "note": "Translation — multilingual models recommended"},
+    "vision":        {"min_size_gb": 7,  "ideal_size_gb": 14, "note": "Vision/multimodal — requires multimodal GGUF"},
+    "long_context":  {"min_size_gb": 7,  "ideal_size_gb": 13, "note": "Long-context tasks — maximise n_ctx on your hardware"},
+}
+
+
+@app.get("/ai/models/recommend")
+def ai_models_recommend(task: str = "code") -> dict:
+    """Recommend the best AI backend and model tier for a given task type.
+
+    Uses the hardware profiler to assess available VRAM and RAM, then
+    suggests which backend (``embedded``, ``ollama``, ``openai``) and which
+    model size tier is most appropriate for the specified task on this machine.
+
+    Task types
+    ----------
+    ``code``         — code generation, editing, refactoring (default)
+    ``chat``         — general conversational AI
+    ``analysis``     — deep code analysis, security audit, architecture review
+    ``summarise``    — text/code summarisation
+    ``embedding``    — vector embedding generation
+    ``translation``  — multi-language translation
+    ``vision``       — image understanding (requires multimodal GGUF)
+    ``long_context`` — tasks requiring large context windows (>8 K tokens)
+
+    PA12-6
+    """
+    task_key = task.lower().strip()
+    if task_key not in _TASK_PROFILES:
+        task_key = "code"
+        note_override = (
+            f"Unknown task type '{task}' — defaulting to 'code' profile. "
+            f"Valid types: {', '.join(sorted(_TASK_PROFILES))}."
+        )
+    else:
+        note_override = ""
+
+    profile_info = _TASK_PROFILES[task_key]
+    min_size   = profile_info["min_size_gb"]
+    ideal_size = profile_info["ideal_size_gb"]
+
+    # Detect hardware
+    hw = None
+    try:
+        from llm.hardware import detect_hardware as _detect_hw
+        hw = _detect_hw()
+    except Exception as exc:
+        logger.warning("Hardware detection failed in recommend: %s", exc)
+
+    vram_gb  = hw.vram_total_gb  if hw else 0.0
+    ram_gb   = hw.ram_total_gb   if hw else 0.0
+    gpu_name = hw.gpu_name       if hw else ""
+
+    # Score backends and model tiers
+    recommendations: list[dict] = []
+
+    # ── Embedded (llama-cpp-python) ───────────────────────────────────────────
+    if vram_gb >= ideal_size:
+        emb_tier = f"{ideal_size}B Q4_K_M (fully in VRAM)"
+        emb_quality = "excellent"
+    elif vram_gb >= min_size:
+        emb_tier = f"{min_size}–{ideal_size}B Q4/Q5 (partial GPU offload)"
+        emb_quality = "good"
+    elif ram_gb >= ideal_size * 2:
+        emb_tier = f"{min_size}B Q4 (CPU inference — slower)"
+        emb_quality = "acceptable"
+    else:
+        emb_tier = "very small model only (Q2/Q3 quantisation)"
+        emb_quality = "limited"
+
+    recommendations.append({
+        "backend":     "embedded",
+        "quality":     emb_quality,
+        "model_tier":  emb_tier,
+        "description": "In-process GGUF via llama-cpp-python. No external server. Fully offline.",
+        "setup":       "POST /ai/embedded/load with auto_configure=true",
+    })
+
+    # ── Ollama ────────────────────────────────────────────────────────────────
+    if vram_gb >= ideal_size:
+        oll_tier = f"ollama pull llama3:{ideal_size}b or codellama:{ideal_size}b"
+        oll_quality = "excellent"
+    elif vram_gb >= min_size:
+        oll_tier = f"ollama pull llama3:{min_size}b"
+        oll_quality = "good"
+    else:
+        oll_tier = "ollama pull phi3:mini (CPU only)"
+        oll_quality = "limited"
+
+    recommendations.append({
+        "backend":     "ollama",
+        "quality":     oll_quality,
+        "model_tier":  oll_tier,
+        "description": "Ollama local server. Easy model management. Requires Ollama installed.",
+        "setup":       "Install Ollama, run model, set llm.backend=ollama in config.toml",
+    })
+
+    # ── OpenAI / cloud API ────────────────────────────────────────────────────
+    recommendations.append({
+        "backend":     "openai",
+        "quality":     "excellent",
+        "model_tier":  "gpt-4o / gpt-4-turbo (cloud — requires API key)",
+        "description": "OpenAI cloud API. Best quality for complex tasks. Requires internet + API key.",
+        "setup":       "Set llm.backend=openai and llm.openai.api_key in config.toml",
+    })
+
+    # Build hardware context string
+    if hw:
+        hw_summary = (
+            f"{ram_gb:.0f} GiB RAM, "
+            f"{vram_gb:.1f} GiB VRAM ({gpu_name or 'no GPU'}), "
+            f"{hw.cpu_cores_physical} CPU cores"
+        )
+    else:
+        hw_summary = "Hardware profile unavailable"
+
+    # Determine top recommendation
+    top = recommendations[0]   # embedded is usually best for local-first
+
+    return {
+        "task":             task_key,
+        "task_note":        note_override or profile_info["note"],
+        "hardware_summary": hw_summary,
+        "hardware":         hw.to_dict() if hw else None,
+        "min_model_size_gb":   min_size,
+        "ideal_model_size_gb": ideal_size,
+        "top_recommendation":  top["backend"],
+        "recommendations":     recommendations,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 13 — Web-Augmented Local AI
+#  Uses the local LLM (embedded/Ollama/etc.) as the sole AI backend.
+#  Web search results are fetched from DuckDuckGo Lite (no API key) or a
+#  self-hosted SearXNG instance and injected as RAG context before the prompt.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Runtime web-search config (mirrors [web_search] in config.toml) ───────────
+
+_ws_lock = threading.Lock()
+_ws_config: dict[str, Any] = {
+    "enabled":     _config.get("web_search.enabled",     True),
+    "provider":    _config.get("web_search.provider",    "duckduckgo"),
+    "max_results": int(_config.get("web_search.max_results", 5)),
+    "timeout_s":   float(_config.get("web_search.timeout_s", 8.0)),
+    "searxng_url": _config.get("web_search.searxng_url", ""),
+}
+
+
+def _ws_get() -> dict[str, Any]:
+    with _ws_lock:
+        return dict(_ws_config)
+
+
+def _do_web_search(query: str, max_results: int | None = None) -> list[dict]:
+    """Run a web search using the current runtime config.
+
+    Returns a list of ``{title, url, snippet}`` dicts.  Never raises — returns
+    an empty list with a logged warning on any error.
+    """
+    try:
+        from llm.web_search import search as _ws_search
+    except ImportError as exc:
+        logger.warning("llm.web_search import failed: %s", exc)
+        return []
+
+    cfg = _ws_get()
+    if not cfg.get("enabled", True):
+        return []
+
+    n = max_results if max_results is not None else cfg["max_results"]
+    try:
+        results = _ws_search(
+            query=query,
+            max_results=n,
+            provider=cfg.get("provider", "duckduckgo"),
+            timeout_s=cfg.get("timeout_s", 8.0),
+            searxng_url=cfg.get("searxng_url", ""),
+        )
+        return [r.to_dict() for r in results]
+    except Exception as exc:
+        logger.warning("Web search error for %r: %s", query, exc)
+        return []
+
+
+# ── PA13-1: Web-augmented Q&A via local LLM ──────────────────────────────────
+
+class _WebAskReq(BaseModel):
+    query:        str                  # natural-language question
+    max_results:  int   = 5            # number of search results to use as context
+    system:       str   = ""           # optional system-message override
+    include_sources: bool = True       # include sources[] in response
+
+
+@app.post("/ai/web-ask")
+def ai_web_ask(req: _WebAskReq) -> dict:
+    """Answer a question using web search results as context for the local LLM.
+
+    Workflow
+    --------
+    1. Search the web for ``query`` using the configured provider (DuckDuckGo
+       Lite by default — **no API key required**).
+    2. Format the top results into a RAG context block.
+    3. Ask the local LLM to synthesise an answer grounded in those results.
+
+    The local AI is the sole inference backend — no cloud API is used.
+
+    Parameters
+    ----------
+    query
+        The question or information request.
+    max_results
+        Number of search results to retrieve and inject (1–10, default 5).
+    system
+        Optional system message to override the default ``web-grounded
+        assistant`` persona.
+    include_sources
+        Include the raw search results in the response (default ``true``).
+
+    PA13-1
+    """
+    import re as _re13
+
+    if not req.query.strip():
+        raise HTTPException(status_code=422, detail="query must not be empty")
+
+    n = max(1, min(req.max_results, 10))
+
+    # ── Step 1: Web search ────────────────────────────────────────────────────
+    raw_results = _do_web_search(req.query, max_results=n)
+
+    # ── Step 2: Build RAG context ─────────────────────────────────────────────
+    try:
+        from llm.web_search import SearchResult as _SR, build_rag_context as _brc
+        sr_objects = [_SR(**r) for r in raw_results]
+        ctx = _brc(sr_objects, req.query)
+    except Exception:
+        ctx = "\n".join(
+            f"[{i}] {r['title']}\n    URL: {r['url']}\n    {r['snippet']}"
+            for i, r in enumerate(raw_results, 1)
+        ) or "(no search results available)"
+
+    # ── Step 3: Ask local LLM ─────────────────────────────────────────────────
+    system = req.system.strip() or (
+        "You are a helpful, accurate assistant. You have been given web search "
+        "results as context. Use them to answer the user's question. "
+        "Cite sources by their index number [1], [2], etc. "
+        "If the search results do not contain enough information, say so clearly. "
+        "Do not invent facts not present in the search results."
+    )
+
+    user_msg = f"{ctx}\n\nQuestion: {req.query}"
+
+    try:
+        answer = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    return {
+        "query":          req.query,
+        "answer":         answer,
+        "sources_used":   len(raw_results),
+        "sources":        raw_results if req.include_sources else [],
+        "web_search_cfg": {
+            "provider":   _ws_get().get("provider"),
+            "enabled":    _ws_get().get("enabled"),
+        },
+    }
+
+
+# ── PA13-2: Raw web search (no LLM synthesis) ────────────────────────────────
+
+@app.post("/ai/web-search")
+def ai_web_search_raw(query: str, max_results: int = 5) -> dict:
+    """Perform a web search and return raw structured results.
+
+    Unlike ``POST /ai/web-ask``, this endpoint does **not** invoke the LLM —
+    it simply returns the search results so callers can use them in their own
+    prompts or display them directly.
+
+    Parameters
+    ----------
+    query
+        The search query.
+    max_results
+        Number of results to return (1–20, default 5).
+
+    PA13-2
+    """
+    if not query.strip():
+        raise HTTPException(status_code=422, detail="query must not be empty")
+
+    n = max(1, min(max_results, 20))
+    results = _do_web_search(query, max_results=n)
+    cfg     = _ws_get()
+
+    return {
+        "query":      query,
+        "provider":   cfg.get("provider", "duckduckgo"),
+        "result_count": len(results),
+        "results":    results,
+    }
+
+
+# ── PA13-3 + PA13-4: Web search config view/update ───────────────────────────
+
+_WS_VALID_PROVIDERS = {"duckduckgo", "searxng"}
+
+
+@app.get("/ai/web-search/config")
+def ai_web_search_config_get() -> dict:
+    """Return the current web search configuration.
+
+    Configuration is initially loaded from ``[web_search]`` in
+    ``configs/config.toml`` and can be updated at runtime via
+    ``POST /ai/web-search/config``.
+
+    PA13-3
+    """
+    return _ws_get()
+
+
+class _WsConfigUpdate(BaseModel):
+    enabled:     bool | None   = None
+    provider:    str | None    = None   # "duckduckgo" | "searxng"
+    max_results: int | None    = None   # 1–20
+    timeout_s:   float | None  = None   # 1.0–60.0
+    searxng_url: str | None    = None   # required when provider="searxng"
+
+
+@app.post("/ai/web-search/config")
+def ai_web_search_config_set(req: _WsConfigUpdate) -> dict:
+    """Update the web search configuration at runtime.
+
+    Changes take effect immediately for subsequent requests.  Settings are
+    **not** persisted to disk — restart the server to reload ``config.toml``.
+
+    Parameters
+    ----------
+    enabled
+        Toggle web search globally.
+    provider
+        ``"duckduckgo"`` (no API key) or ``"searxng"`` (requires
+        ``searxng_url``).
+    max_results
+        Default number of results per search (1–20).
+    timeout_s
+        HTTP timeout per search request in seconds (1–60).
+    searxng_url
+        Base URL of your SearXNG instance
+        (e.g. ``"http://localhost:8080"``).
+
+    PA13-4
+    """
+    errors: list[str] = []
+
+    with _ws_lock:
+        if req.enabled is not None:
+            _ws_config["enabled"] = bool(req.enabled)
+
+        if req.provider is not None:
+            if req.provider not in _WS_VALID_PROVIDERS:
+                errors.append(
+                    f"Invalid provider '{req.provider}'. "
+                    f"Valid options: {sorted(_WS_VALID_PROVIDERS)}"
+                )
+            else:
+                _ws_config["provider"] = req.provider
+
+        if req.max_results is not None:
+            clamped = max(1, min(int(req.max_results), 20))
+            _ws_config["max_results"] = clamped
+
+        if req.timeout_s is not None:
+            clamped_t = max(1.0, min(float(req.timeout_s), 60.0))
+            _ws_config["timeout_s"] = clamped_t
+
+        if req.searxng_url is not None:
+            _ws_config["searxng_url"] = req.searxng_url.rstrip("/")
+
+        snapshot = dict(_ws_config)
+
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+
+    return {"updated": True, "config": snapshot}
+
+
+# ── PA13-5: Web-grounded chat with history ───────────────────────────────────
+
+class _WebChatMessage(BaseModel):
+    role:    str   # "user" | "assistant" | "system"
+    content: str
+
+
+class _WebChatReq(BaseModel):
+    messages: list[_WebChatMessage]   # full conversation history
+    max_results: int = 5              # search results to inject
+    system:      str = ""             # optional system override
+    search_latest_message: bool = True  # search based on last user message
+
+
+@app.post("/ai/chat/web")
+def ai_chat_web(req: _WebChatReq) -> dict:
+    """Web-grounded chat with full conversation history.
+
+    Extracts the most recent user message, searches the web for it, and
+    injects the results as a system-level context block before forwarding
+    the full conversation to the local LLM.
+
+    Parameters
+    ----------
+    messages
+        Conversation history as ``[{role, content}]``.  The last ``user``
+        message is used as the search query.
+    max_results
+        Number of search results to inject (1–10).
+    system
+        Optional system message to prepend (before the search context).
+    search_latest_message
+        If ``true`` (default), derive the search query from the last user
+        message.  Set to ``false`` to skip the web search and behave like a
+        plain local-LLM chat.
+
+    PA13-5
+    """
+    if not req.messages:
+        raise HTTPException(status_code=422, detail="messages must not be empty")
+
+    # Extract last user message for search query
+    search_query = ""
+    if req.search_latest_message:
+        for m in reversed(req.messages):
+            if m.role == "user":
+                search_query = m.content.strip()
+                break
+
+    # Web search
+    raw_results: list[dict] = []
+    ctx_block = ""
+    if search_query:
+        n = max(1, min(req.max_results, 10))
+        raw_results = _do_web_search(search_query, max_results=n)
+        try:
+            from llm.web_search import SearchResult as _SR2, build_rag_context as _brc2
+            sr_objs = [_SR2(**r) for r in raw_results]
+            ctx_block = _brc2(sr_objs, search_query)
+        except Exception:
+            ctx_block = "\n".join(
+                f"[{i}] {r['title']}: {r['snippet']}"
+                for i, r in enumerate(raw_results, 1)
+            )
+
+    # Build messages for LLM
+    base_system = req.system.strip() or (
+        "You are a knowledgeable assistant with access to recent web information. "
+        "Use the provided search results to give accurate, up-to-date answers. "
+        "Cite sources as [1], [2] etc."
+    )
+    system_content = base_system
+    if ctx_block:
+        system_content = f"{base_system}\n\n{ctx_block}"
+
+    llm_messages: list[dict] = [{"role": "system", "content": system_content}]
+    for m in req.messages:
+        if m.role in ("user", "assistant"):
+            llm_messages.append({"role": m.role, "content": m.content})
+
+    try:
+        answer = _llm.chat(llm_messages)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    return {
+        "answer":       answer,
+        "search_query": search_query,
+        "sources_used": len(raw_results),
+        "sources":      raw_results,
+    }
+
+
+# ── PA13-6: List available search providers and their status ─────────────────
+
+@app.get("/ai/web-search/providers")
+def ai_web_search_providers() -> dict:
+    """List available web search providers and their configuration status.
+
+    Returns each provider's name, whether it is selected, and whether the
+    required configuration (e.g. ``searxng_url``) is present.
+
+    PA13-6
+    """
+    cfg = _ws_get()
+    current = cfg.get("provider", "duckduckgo")
+
+    providers = [
+        {
+            "name":        "duckduckgo",
+            "description": "DuckDuckGo Lite — no API key, no account required. Uses HTTP scraping.",
+            "requires":    "none",
+            "configured":  True,
+            "selected":    current == "duckduckgo",
+        },
+        {
+            "name":        "searxng",
+            "description": "SearXNG — self-hosted privacy-respecting meta-search. Requires a running SearXNG instance.",
+            "requires":    "searxng_url in config",
+            "configured":  bool(cfg.get("searxng_url", "").strip()),
+            "selected":    current == "searxng",
+            "instance":    cfg.get("searxng_url", ""),
+        },
+    ]
+
+    return {
+        "enabled":          cfg.get("enabled", True),
+        "active_provider":  current,
+        "providers":        providers,
+        "note": (
+            "The local AI (embedded/Ollama) is the sole inference backend. "
+            "Web search provides live context injected into the LLM prompt — "
+            "no cloud AI API is ever called."
+        ),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 14 — AI Memory & Persistent Context
+#  SQLite-backed long-term memory store.  The AI remembers facts, decisions,
+#  and context across chat sessions.  Memories can be tagged, importance-ranked,
+#  given an optional TTL, and retrieved via keyword/tag search or injected
+#  automatically as RAG context before LLM prompts.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import uuid as _mem_uuid
+import datetime as _mem_dt
+
+_MEMORY_DB_PATH = _BASE / ".arbiter" / "memory.db"
+_MEMORY_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# ── Schema bootstrap ─────────────────────────────────────────────────────────
+
+def _mem_db() -> sqlite3.Connection:
+    """Return a thread-local SQLite connection to the memory store."""
+    conn = sqlite3.connect(str(_MEMORY_DB_PATH), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS memories (
+            id          TEXT    PRIMARY KEY,
+            content     TEXT    NOT NULL,
+            source      TEXT    NOT NULL DEFAULT '',
+            importance  INTEGER NOT NULL DEFAULT 3,
+            tags        TEXT    NOT NULL DEFAULT '',
+            created_at  TEXT    NOT NULL,
+            expires_at  TEXT,
+            access_count INTEGER NOT NULL DEFAULT 0,
+            last_accessed TEXT
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def _mem_tags_str(tags: list[str]) -> str:
+    """Encode a list of tags as a comma-separated lowercase string."""
+    return ",".join(t.strip().lower() for t in tags if t.strip())
+
+
+def _mem_tags_list(tags_str: str) -> list[str]:
+    """Decode a comma-separated tag string into a list."""
+    return [t for t in tags_str.split(",") if t]
+
+
+def _mem_is_expired(expires_at: str | None) -> bool:
+    if not expires_at:
+        return False
+    try:
+        return _mem_dt.datetime.fromisoformat(expires_at) < _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None)
+    except ValueError:
+        return False
+
+
+def _mem_row_to_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["tags"] = _mem_tags_list(d.get("tags", ""))
+    d["expired"] = _mem_is_expired(d.get("expires_at"))
+    return d
+
+
+# ── PA14-1: Store a memory ────────────────────────────────────────────────────
+
+class _MemoryStoreReq(BaseModel):
+    content:    str                  # The fact / decision / note to remember
+    tags:       list[str] = []       # Optional category tags  e.g. ["project","decision"]
+    source:     str = ""             # Where this came from, e.g. "user", "ai", "meeting"
+    importance: int = 3              # 1 (trivial) – 5 (critical)
+    ttl_days:   float | None = None  # Optional expiry in days from now; None = permanent
+
+
+@app.post("/ai/memory")
+def ai_memory_store(req: _MemoryStoreReq) -> dict:
+    """Store a new memory in the persistent AI memory store.
+
+    Memories survive server restarts and are scoped to the Arbiter workspace.
+    Use ``POST /ai/memory/inject`` to pull relevant memories into an LLM prompt.
+
+    Parameters
+    ----------
+    content
+        The text to remember.  There is no hard size limit but keep entries
+        concise for best retrieval quality.
+    tags
+        Optional list of category tags (e.g. ``["project", "architecture"]``).
+        Tags are stored lowercase and can be used to filter in ``/ai/memory/list``.
+    source
+        Free-text origin label (e.g. ``"user"``, ``"ai"``, ``"standup"``).
+    importance
+        Priority 1–5 (default 3).  Higher importance memories are ranked first
+        when injecting context.
+    ttl_days
+        If set, the memory expires after this many days.  Expired memories are
+        excluded from search and inject but retained in the DB until explicitly
+        deleted or pruned via ``GET /ai/memory/stats?prune=true``.
+
+    PA14-1
+    """
+    if not req.content.strip():
+        raise HTTPException(status_code=422, detail="content must not be empty")
+
+    importance = max(1, min(int(req.importance), 5))
+    now        = _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None).isoformat()
+    expires_at = None
+    if req.ttl_days is not None and req.ttl_days > 0:
+        expires_at = (
+            _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None)
+            + _mem_dt.timedelta(days=req.ttl_days)
+        ).isoformat()
+
+    mem_id  = str(_mem_uuid.uuid4())
+    tags_s  = _mem_tags_str(req.tags)
+
+    try:
+        conn = _mem_db()
+        conn.execute(
+            "INSERT INTO memories (id, content, source, importance, tags, created_at, expires_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (mem_id, req.content.strip(), req.source.strip(), importance, tags_s, now, expires_at),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    return {
+        "id":         mem_id,
+        "created_at": now,
+        "expires_at": expires_at,
+        "importance": importance,
+        "tags":       _mem_tags_list(tags_s),
+    }
+
+
+# ── PA14-2: Search memories ───────────────────────────────────────────────────
+
+@app.get("/ai/memory/search")
+def ai_memory_search(
+    q:          str  = "",
+    tags:       str  = "",   # comma-separated tag filter
+    source:     str  = "",
+    min_importance: int = 1,
+    include_expired: bool = False,
+    limit:      int  = 20,
+) -> dict:
+    """Search the memory store by keyword and/or tag.
+
+    Results are ranked by importance (desc) then recency (desc).
+
+    Parameters
+    ----------
+    q
+        Keyword to search for in memory ``content`` (case-insensitive, partial
+        match).  Omit or pass ``""`` to return all memories matching the other
+        filters.
+    tags
+        Comma-separated tag filter.  Only memories that have **all** listed
+        tags are returned.
+    source
+        Filter by source label (exact match, case-insensitive).
+    min_importance
+        Minimum importance level (1–5, default 1).
+    include_expired
+        If ``true``, include expired memories in results.
+    limit
+        Maximum results to return (1–100, default 20).
+
+    PA14-2
+    """
+    limit = max(1, min(int(limit), 100))
+    try:
+        conn = _mem_db()
+        rows = conn.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    tag_filter  = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    q_lower     = q.strip().lower()
+    src_lower   = source.strip().lower()
+    results     = []
+
+    for row in rows:
+        d = _mem_row_to_dict(row)
+
+        # Expiry filter
+        if not include_expired and d["expired"]:
+            continue
+
+        # Importance filter
+        if d["importance"] < min_importance:
+            continue
+
+        # Source filter
+        if src_lower and d.get("source", "").lower() != src_lower:
+            continue
+
+        # Tag filter — all required tags must be present
+        if tag_filter:
+            mem_tags = set(d["tags"])
+            if not all(t in mem_tags for t in tag_filter):
+                continue
+
+        # Keyword filter
+        if q_lower and q_lower not in d["content"].lower():
+            continue
+
+        results.append(d)
+        if len(results) >= limit:
+            break
+
+    return {
+        "query":        q,
+        "tag_filter":   tag_filter,
+        "result_count": len(results),
+        "results":      results,
+    }
+
+
+# ── PA14-3: List memories ─────────────────────────────────────────────────────
+
+@app.get("/ai/memory/list")
+def ai_memory_list(
+    tags:            str  = "",
+    source:          str  = "",
+    min_importance:  int  = 1,
+    include_expired: bool = False,
+    page:            int  = 1,
+    page_size:       int  = 50,
+) -> dict:
+    """List memories with optional filters and pagination.
+
+    Unlike ``GET /ai/memory/search``, this endpoint does not require a keyword
+    query and always returns the full sorted list (importance desc, recency desc).
+
+    Parameters
+    ----------
+    tags
+        Comma-separated tag filter (memories must have all listed tags).
+    source
+        Filter by source label (exact, case-insensitive).
+    min_importance
+        Minimum importance level (1–5).
+    include_expired
+        Include expired memories in results.
+    page
+        Page number (1-based).
+    page_size
+        Items per page (1–200, default 50).
+
+    PA14-3
+    """
+    page      = max(1, int(page))
+    page_size = max(1, min(int(page_size), 200))
+    try:
+        conn = _mem_db()
+        rows = conn.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    tag_filter = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    src_lower  = source.strip().lower()
+    filtered   = []
+
+    for row in rows:
+        d = _mem_row_to_dict(row)
+        if not include_expired and d["expired"]:
+            continue
+        if d["importance"] < min_importance:
+            continue
+        if src_lower and d.get("source", "").lower() != src_lower:
+            continue
+        if tag_filter:
+            mem_tags = set(d["tags"])
+            if not all(t in mem_tags for t in tag_filter):
+                continue
+        filtered.append(d)
+
+    total      = len(filtered)
+    start      = (page - 1) * page_size
+    page_items = filtered[start : start + page_size]
+
+    return {
+        "total":     total,
+        "page":      page,
+        "page_size": page_size,
+        "pages":     max(1, (total + page_size - 1) // page_size),
+        "items":     page_items,
+    }
+
+
+# ── PA14-4: Delete a memory ───────────────────────────────────────────────────
+
+@app.delete("/ai/memory/{memory_id}")
+def ai_memory_delete(memory_id: str) -> dict:
+    """Delete a specific memory by its ID.
+
+    Returns ``{deleted: true}`` on success, ``404`` if the ID is not found.
+
+    PA14-4
+    """
+    try:
+        conn   = _mem_db()
+        cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Memory '{memory_id}' not found")
+
+    return {"deleted": True, "id": memory_id}
+
+
+# ── PA14-5: Inject memories as LLM context ───────────────────────────────────
+
+class _MemoryInjectReq(BaseModel):
+    query:         str                # The topic / question to find memories for
+    max_memories:  int = 10           # Max memories to include in context (1–50)
+    min_importance: int = 1           # Minimum importance filter
+    tags:          list[str] = []     # Optional tag pre-filter
+    ask:           str = ""           # If non-empty, also ask the LLM using injected memories
+    system:        str = ""           # Optional system prompt override when ask is set
+
+
+@app.post("/ai/memory/inject")
+def ai_memory_inject(req: _MemoryInjectReq) -> dict:
+    """Build an LLM context block from memories relevant to a query.
+
+    Retrieves the most relevant memories (importance-ranked, keyword-filtered)
+    and formats them as a ``=== Relevant memories === ... ===`` block suitable
+    for prepending to any LLM prompt.
+
+    Optionally, if ``ask`` is provided, the endpoint also sends the full
+    context to the local LLM and returns the ``answer``.
+
+    Parameters
+    ----------
+    query
+        The topic or question used to find relevant memories (keyword match).
+    max_memories
+        Maximum memories to include in the context block (1–50).
+    min_importance
+        Only include memories with this importance or higher.
+    tags
+        Pre-filter to memories that have all of these tags.
+    ask
+        Optional follow-up question to send to the local LLM grounded in the
+        retrieved memories.
+    system
+        System message override when ``ask`` is provided.
+
+    PA14-5
+    """
+    if not req.query.strip():
+        raise HTTPException(status_code=422, detail="query must not be empty")
+
+    n = max(1, min(req.max_memories, 50))
+
+    # Retrieve memories via the same logic as /search
+    try:
+        conn = _mem_db()
+        rows = conn.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    q_lower    = req.query.strip().lower()
+    tag_filter = [t.strip().lower() for t in req.tags if t.strip()]
+    matched    = []
+
+    for row in rows:
+        d = _mem_row_to_dict(row)
+        if d["expired"]:
+            continue
+        if d["importance"] < req.min_importance:
+            continue
+        if tag_filter:
+            mem_tags = set(d["tags"])
+            if not all(t in mem_tags for t in tag_filter):
+                continue
+        if q_lower and q_lower not in d["content"].lower():
+            continue
+        matched.append(d)
+        if len(matched) >= n:
+            break
+
+    # Build context block
+    if matched:
+        lines = [f'=== Relevant memories for: "{req.query}" ===']
+        for i, m in enumerate(matched, 1):
+            tag_str = f"  [tags: {', '.join(m['tags'])}]" if m["tags"] else ""
+            imp_str = f"  [importance: {m['importance']}]"
+            lines.append(
+                f"\n[{i}]{imp_str}{tag_str}\n"
+                f"    {m['content']}\n"
+                f"    (source: {m['source'] or 'unknown'}, stored: {m['created_at'][:10]})"
+            )
+        lines.append("\n=== End of memories ===")
+        context_block = "\n".join(lines)
+    else:
+        context_block = f'=== Relevant memories for: "{req.query}" ===\nNo matching memories found.\n=== End of memories ==='
+
+    # Update access counts
+    if matched:
+        now_s = _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None).isoformat()
+        try:
+            conn = _mem_db()
+            conn.executemany(
+                "UPDATE memories SET access_count = access_count+1, last_accessed=? WHERE id=?",
+                [(now_s, m["id"]) for m in matched],
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    result: dict = {
+        "query":          req.query,
+        "memories_used":  len(matched),
+        "context_block":  context_block,
+        "memories":       matched,
+    }
+
+    # Optional LLM call
+    if req.ask.strip():
+        system = req.system.strip() or (
+            "You are a knowledgeable assistant with access to the user's long-term memory. "
+            "Use the provided memories as context to give accurate, personalised answers. "
+            "Reference specific memories when relevant."
+        )
+        user_msg = f"{context_block}\n\nQuestion: {req.ask.strip()}"
+        try:
+            answer = _llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_msg},
+            ])
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+        result["answer"] = answer
+
+    return result
+
+
+# ── PA14-6: Memory store statistics ──────────────────────────────────────────
+
+@app.get("/ai/memory/stats")
+def ai_memory_stats(prune: bool = False) -> dict:
+    """Return statistics about the memory store.
+
+    Parameters
+    ----------
+    prune
+        If ``true``, permanently delete all expired memories before returning
+        statistics.
+
+    Returns
+    -------
+    total
+        Total number of memories (including expired).
+    active
+        Memories that have not expired.
+    expired
+        Memories past their TTL.
+    pruned
+        Number of records deleted (only non-zero when ``prune=true``).
+    by_importance
+        Count per importance level (1–5).
+    by_source
+        Count per source label.
+    all_tags
+        Sorted list of all unique tags across active memories.
+    oldest_entry
+        ISO timestamp of the oldest memory (``null`` if empty).
+    newest_entry
+        ISO timestamp of the newest memory.
+    db_path
+        Filesystem path of the SQLite database.
+
+    PA14-6
+    """
+    pruned = 0
+    try:
+        conn = _mem_db()
+        rows = conn.execute("SELECT * FROM memories ORDER BY created_at ASC").fetchall()
+
+        if prune:
+            now_s = _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None).isoformat()
+            cur   = conn.execute(
+                "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (now_s,),
+            )
+            pruned = cur.rowcount
+            conn.commit()
+            rows = conn.execute("SELECT * FROM memories ORDER BY created_at ASC").fetchall()
+
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    all_mems   = [_mem_row_to_dict(r) for r in rows]
+    active     = [m for m in all_mems if not m["expired"]]
+    expired    = [m for m in all_mems if m["expired"]]
+
+    by_importance: dict[str, int] = {str(i): 0 for i in range(1, 6)}
+    by_source:     dict[str, int] = {}
+    all_tags:      set[str]       = set()
+
+    for m in active:
+        by_importance[str(m["importance"])] = by_importance.get(str(m["importance"]), 0) + 1
+        src = m.get("source") or "unknown"
+        by_source[src]                      = by_source.get(src, 0) + 1
+        all_tags.update(m["tags"])
+
+    oldest = all_mems[0]["created_at"]  if all_mems else None
+    newest = all_mems[-1]["created_at"] if all_mems else None
+
+    return {
+        "total":         len(all_mems),
+        "active":        len(active),
+        "expired":       len(expired),
+        "pruned":        pruned,
+        "by_importance": by_importance,
+        "by_source":     by_source,
+        "all_tags":      sorted(all_tags),
+        "oldest_entry":  oldest,
+        "newest_entry":  newest,
+        "db_path":       str(_MEMORY_DB_PATH),
     }
 
 
