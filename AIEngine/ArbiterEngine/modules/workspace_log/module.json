@@ -1,6 +1,0 @@
-{
-  "name": "workspace_log",
-  "version": "0.1.0",
-  "description": "System-wide workspace logging — write, read, and clear structured log entries",
-  "dependencies": []
-}

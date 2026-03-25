@@ -1,6 +1,0 @@
-{
-  "name": "issues",
-  "version": "0.1.0",
-  "description": "Local git-backed issues tracker — create, list, update, and close workspace issues",
-  "dependencies": []
-}
