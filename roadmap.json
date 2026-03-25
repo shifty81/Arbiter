@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1680,6 +1680,50 @@
           "title": "GET /ai/web-search/providers — list available search providers with configuration status and note about local-only inference",
           "status": "done",
           "notes": "GET /ai/web-search/providers: returns providers[] with name, description, requires, configured, selected flags. DuckDuckGo always configured=true; SearXNG configured=true only when searxng_url is set. Includes a note clarifying local-only inference architecture."
+        }
+      ]
+    },
+    {
+      "id": "Phase14",
+      "title": "AI Memory & Persistent Context — Long-Term Memory Store",
+      "description": "SQLite-backed long-term memory store. The AI remembers facts, decisions, and context across chat sessions. Memories can be tagged, importance-ranked, given an optional TTL, and retrieved via keyword/tag search or injected automatically as RAG context before LLM prompts.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA14-1",
+          "title": "POST /ai/memory — store a memory with content, tags[], source, importance (1-5), optional ttl_days",
+          "status": "done",
+          "notes": "POST /ai/memory: stores to .arbiter/memory.db SQLite (WAL mode). Generates UUID id. Encodes tags as comma-separated lowercase string. Computes expires_at from ttl_days. Returns id, created_at, expires_at, importance, tags[]."
+        },
+        {
+          "id": "PA14-2",
+          "title": "GET /ai/memory/search — keyword + tag search across stored memories; ranked by importance desc, recency desc",
+          "status": "done",
+          "notes": "GET /ai/memory/search: query params: q (keyword), tags (CSV), source, min_importance, include_expired, limit (1-100). Keyword match is case-insensitive substring in content. All specified tags must be present. Returns query, tag_filter, result_count, results[]."
+        },
+        {
+          "id": "PA14-3",
+          "title": "GET /ai/memory/list — list all memories with optional tag/source/importance filters and pagination",
+          "status": "done",
+          "notes": "GET /ai/memory/list: query params: tags, source, min_importance, include_expired, page, page_size (1-200). Returns total, page, page_size, pages, items[]. No keyword filter — use /search for that."
+        },
+        {
+          "id": "PA14-4",
+          "title": "DELETE /ai/memory/{id} — delete a specific memory by UUID; returns 404 if not found",
+          "status": "done",
+          "notes": "DELETE /ai/memory/{memory_id}: executes DELETE WHERE id=? and checks rowcount. Returns {deleted: true, id} on success, 404 HTTPException if not found."
+        },
+        {
+          "id": "PA14-5",
+          "title": "POST /ai/memory/inject — build RAG context block from relevant memories; optionally ask the local LLM grounded in retrieved memories",
+          "status": "done",
+          "notes": "POST /ai/memory/inject: retrieves memories matching query + tag/importance filters. Formats as '=== Relevant memories for: ... ===' block. Updates access_count + last_accessed for matched rows. Optional 'ask' field triggers local LLM call with memory context. Returns context_block, memories[], memories_used, optional answer."
+        },
+        {
+          "id": "PA14-6",
+          "title": "GET /ai/memory/stats — memory store statistics with optional prune=true to delete expired entries",
+          "status": "done",
+          "notes": "GET /ai/memory/stats: returns total, active, expired, pruned (0 unless prune=true), by_importance{1-5}, by_source{label:count}, all_tags[], oldest_entry, newest_entry, db_path. prune=true DELETEs expired rows then returns fresh counts."
         }
       ]
     }

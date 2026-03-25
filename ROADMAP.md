@@ -7,7 +7,7 @@
 
 ## Current Status
 
-**Version:** 1.15.0 | **All M0–M14 milestones + Phases 1–13 complete** ✅
+**Version:** 1.16.0 | **All M0–M14 milestones + Phases 1–14 complete** ✅
 
 ---
 
@@ -50,6 +50,7 @@
 | **Phase 11** | AI Code Intelligence & Semantic Workspace Search | /ai/semantic-search, /ai/fix, /projects/{id}/security-audit, /ai/context/build, /ai/rename-symbol, /workspace/ai-stats | ✅ Done |
 | **Phase 12** | AI Agent Workflows & Multi-Step Task Pipelines | /ai/workflow/run, /ai/workflow/{id}, /ai/workflow/list, /projects/{id}/generate, /ai/code-review, /ai/models/recommend | ✅ Done |
 | **Phase 13** | Web-Augmented Local AI — Local LLM + Live Web Search | /ai/web-ask, /ai/web-search, /ai/web-search/config, /ai/web-search/providers, /ai/chat/web | ✅ Done |
+| **Phase 14** | AI Memory & Persistent Context — Long-Term Memory Store | /ai/memory, /ai/memory/search, /ai/memory/list, /ai/memory/{id} (DELETE), /ai/memory/inject, /ai/memory/stats | ✅ Done |
 
 ---
 
@@ -79,4 +80,4 @@ Monaco IDE. See [Self-Build Loop](docs/wiki/SELF_BUILD.md) for details.
 
 ---
 
-*Last updated: 2026-03-25 — v1.15.0*
+*Last updated: 2026-03-25 — v1.16.0*

@@ -15934,6 +15934,551 @@ def ai_web_search_providers() -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 14 — AI Memory & Persistent Context
+#  SQLite-backed long-term memory store.  The AI remembers facts, decisions,
+#  and context across chat sessions.  Memories can be tagged, importance-ranked,
+#  given an optional TTL, and retrieved via keyword/tag search or injected
+#  automatically as RAG context before LLM prompts.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import uuid as _mem_uuid
+import datetime as _mem_dt
+
+_MEMORY_DB_PATH = _BASE / ".arbiter" / "memory.db"
+_MEMORY_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# ── Schema bootstrap ─────────────────────────────────────────────────────────
+
+def _mem_db() -> sqlite3.Connection:
+    """Return a thread-local SQLite connection to the memory store."""
+    conn = sqlite3.connect(str(_MEMORY_DB_PATH), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS memories (
+            id          TEXT    PRIMARY KEY,
+            content     TEXT    NOT NULL,
+            source      TEXT    NOT NULL DEFAULT '',
+            importance  INTEGER NOT NULL DEFAULT 3,
+            tags        TEXT    NOT NULL DEFAULT '',
+            created_at  TEXT    NOT NULL,
+            expires_at  TEXT,
+            access_count INTEGER NOT NULL DEFAULT 0,
+            last_accessed TEXT
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def _mem_tags_str(tags: list[str]) -> str:
+    """Encode a list of tags as a comma-separated lowercase string."""
+    return ",".join(t.strip().lower() for t in tags if t.strip())
+
+
+def _mem_tags_list(tags_str: str) -> list[str]:
+    """Decode a comma-separated tag string into a list."""
+    return [t for t in tags_str.split(",") if t]
+
+
+def _mem_is_expired(expires_at: str | None) -> bool:
+    if not expires_at:
+        return False
+    try:
+        return _mem_dt.datetime.fromisoformat(expires_at) < _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None)
+    except ValueError:
+        return False
+
+
+def _mem_row_to_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["tags"] = _mem_tags_list(d.get("tags", ""))
+    d["expired"] = _mem_is_expired(d.get("expires_at"))
+    return d
+
+
+# ── PA14-1: Store a memory ────────────────────────────────────────────────────
+
+class _MemoryStoreReq(BaseModel):
+    content:    str                  # The fact / decision / note to remember
+    tags:       list[str] = []       # Optional category tags  e.g. ["project","decision"]
+    source:     str = ""             # Where this came from, e.g. "user", "ai", "meeting"
+    importance: int = 3              # 1 (trivial) – 5 (critical)
+    ttl_days:   float | None = None  # Optional expiry in days from now; None = permanent
+
+
+@app.post("/ai/memory")
+def ai_memory_store(req: _MemoryStoreReq) -> dict:
+    """Store a new memory in the persistent AI memory store.
+
+    Memories survive server restarts and are scoped to the Arbiter workspace.
+    Use ``POST /ai/memory/inject`` to pull relevant memories into an LLM prompt.
+
+    Parameters
+    ----------
+    content
+        The text to remember.  There is no hard size limit but keep entries
+        concise for best retrieval quality.
+    tags
+        Optional list of category tags (e.g. ``["project", "architecture"]``).
+        Tags are stored lowercase and can be used to filter in ``/ai/memory/list``.
+    source
+        Free-text origin label (e.g. ``"user"``, ``"ai"``, ``"standup"``).
+    importance
+        Priority 1–5 (default 3).  Higher importance memories are ranked first
+        when injecting context.
+    ttl_days
+        If set, the memory expires after this many days.  Expired memories are
+        excluded from search and inject but retained in the DB until explicitly
+        deleted or pruned via ``GET /ai/memory/stats?prune=true``.
+
+    PA14-1
+    """
+    if not req.content.strip():
+        raise HTTPException(status_code=422, detail="content must not be empty")
+
+    importance = max(1, min(int(req.importance), 5))
+    now        = _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None).isoformat()
+    expires_at = None
+    if req.ttl_days is not None and req.ttl_days > 0:
+        expires_at = (
+            _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None)
+            + _mem_dt.timedelta(days=req.ttl_days)
+        ).isoformat()
+
+    mem_id  = str(_mem_uuid.uuid4())
+    tags_s  = _mem_tags_str(req.tags)
+
+    try:
+        conn = _mem_db()
+        conn.execute(
+            "INSERT INTO memories (id, content, source, importance, tags, created_at, expires_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (mem_id, req.content.strip(), req.source.strip(), importance, tags_s, now, expires_at),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    return {
+        "id":         mem_id,
+        "created_at": now,
+        "expires_at": expires_at,
+        "importance": importance,
+        "tags":       _mem_tags_list(tags_s),
+    }
+
+
+# ── PA14-2: Search memories ───────────────────────────────────────────────────
+
+@app.get("/ai/memory/search")
+def ai_memory_search(
+    q:          str  = "",
+    tags:       str  = "",   # comma-separated tag filter
+    source:     str  = "",
+    min_importance: int = 1,
+    include_expired: bool = False,
+    limit:      int  = 20,
+) -> dict:
+    """Search the memory store by keyword and/or tag.
+
+    Results are ranked by importance (desc) then recency (desc).
+
+    Parameters
+    ----------
+    q
+        Keyword to search for in memory ``content`` (case-insensitive, partial
+        match).  Omit or pass ``""`` to return all memories matching the other
+        filters.
+    tags
+        Comma-separated tag filter.  Only memories that have **all** listed
+        tags are returned.
+    source
+        Filter by source label (exact match, case-insensitive).
+    min_importance
+        Minimum importance level (1–5, default 1).
+    include_expired
+        If ``true``, include expired memories in results.
+    limit
+        Maximum results to return (1–100, default 20).
+
+    PA14-2
+    """
+    limit = max(1, min(int(limit), 100))
+    try:
+        conn = _mem_db()
+        rows = conn.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    tag_filter  = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    q_lower     = q.strip().lower()
+    src_lower   = source.strip().lower()
+    results     = []
+
+    for row in rows:
+        d = _mem_row_to_dict(row)
+
+        # Expiry filter
+        if not include_expired and d["expired"]:
+            continue
+
+        # Importance filter
+        if d["importance"] < min_importance:
+            continue
+
+        # Source filter
+        if src_lower and d.get("source", "").lower() != src_lower:
+            continue
+
+        # Tag filter — all required tags must be present
+        if tag_filter:
+            mem_tags = set(d["tags"])
+            if not all(t in mem_tags for t in tag_filter):
+                continue
+
+        # Keyword filter
+        if q_lower and q_lower not in d["content"].lower():
+            continue
+
+        results.append(d)
+        if len(results) >= limit:
+            break
+
+    return {
+        "query":        q,
+        "tag_filter":   tag_filter,
+        "result_count": len(results),
+        "results":      results,
+    }
+
+
+# ── PA14-3: List memories ─────────────────────────────────────────────────────
+
+@app.get("/ai/memory/list")
+def ai_memory_list(
+    tags:            str  = "",
+    source:          str  = "",
+    min_importance:  int  = 1,
+    include_expired: bool = False,
+    page:            int  = 1,
+    page_size:       int  = 50,
+) -> dict:
+    """List memories with optional filters and pagination.
+
+    Unlike ``GET /ai/memory/search``, this endpoint does not require a keyword
+    query and always returns the full sorted list (importance desc, recency desc).
+
+    Parameters
+    ----------
+    tags
+        Comma-separated tag filter (memories must have all listed tags).
+    source
+        Filter by source label (exact, case-insensitive).
+    min_importance
+        Minimum importance level (1–5).
+    include_expired
+        Include expired memories in results.
+    page
+        Page number (1-based).
+    page_size
+        Items per page (1–200, default 50).
+
+    PA14-3
+    """
+    page      = max(1, int(page))
+    page_size = max(1, min(int(page_size), 200))
+    try:
+        conn = _mem_db()
+        rows = conn.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    tag_filter = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    src_lower  = source.strip().lower()
+    filtered   = []
+
+    for row in rows:
+        d = _mem_row_to_dict(row)
+        if not include_expired and d["expired"]:
+            continue
+        if d["importance"] < min_importance:
+            continue
+        if src_lower and d.get("source", "").lower() != src_lower:
+            continue
+        if tag_filter:
+            mem_tags = set(d["tags"])
+            if not all(t in mem_tags for t in tag_filter):
+                continue
+        filtered.append(d)
+
+    total      = len(filtered)
+    start      = (page - 1) * page_size
+    page_items = filtered[start : start + page_size]
+
+    return {
+        "total":     total,
+        "page":      page,
+        "page_size": page_size,
+        "pages":     max(1, (total + page_size - 1) // page_size),
+        "items":     page_items,
+    }
+
+
+# ── PA14-4: Delete a memory ───────────────────────────────────────────────────
+
+@app.delete("/ai/memory/{memory_id}")
+def ai_memory_delete(memory_id: str) -> dict:
+    """Delete a specific memory by its ID.
+
+    Returns ``{deleted: true}`` on success, ``404`` if the ID is not found.
+
+    PA14-4
+    """
+    try:
+        conn   = _mem_db()
+        cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Memory '{memory_id}' not found")
+
+    return {"deleted": True, "id": memory_id}
+
+
+# ── PA14-5: Inject memories as LLM context ───────────────────────────────────
+
+class _MemoryInjectReq(BaseModel):
+    query:         str                # The topic / question to find memories for
+    max_memories:  int = 10           # Max memories to include in context (1–50)
+    min_importance: int = 1           # Minimum importance filter
+    tags:          list[str] = []     # Optional tag pre-filter
+    ask:           str = ""           # If non-empty, also ask the LLM using injected memories
+    system:        str = ""           # Optional system prompt override when ask is set
+
+
+@app.post("/ai/memory/inject")
+def ai_memory_inject(req: _MemoryInjectReq) -> dict:
+    """Build an LLM context block from memories relevant to a query.
+
+    Retrieves the most relevant memories (importance-ranked, keyword-filtered)
+    and formats them as a ``=== Relevant memories === ... ===`` block suitable
+    for prepending to any LLM prompt.
+
+    Optionally, if ``ask`` is provided, the endpoint also sends the full
+    context to the local LLM and returns the ``answer``.
+
+    Parameters
+    ----------
+    query
+        The topic or question used to find relevant memories (keyword match).
+    max_memories
+        Maximum memories to include in the context block (1–50).
+    min_importance
+        Only include memories with this importance or higher.
+    tags
+        Pre-filter to memories that have all of these tags.
+    ask
+        Optional follow-up question to send to the local LLM grounded in the
+        retrieved memories.
+    system
+        System message override when ``ask`` is provided.
+
+    PA14-5
+    """
+    if not req.query.strip():
+        raise HTTPException(status_code=422, detail="query must not be empty")
+
+    n = max(1, min(req.max_memories, 50))
+
+    # Retrieve memories via the same logic as /search
+    try:
+        conn = _mem_db()
+        rows = conn.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    q_lower    = req.query.strip().lower()
+    tag_filter = [t.strip().lower() for t in req.tags if t.strip()]
+    matched    = []
+
+    for row in rows:
+        d = _mem_row_to_dict(row)
+        if d["expired"]:
+            continue
+        if d["importance"] < req.min_importance:
+            continue
+        if tag_filter:
+            mem_tags = set(d["tags"])
+            if not all(t in mem_tags for t in tag_filter):
+                continue
+        if q_lower and q_lower not in d["content"].lower():
+            continue
+        matched.append(d)
+        if len(matched) >= n:
+            break
+
+    # Build context block
+    if matched:
+        lines = [f'=== Relevant memories for: "{req.query}" ===']
+        for i, m in enumerate(matched, 1):
+            tag_str = f"  [tags: {', '.join(m['tags'])}]" if m["tags"] else ""
+            imp_str = f"  [importance: {m['importance']}]"
+            lines.append(
+                f"\n[{i}]{imp_str}{tag_str}\n"
+                f"    {m['content']}\n"
+                f"    (source: {m['source'] or 'unknown'}, stored: {m['created_at'][:10]})"
+            )
+        lines.append("\n=== End of memories ===")
+        context_block = "\n".join(lines)
+    else:
+        context_block = f'=== Relevant memories for: "{req.query}" ===\nNo matching memories found.\n=== End of memories ==='
+
+    # Update access counts
+    if matched:
+        now_s = _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None).isoformat()
+        try:
+            conn = _mem_db()
+            conn.executemany(
+                "UPDATE memories SET access_count = access_count+1, last_accessed=? WHERE id=?",
+                [(now_s, m["id"]) for m in matched],
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    result: dict = {
+        "query":          req.query,
+        "memories_used":  len(matched),
+        "context_block":  context_block,
+        "memories":       matched,
+    }
+
+    # Optional LLM call
+    if req.ask.strip():
+        system = req.system.strip() or (
+            "You are a knowledgeable assistant with access to the user's long-term memory. "
+            "Use the provided memories as context to give accurate, personalised answers. "
+            "Reference specific memories when relevant."
+        )
+        user_msg = f"{context_block}\n\nQuestion: {req.ask.strip()}"
+        try:
+            answer = _llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_msg},
+            ])
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+        result["answer"] = answer
+
+    return result
+
+
+# ── PA14-6: Memory store statistics ──────────────────────────────────────────
+
+@app.get("/ai/memory/stats")
+def ai_memory_stats(prune: bool = False) -> dict:
+    """Return statistics about the memory store.
+
+    Parameters
+    ----------
+    prune
+        If ``true``, permanently delete all expired memories before returning
+        statistics.
+
+    Returns
+    -------
+    total
+        Total number of memories (including expired).
+    active
+        Memories that have not expired.
+    expired
+        Memories past their TTL.
+    pruned
+        Number of records deleted (only non-zero when ``prune=true``).
+    by_importance
+        Count per importance level (1–5).
+    by_source
+        Count per source label.
+    all_tags
+        Sorted list of all unique tags across active memories.
+    oldest_entry
+        ISO timestamp of the oldest memory (``null`` if empty).
+    newest_entry
+        ISO timestamp of the newest memory.
+    db_path
+        Filesystem path of the SQLite database.
+
+    PA14-6
+    """
+    pruned = 0
+    try:
+        conn = _mem_db()
+        rows = conn.execute("SELECT * FROM memories ORDER BY created_at ASC").fetchall()
+
+        if prune:
+            now_s = _mem_dt.datetime.now(_mem_dt.timezone.utc).replace(tzinfo=None).isoformat()
+            cur   = conn.execute(
+                "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (now_s,),
+            )
+            pruned = cur.rowcount
+            conn.commit()
+            rows = conn.execute("SELECT * FROM memories ORDER BY created_at ASC").fetchall()
+
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    all_mems   = [_mem_row_to_dict(r) for r in rows]
+    active     = [m for m in all_mems if not m["expired"]]
+    expired    = [m for m in all_mems if m["expired"]]
+
+    by_importance: dict[str, int] = {str(i): 0 for i in range(1, 6)}
+    by_source:     dict[str, int] = {}
+    all_tags:      set[str]       = set()
+
+    for m in active:
+        by_importance[str(m["importance"])] = by_importance.get(str(m["importance"]), 0) + 1
+        src = m.get("source") or "unknown"
+        by_source[src]                      = by_source.get(src, 0) + 1
+        all_tags.update(m["tags"])
+
+    oldest = all_mems[0]["created_at"]  if all_mems else None
+    newest = all_mems[-1]["created_at"] if all_mems else None
+
+    return {
+        "total":         len(all_mems),
+        "active":        len(active),
+        "expired":       len(expired),
+        "pruned":        pruned,
+        "by_importance": by_importance,
+        "by_source":     by_source,
+        "all_tags":      sorted(all_tags),
+        "oldest_entry":  oldest,
+        "newest_entry":  newest,
+        "db_path":       str(_MEMORY_DB_PATH),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))

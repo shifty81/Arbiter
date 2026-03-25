@@ -2582,6 +2582,12 @@ for _stub_path, _stub_tag in [
     ("/ai/web-search/config", "phase13"),
     ("/ai/web-search/providers", "phase13"),
     ("/ai/chat/web", "phase13"),
+    # Phase 14 — AI Memory & Persistent Context
+    ("/ai/memory", "phase14"),
+    ("/ai/memory/search", "phase14"),
+    ("/ai/memory/list", "phase14"),
+    ("/ai/memory/inject", "phase14"),
+    ("/ai/memory/stats", "phase14"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),
