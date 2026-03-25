@@ -4,74 +4,122 @@
         Title="Arbiter" Height="900" Width="1400"
         MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource PanelBgBrush}"
+        Background="{DynamicResource DarkBgBrush}"
         Loaded="Window_Loaded"
         Closing="Window_Closing">
-    <Grid Background="{StaticResource PanelBgBrush}">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>               <!-- Top toolbar -->
-            <RowDefinition Height="*" MinHeight="200"/>  <!-- Main content -->
-            <RowDefinition Height="5"/>                  <!-- Horizontal splitter -->
-            <RowDefinition Height="220" MinHeight="80"/> <!-- Bottom panel -->
+            <RowDefinition Height="Auto"/>               <!-- Row 0: Menu Bar -->
+            <RowDefinition Height="Auto"/>               <!-- Row 1: Workspace Tab Bar -->
+            <RowDefinition Height="*" MinHeight="200"/>  <!-- Row 2: Main Content -->
+            <RowDefinition Height="5"/>                  <!-- Row 3: Horizontal splitter -->
+            <RowDefinition Height="220" MinHeight="80"/> <!-- Row 4: Bottom Panel -->
+            <RowDefinition Height="Auto"/>               <!-- Row 5: Status Bar -->
         </Grid.RowDefinitions>
 
-        <!-- ==================== TOP TOOLBAR ==================== -->
-        <Border Grid.Row="0"
-                Background="{StaticResource PanelBgBrush}"
+        <!-- ==================== ROW 0: MENU BAR ==================== -->
+        <Menu Grid.Row="0"
+              Background="{StaticResource PanelBgBrush}"
+              Foreground="{StaticResource ForegroundBrush}"
+              BorderBrush="{StaticResource BorderBrush}"
+              BorderThickness="0,0,0,1"
+              Padding="2,1">
+            <MenuItem Header="_File" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="📂 Open Folder…"/>
+                <MenuItem Header="📄 Open File…"/>
+                <MenuItem Header="➕ Create Project"     Click="CreateProject_Click"/>
+                <Separator/>
+                <MenuItem Header="🤖 Self-Iterate (Arbiter)" Click="OpenArbiterSelf_Click"
+                          ToolTip="Load Arbiter's own source code so the AI can suggest improvements to itself"/>
+                <Separator/>
+                <MenuItem Header="Exit" InputGestureText="Alt+F4"/>
+            </MenuItem>
+            <MenuItem Header="_Edit" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="⎌ Undo"   InputGestureText="Ctrl+Z"/>
+                <MenuItem Header="↻ Redo"   InputGestureText="Ctrl+Y"/>
+                <Separator/>
+                <MenuItem Header="✂ Cut"    InputGestureText="Ctrl+X"/>
+                <MenuItem Header="📋 Copy"  InputGestureText="Ctrl+C"/>
+                <MenuItem Header="📄 Paste" InputGestureText="Ctrl+V"/>
+                <Separator/>
+                <MenuItem Header="🔍 Find…" InputGestureText="Ctrl+F"/>
+            </MenuItem>
+            <MenuItem Header="_View" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="💬 Toggle Chat Panel"/>
+                <MenuItem Header="⌨ Command Palette" InputGestureText="Ctrl+Shift+P"/>
+            </MenuItem>
+            <MenuItem Header="_Tools" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="⚙️ Settings…"/>
+                <MenuItem Header="📡 Multi-Agent"/>
+            </MenuItem>
+            <MenuItem Header="_AI" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="🤖 Auto-Build Next Task"/>
+                <MenuItem Header="💬 Open Chat"/>
+                <Separator/>
+                <MenuItem Header="🔄 Rebuild Archive"/>
+            </MenuItem>
+            <MenuItem Header="_Help" Foreground="{StaticResource ForegroundBrush}">
+                <MenuItem Header="📖 Arbiter Docs"/>
+                <Separator/>
+                <MenuItem Header="ℹ About Arbiter"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- ==================== ROW 1: WORKSPACE TAB BAR ==================== -->
+        <Border Grid.Row="1"
+                Background="{StaticResource TabBarBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,0,0,1">
-            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,4">
-                <TextBlock Text="Phase:" VerticalAlignment="Center" Margin="5"/>
-                <ComboBox Name="PhaseSelector" Width="120" Margin="5"/>
-                <Separator Width="10"/>
-                <Button Name="CommitBtn" Content="Commit" Margin="2" Click="Commit_Click"/>
-                <Button Name="BranchBtn" Content="Branch" Margin="2" Click="Branch_Click"/>
-                <Button Name="PushBtn"   Content="Push"   Margin="2" Click="Push_Click"/>
-                <Button Name="PullBtn"   Content="Pull"   Margin="2" Click="Pull_Click"/>
-                <Button Name="LogBtn"    Content="Log"    Margin="2" Click="Log_Click"/>
-                <Separator Width="10"/>
-                <Button Name="BuildBtn"  Content="Build"  Margin="2" Click="Build_Click"/>
-                <Button Name="RunBtn"    Content="Run"    Margin="2" Click="Run_Click"/>
-                <Button Name="TestBtn"   Content="Test"   Margin="2" Click="Test_Click"/>
-                <Separator Width="10"/>
-                <TextBlock Text="Voice:" VerticalAlignment="Center" Margin="5"/>
-                <ComboBox Name="VoiceSelector" Width="160" Margin="5">
-                    <ComboBoxItem Content="British_Female" IsSelected="True"/>
-                    <ComboBoxItem Content="British_Male"/>
-                    <ComboBoxItem Content="American_Female"/>
-                    <ComboBoxItem Content="American_Male"/>
-                </ComboBox>
-                <Separator Width="10"/>
-                <Ellipse Name="ServerStatusDot" Width="12" Height="12" Fill="Gray"
-                         VerticalAlignment="Center" Margin="4,0,2,0"/>
-                <TextBlock Name="ServerStatusText" Text="Server: …"
-                           VerticalAlignment="Center" Margin="0,0,4,0"/>
-                <Button Name="StartServerButton" Content="Start Server" Margin="2"
-                        Click="StartServer_Click"/>
-            </WrapPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Stretch">
+                <!-- Arbiter/Start label -->
+                <Border Background="{StaticResource AccentBrush}" Padding="12,0">
+                    <TextBlock Text="⚡ Arbiter" VerticalAlignment="Center"
+                               FontWeight="Bold" FontSize="13"
+                               Foreground="{StaticResource HighlightTextBrush}"/>
+                </Border>
+                <RadioButton Style="{StaticResource WorkspaceTabButton}" Content="🏠 Workspace" IsChecked="True"/>
+                <RadioButton Style="{StaticResource WorkspaceTabButton}" Content="💻 Code"/>
+                <RadioButton Style="{StaticResource WorkspaceTabButton}" Content="🤖 AI"/>
+                <RadioButton Style="{StaticResource WorkspaceTabButton}" Content="🔀 Git"/>
+                <RadioButton Style="{StaticResource WorkspaceTabButton}" Content="🔨 Build"/>
+                <RadioButton Style="{StaticResource WorkspaceTabButton}" Content="⚙ Settings"/>
+                <RadioButton Style="{StaticResource WorkspaceTabButton}" Content="+"/>
+            </StackPanel>
         </Border>
 
-        <!-- ==================== MAIN CONTENT AREA ==================== -->
-        <Grid Grid.Row="1" Margin="4,6,4,2">
+        <!-- ==================== ROW 2: MAIN CONTENT AREA ==================== -->
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220" MinWidth="140"/>  <!-- Project sidebar -->
-                <ColumnDefinition Width="5"/>                    <!-- Splitter -->
-                <ColumnDefinition Width="2*" MinWidth="200"/>   <!-- Chat panel -->
-                <ColumnDefinition Width="5"/>                    <!-- Splitter -->
-                <ColumnDefinition Width="*"  MinWidth="140"/>   <!-- Suggestions panel -->
+                <ColumnDefinition Width="50"/>              <!-- Col 0: Activity Bar -->
+                <ColumnDefinition Width="220" MinWidth="0"/> <!-- Col 1: Left Panel -->
+                <ColumnDefinition Width="5"/>               <!-- Col 2: Splitter -->
+                <ColumnDefinition Width="*" MinWidth="200"/><!-- Col 3: Center Workspace -->
+                <ColumnDefinition Width="5"/>               <!-- Col 4: Splitter -->
+                <ColumnDefinition Width="320" MinWidth="200"/><!-- Col 5: AI Chat Panel -->
             </Grid.ColumnDefinitions>
 
-            <!-- ── Project Sidebar card ── -->
+            <!-- ── Col 0: Activity Bar ── -->
             <Border Grid.Column="0"
+                    Background="{StaticResource ActivityBarBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,0,1,0">
+                <StackPanel Orientation="Vertical" VerticalAlignment="Top">
+                    <RadioButton Style="{StaticResource ActivityBarButton}" Content="🗂"
+                                 IsChecked="True" ToolTip="Projects" GroupName="ActivityBar"/>
+                    <RadioButton Style="{StaticResource ActivityBarButton}" Content="🔀"
+                                 ToolTip="Git" GroupName="ActivityBar"/>
+                    <RadioButton Style="{StaticResource ActivityBarButton}" Content="🔨"
+                                 ToolTip="Build" GroupName="ActivityBar"/>
+                    <RadioButton Style="{StaticResource ActivityBarButton}" Content="⚙"
+                                 ToolTip="Settings" GroupName="ActivityBar"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ── Col 1: Left Panel ── -->
+            <Border Grid.Column="1"
                     Background="{StaticResource PanelBgBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    ClipToBounds="True">
-                <Border.Effect>
-                    <DropShadowEffect Color="Black" Direction="270"
-                                      ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
-                </Border.Effect>
+                    BorderThickness="0,0,1,0">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -79,184 +127,451 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="Projects" FontWeight="Bold"
-                               FontSize="13" Margin="0,0,0,6"/>
+                    <TextBlock Grid.Row="0" Text="PROJECTS" FontWeight="Bold"
+                               FontSize="11" Margin="0,4,0,6"
+                               Foreground="{StaticResource DimForegroundBrush}"/>
                     <ListBox Grid.Row="1" Name="ProjectListBox" AllowDrop="True"
                              Drop="ProjectListBox_Drop"
-                             SelectionChanged="ProjectListBox_SelectionChanged"/>
-                    <Button Grid.Row="2" Content="Create Project" Margin="0,6,0,2"
+                             SelectionChanged="ProjectListBox_SelectionChanged"
+                             BorderThickness="0"
+                             Background="{StaticResource PanelBgBrush}"/>
+                    <Button Grid.Row="2" Content="➕ Create Project" Margin="0,6,0,2"
                             Click="CreateProject_Click"/>
-                    <Button Grid.Row="3" Content="Self-Iterate (Arbiter)" Margin="0,2,0,0"
+                    <Button Grid.Row="3" Content="🤖 Self-Iterate" Margin="0,2,0,0"
                             Click="OpenArbiterSelf_Click"
                             ToolTip="Load Arbiter's own source code so the AI can suggest improvements to itself"/>
                 </Grid>
             </Border>
 
-            <!-- Splitter -->
-            <GridSplitter Grid.Column="1" Width="5"
+            <!-- ── Col 2: Splitter ── -->
+            <GridSplitter Grid.Column="2" Width="5"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          ResizeBehavior="PreviousAndNext"/>
+                          ResizeBehavior="PreviousAndNext"
+                          Background="{StaticResource BorderBrush}"/>
 
-            <!-- ── Chat Panel card ── -->
-            <Border Grid.Column="2"
-                    Background="{StaticResource PanelBgBrush}"
+            <!-- ── Col 3: Center Workspace (TabControl per section) ── -->
+            <Grid Grid.Column="3">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Section header bar -->
+                <Border Grid.Row="0"
+                        Background="{StaticResource PanelBgBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="0,0,0,1"
+                        Padding="10,6">
+                    <TextBlock Text="Workspace — Overview"
+                               FontWeight="SemiBold" FontSize="12"
+                               Foreground="{StaticResource DimForegroundBrush}"/>
+                </Border>
+
+                <!-- Center content using TabControl (hidden strip) to host all workspace views -->
+                <TabControl Grid.Row="1" Name="CenterTabControl"
+                            Background="{StaticResource DarkBgBrush}"
+                            BorderThickness="0">
+                    <TabControl.Resources>
+                        <!-- Hide the tab strip since the workspace tab bar drives navigation -->
+                        <Style TargetType="TabPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </Style>
+                    </TabControl.Resources>
+
+                    <!-- Workspace Tab: Overview + Suggestions -->
+                    <TabItem Header="Workspace">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Welcome to Arbiter"
+                                       FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*"/>
+                                    <ColumnDefinition Width="5"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- Project overview placeholder -->
+                                <Border Grid.Column="0"
+                                        Background="{StaticResource PanelBgBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="12">
+                                    <StackPanel>
+                                        <TextBlock Text="Project Overview" FontWeight="Bold"
+                                                   FontSize="13" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Select a project from the sidebar to view its details."
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{StaticResource DimForegroundBrush}"/>
+                                    </StackPanel>
+                                </Border>
+                                <GridSplitter Grid.Column="1" Width="5"
+                                              HorizontalAlignment="Stretch"
+                                              ResizeBehavior="PreviousAndNext"/>
+                                <!-- Suggestions panel -->
+                                <Border Grid.Column="2"
+                                        Background="{StaticResource PanelBgBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="6">
+                                    <Grid Margin="8">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Text="Suggestions / Roadmap"
+                                                   FontWeight="Bold" FontSize="13" Margin="0,0,0,4"/>
+                                        <ListBox Grid.Row="1" Name="SuggestionsListBox"
+                                                 BorderThickness="0"
+                                                 Background="{StaticResource PanelBgBrush}"/>
+                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,6,0,0">
+                                            <Button Content="✅ Approve" Width="90" Margin="0,0,5,0"
+                                                    Click="ApproveSuggestion_Click"/>
+                                            <Button Content="➡ Move" Width="70"
+                                                    Click="MoveSuggestion_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Code Tab -->
+                    <TabItem Header="Code">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Code Editor" FontSize="16"
+                                       FontWeight="Bold" Margin="0,0,0,8"/>
+                            <Border Grid.Row="1"
+                                    Background="{StaticResource PanelBgBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1" CornerRadius="6" Padding="12">
+                                <TextBlock Text="Open a file from the Project Files panel below to start editing."
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource DimForegroundBrush}"/>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- AI Tab -->
+                    <TabItem Header="AI">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="AI Workflows" FontSize="16"
+                                       FontWeight="Bold" Margin="0,0,0,8"/>
+                            <Grid Grid.Row="1">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBlock Text="Voice:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox Name="VoiceSelector" Width="160" Margin="0,0,12,0">
+                                        <ComboBoxItem Content="British_Female" IsSelected="True"/>
+                                        <ComboBoxItem Content="British_Male"/>
+                                        <ComboBoxItem Content="American_Female"/>
+                                        <ComboBoxItem Content="American_Male"/>
+                                    </ComboBox>
+                                </WrapPanel>
+                                <Border Grid.Row="1"
+                                        Background="{StaticResource PanelBgBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="12">
+                                    <TextBlock Text="AI workflow templates and personas are configured here."
+                                               TextWrapping="Wrap"
+                                               Foreground="{StaticResource DimForegroundBrush}"/>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Git Tab -->
+                    <TabItem Header="Git">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Source Control" FontSize="16"
+                                       FontWeight="Bold" Margin="0,0,0,8"/>
+                            <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button Name="CommitBtn" Content="✓ Commit"  Margin="0,0,5,0" Click="Commit_Click"/>
+                                <Button Name="BranchBtn" Content="⎇ Branch"  Margin="0,0,5,0" Click="Branch_Click"/>
+                                <Button Name="PushBtn"   Content="⬆ Push"    Margin="0,0,5,0" Click="Push_Click"/>
+                                <Button Name="PullBtn"   Content="⬇ Pull"    Margin="0,0,5,0" Click="Pull_Click"/>
+                                <Button Name="LogBtn"    Content="📋 Log"    Click="Log_Click"/>
+                            </WrapPanel>
+                            <Border Grid.Row="2"
+                                    Background="{StaticResource PanelBgBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1" CornerRadius="6" Padding="12">
+                                <TextBlock Text="Git status and log will appear here."
+                                           Foreground="{StaticResource DimForegroundBrush}"/>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Build Tab -->
+                    <TabItem Header="Build">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Build &amp; Run" FontSize="16"
+                                       FontWeight="Bold" Margin="0,0,0,8"/>
+                            <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button Name="BuildBtn" Content="🔨 Build" Width="90" Margin="0,0,5,0" Click="Build_Click"/>
+                                <Button Name="RunBtn"   Content="▶ Run"    Width="90" Margin="0,0,5,0" Click="Run_Click"/>
+                                <Button Name="TestBtn"  Content="✅ Test"   Width="90" Click="Test_Click"/>
+                            </WrapPanel>
+                            <Border Grid.Row="2"
+                                    Background="{StaticResource PanelBgBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1" CornerRadius="6" Padding="12">
+                                <TextBlock Text="Build output is shown in the Build Output panel below."
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource DimForegroundBrush}"/>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Settings Tab -->
+                    <TabItem Header="Settings">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Settings" FontSize="16"
+                                       FontWeight="Bold" Margin="0,0,0,8"/>
+                            <Border Grid.Row="1"
+                                    Background="{StaticResource PanelBgBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1" CornerRadius="6" Padding="12">
+                                <TextBlock Text="Application settings and preferences."
+                                           Foreground="{StaticResource DimForegroundBrush}"/>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+
+            <!-- ── Col 4: Splitter ── -->
+            <GridSplitter Grid.Column="4" Width="5"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="{StaticResource BorderBrush}"/>
+
+            <!-- ── Col 5: AI Chat Panel ── -->
+            <Border Grid.Column="5"
+                    Background="{StaticResource AIPanelBgBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    ClipToBounds="True">
-                <Border.Effect>
-                    <DropShadowEffect Color="Black" Direction="270"
-                                      ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
-                </Border.Effect>
-                <Grid Margin="8">
+                    BorderThickness="1,0,0,0">
+                <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Name="ChatHeader" Text="Chat"
-                               FontWeight="Bold" FontSize="13" Margin="0,0,0,4"/>
+
+                    <!-- Chat header -->
+                    <Border Grid.Row="0"
+                            Background="{StaticResource PanelBgBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,0,0,1"
+                            Padding="10,8">
+                        <TextBlock Name="ChatHeader" Text="🤖 AI Chat"
+                                   FontWeight="Bold" FontSize="13"/>
+                    </Border>
+
+                    <!-- Chat history -->
                     <ListBox Grid.Row="1" Name="ChatDisplay"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto"/>
-                    <Grid Grid.Row="2" Margin="0,6,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <!-- Enter key sends message; Shift+Enter inserts newline -->
-                        <TextBox  Grid.Column="0" Name="ChatInput" Margin="0,0,5,0"
-                                  KeyDown="ChatInput_KeyDown"/>
-                        <Button   Grid.Column="1" Content="Send" Width="60" Margin="0,0,5,0"
-                                  Click="SendButton_Click"/>
-                        <Button   Grid.Column="2" Content="Mic"  Width="60"
-                                  Click="MicButton_Click"/>
-                    </Grid>
-                </Grid>
-            </Border>
+                             Background="{StaticResource AIPanelBgBrush}"
+                             BorderThickness="0"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             Margin="4,4,4,0"/>
 
-            <!-- Splitter -->
-            <GridSplitter Grid.Column="3" Width="5"
-                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          ResizeBehavior="PreviousAndNext"/>
-
-            <!-- ── Suggestions / Roadmap Panel card ── -->
-            <Border Grid.Column="4"
-                    Background="{StaticResource PanelBgBrush}"
-                    BorderBrush="{StaticResource BorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    ClipToBounds="True">
-                <Border.Effect>
-                    <DropShadowEffect Color="Black" Direction="270"
-                                      ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
-                </Border.Effect>
-                <Grid Margin="8">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="Suggestions / Roadmap"
-                               FontWeight="Bold" FontSize="13" Margin="0,0,0,4"/>
-                    <ListBox Grid.Row="1" Name="SuggestionsListBox"/>
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,6,0,0">
-                        <Button Content="Approve" Width="80" Margin="0,0,5,0"
-                                Click="ApproveSuggestion_Click"/>
-                        <Button Content="Move"    Width="80"
-                                Click="MoveSuggestion_Click"/>
-                    </StackPanel>
+                    <!-- Chat input area -->
+                    <Border Grid.Row="2"
+                            Background="{StaticResource PanelBgBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,1,0,0"
+                            Padding="8,6">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBox Grid.Row="0" Name="ChatInput"
+                                     Height="60" TextWrapping="Wrap"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     KeyDown="ChatInput_KeyDown"
+                                     Margin="0,0,0,6"/>
+                            <StackPanel Grid.Row="1" Orientation="Horizontal"
+                                        HorizontalAlignment="Right">
+                                <Button Content="🎤 Mic" Width="70" Margin="0,0,5,0"
+                                        Click="MicButton_Click"/>
+                                <Button Content="Send ➤" Width="80"
+                                        Click="SendButton_Click"
+                                        Background="{StaticResource AccentBrush}"
+                                        Foreground="{StaticResource HighlightTextBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </Grid>
             </Border>
         </Grid>
 
-        <!-- Horizontal splitter -->
-        <GridSplitter Grid.Row="2" Height="5"
+        <!-- ==================== ROW 3: HORIZONTAL SPLITTER ==================== -->
+        <GridSplitter Grid.Row="3" Height="5"
                       HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                      ResizeBehavior="PreviousAndNext"/>
+                      ResizeBehavior="PreviousAndNext"
+                      Background="{StaticResource BorderBrush}"/>
 
-        <!-- ==================== BOTTOM PANEL card ==================== -->
-        <Border Grid.Row="3" Margin="4,2,4,6"
-                Background="{StaticResource PanelBgBrush}"
+        <!-- ==================== ROW 4: BOTTOM PANEL ==================== -->
+        <TabControl Grid.Row="4" Name="BottomTabControl"
+                    Background="{StaticResource PanelBgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,1,0,0">
+            <TabItem Header="Project Files">
+                <TreeView Name="ProjectFilesTree" AllowDrop="True"
+                          Drop="ProjectFilesTree_Drop"
+                          Background="{StaticResource PanelBgBrush}"
+                          BorderThickness="0"/>
+            </TabItem>
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Build Output" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <Button Content="⧉" Padding="3,1" FontSize="10"
+                                Click="PopOutBuildOutput_Click"
+                                ToolTip="Pop out Build Output into its own window"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <TextBox Name="BuildOutputBox"
+                         IsReadOnly="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         FontFamily="Courier New" FontSize="11" AcceptsReturn="True"
+                         Background="{StaticResource DarkBgBrush}"
+                         BorderThickness="0"/>
+            </TabItem>
+            <TabItem Header="Console">
+                <TabControl Name="ConsoleTabControl"
+                            Background="{StaticResource PanelBgBrush}"
+                            BorderThickness="0">
+                    <TabItem>
+                        <TabItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="LLM" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Button Content="Copy" Padding="4,1" FontSize="10"
+                                        Click="CopyLlmConsole_Click"
+                                        ToolTip="Copy LLM log to clipboard"/>
+                            </StackPanel>
+                        </TabItem.Header>
+                        <TextBox Name="LlmConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Courier New" FontSize="11" AcceptsReturn="True"
+                                 Background="{StaticResource DarkBgBrush}" BorderThickness="0"/>
+                    </TabItem>
+                    <TabItem>
+                        <TabItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="App" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Button Content="Copy" Padding="4,1" FontSize="10"
+                                        Click="CopyAppConsole_Click"
+                                        ToolTip="Copy App log to clipboard"/>
+                            </StackPanel>
+                        </TabItem.Header>
+                        <TextBox Name="AppConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Courier New" FontSize="11" AcceptsReturn="True"
+                                 Background="{StaticResource DarkBgBrush}" BorderThickness="0"/>
+                    </TabItem>
+                    <TabItem>
+                        <TabItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Server" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Button Content="Copy" Padding="4,1" FontSize="10"
+                                        Click="CopyServerConsole_Click"
+                                        ToolTip="Copy Server log to clipboard"/>
+                            </StackPanel>
+                        </TabItem.Header>
+                        <TextBox Name="ServerConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Courier New" FontSize="11" AcceptsReturn="True"
+                                 Background="{StaticResource DarkBgBrush}" BorderThickness="0"/>
+                    </TabItem>
+                </TabControl>
+            </TabItem>
+        </TabControl>
+
+        <!-- ==================== ROW 5: STATUS BAR ==================== -->
+        <Border Grid.Row="5"
+                Background="{StaticResource TaskbarBgBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="1"
-                CornerRadius="8"
-                ClipToBounds="True">
-            <Border.Effect>
-                <DropShadowEffect Color="Black" Direction="270"
-                                  ShadowDepth="3" BlurRadius="8" Opacity="0.35"/>
-            </Border.Effect>
-            <TabControl Name="BottomTabControl" BorderThickness="0" Margin="0">
-                <TabItem Header="Project Files">
-                    <TreeView Name="ProjectFilesTree" AllowDrop="True"
-                              Drop="ProjectFilesTree_Drop"/>
-                </TabItem>
-                <TabItem>
-                    <TabItem.Header>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Build Output" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <Button Content="⧉" Padding="3,1" FontSize="10"
-                                    Click="PopOutBuildOutput_Click"
-                                    ToolTip="Pop out Build Output into its own window"/>
-                        </StackPanel>
-                    </TabItem.Header>
-                    <TextBox Name="BuildOutputBox"
-                             IsReadOnly="True"
-                             TextWrapping="Wrap"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"
-                             FontFamily="Courier New"
-                             FontSize="11"
-                             AcceptsReturn="True"/>
-                </TabItem>
-                <TabItem Header="Console">
-                    <!-- Inner TabControl with one sub-tab per log stream -->
-                    <TabControl Name="ConsoleTabControl">
-                        <TabItem>
-                            <TabItem.Header>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="LLM" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <Button Content="Copy" Padding="4,1" FontSize="10"
-                                            Click="CopyLlmConsole_Click"
-                                            ToolTip="Copy LLM log to clipboard"/>
-                                </StackPanel>
-                            </TabItem.Header>
-                            <TextBox Name="LlmConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Auto"
-                                     FontFamily="Courier New" FontSize="11" AcceptsReturn="True"/>
-                        </TabItem>
-                        <TabItem>
-                            <TabItem.Header>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="App" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <Button Content="Copy" Padding="4,1" FontSize="10"
-                                            Click="CopyAppConsole_Click"
-                                            ToolTip="Copy App log to clipboard"/>
-                                </StackPanel>
-                            </TabItem.Header>
-                            <TextBox Name="AppConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Auto"
-                                     FontFamily="Courier New" FontSize="11" AcceptsReturn="True"/>
-                        </TabItem>
-                        <TabItem>
-                            <TabItem.Header>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Server" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <Button Content="Copy" Padding="4,1" FontSize="10"
-                                            Click="CopyServerConsole_Click"
-                                            ToolTip="Copy Server log to clipboard"/>
-                                </StackPanel>
-                            </TabItem.Header>
-                            <TextBox Name="ServerConsoleBox" IsReadOnly="True" TextWrapping="NoWrap"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Auto"
-                                     FontFamily="Courier New" FontSize="11" AcceptsReturn="True"/>
-                        </TabItem>
-                    </TabControl>
-                </TabItem>
-            </TabControl>
+                BorderThickness="0,1,0,0"
+                Height="28">
+            <Grid Margin="8,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Server status indicator -->
+                <Ellipse Grid.Column="0" Name="ServerStatusDot"
+                         Width="10" Height="10" Fill="Gray"
+                         VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Grid.Column="1" Name="ServerStatusText" Text="Server: …"
+                           VerticalAlignment="Center" FontSize="11" Margin="0,0,10,0"
+                           Foreground="{StaticResource DimForegroundBrush}"/>
+                <Button Grid.Column="2" Name="StartServerButton" Content="▶ Server"
+                        Padding="6,2" FontSize="11" Margin="0,0,12,0"
+                        Click="StartServer_Click"/>
+
+                <!-- Phase selector -->
+                <TextBlock Grid.Column="3" Text="Phase:" VerticalAlignment="Center"
+                           FontSize="11" Margin="0,0,4,0"
+                           Foreground="{StaticResource DimForegroundBrush}"/>
+                <ComboBox Grid.Column="4" Name="PhaseSelector" Width="110"
+                          FontSize="11" Margin="0,0,12,0" VerticalAlignment="Center"/>
+
+                <!-- CPU/Memory indicators (placeholder text) -->
+                <TextBlock Grid.Column="5" Name="CpuMemStatus" Text="CPU: -- | Mem: --"
+                           VerticalAlignment="Center" FontSize="11"
+                           Foreground="{StaticResource DimForegroundBrush}"/>
+
+                <!-- Right-side tray icons -->
+                <StackPanel Grid.Column="7" Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="🤖" FontSize="14" Margin="6,0" ToolTip="AI Server"/>
+                    <TextBlock Text="🔔" FontSize="14" Margin="6,0" ToolTip="Notifications"/>
+                    <TextBlock Text="⚙" FontSize="14" Margin="6,0" ToolTip="Settings"/>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>

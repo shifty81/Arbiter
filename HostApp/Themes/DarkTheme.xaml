@@ -21,6 +21,15 @@
     <SolidColorBrush x:Key="HighlightTextBrush" Color="#FFFFFFFF"/>  <!-- text on selection/highlight -->
     <SolidColorBrush x:Key="TransparentBrush"   Color="Transparent"/>
 
+    <!-- Blueprint expansion colors -->
+    <SolidColorBrush x:Key="TaskbarBgBrush"     Color="#FF181818"/>  <!-- bottom taskbar/status bar -->
+    <SolidColorBrush x:Key="ActivityBarBrush"   Color="#FF2A2A2A"/>  <!-- left activity bar -->
+    <SolidColorBrush x:Key="TabBarBrush"        Color="#FF2D2D2D"/>  <!-- workspace tab bar -->
+    <SolidColorBrush x:Key="AIPanelBgBrush"     Color="#FF1E1E2E"/>  <!-- AI chat panel slight blue tint -->
+    <SolidColorBrush x:Key="StatusGreenBrush"   Color="#FF4EC94E"/>  <!-- online/success status -->
+    <SolidColorBrush x:Key="StatusOrangeBrush"  Color="#FFFFA500"/>  <!-- warning status -->
+    <SolidColorBrush x:Key="StatusRedBrush"     Color="#FFFF4444"/>  <!-- error/offline status -->
+
     <!-- Drop-shadow used on panel cards (x:Shared="False" prevents WPF freeze-sharing issues) -->
     <DropShadowEffect x:Key="PanelShadow" x:Shared="False"
                       Color="Black" Direction="270"
@@ -605,6 +614,92 @@
         <Setter Property="BorderBrush"     Value="{StaticResource BorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding"         Value="4,2"/>
+    </Style>
+
+    <!-- ===== ActivityBarButton — 50 px wide vertical icon toggle ===== -->
+    <Style x:Key="ActivityBarButton" TargetType="RadioButton">
+        <Setter Property="Background"       Value="Transparent"/>
+        <Setter Property="Foreground"       Value="{StaticResource DimForegroundBrush}"/>
+        <Setter Property="BorderThickness"  Value="0"/>
+        <Setter Property="Padding"          Value="0"/>
+        <Setter Property="Width"            Value="50"/>
+        <Setter Property="Height"           Value="50"/>
+        <Setter Property="Cursor"           Value="Hand"/>
+        <Setter Property="FontSize"         Value="18"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment"   Value="Center"/>
+        <Setter Property="GroupName"        Value="ActivityBar"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="bd"
+                            Background="{TemplateBinding Background}"
+                            BorderThickness="2,0,0,0"
+                            BorderBrush="Transparent"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background"
+                                    Value="{StaticResource ButtonHoverBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource ForegroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush"
+                                    Value="{StaticResource AccentBrush}"/>
+                            <Setter TargetName="bd" Property="Background"
+                                    Value="{StaticResource ButtonHoverBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource ForegroundBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== WorkspaceTabButton — top tab bar item ===== -->
+    <Style x:Key="WorkspaceTabButton" TargetType="RadioButton">
+        <Setter Property="Background"       Value="Transparent"/>
+        <Setter Property="Foreground"       Value="{StaticResource DimForegroundBrush}"/>
+        <Setter Property="BorderThickness"  Value="0"/>
+        <Setter Property="Padding"          Value="14,0"/>
+        <Setter Property="Height"           Value="36"/>
+        <Setter Property="Cursor"           Value="Hand"/>
+        <Setter Property="FontSize"         Value="13"/>
+        <Setter Property="GroupName"        Value="WorkspaceTab"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="bd"
+                            Background="{TemplateBinding Background}"
+                            BorderThickness="0,0,0,2"
+                            BorderBrush="Transparent"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background"
+                                    Value="{StaticResource ButtonHoverBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource ForegroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush"
+                                    Value="{StaticResource AccentBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource ForegroundBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </ResourceDictionary>
