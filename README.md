@@ -367,19 +367,20 @@ Open `VisualStudioExtension/ArbiterVSIX/` in Visual Studio 2022 and press **F5**
 
 ## Monaco IDE Panels
 
-The built-in web IDE at `/gui/` provides a full VS Code-like experience with these sidebar panels:
+The built-in web IDE at `/gui/` provides a full VS Code-like experience. The activity bar gives
+one-click access to the most-used panels; all remaining panels are reachable via the **⋮ More**
+overflow menu, which is organised into the following groups:
 
-| Category | Panels |
-|----------|--------|
-| **Navigation** | Explorer, File Search, Source Control (Git) |
-| **AI & Chat** | AI Chat, AI Backends, Multi-Agent, Self-Build Loop, Roadmap |
-| **Code Tools** | Scaffold, Refactor, Brainstorm, DocGen, Templates, Snippets, Diff & Patch |
-| **Quality** | Code Quality, Test Runner, Dep Analyzer |
-| **DevOps** | CI / Deploy, Docker, Cron, Webhooks, API Client |
-| **Project** | Notes, Knowledge, Library & Archive, Project Profile |
-| **Operations** | Monitoring, Insights & Analytics, Task Queue, Audit Log, Health Dashboard |
-| **Config** | Env Vars, Vault, Feature Flags, Notifications, Settings, Rate Limits |
-| **Runtime** | Terminal, Model Downloads, Plugins |
+| Group | Panels |
+|-------|--------|
+| **Navigation** _(activity bar)_ | Explorer, File Search, Source Control (Git), AI Backends, Code Tools, CI/CD, Monitoring, Analytics, Notes, Settings |
+| **AI & Agents** | Multi-Agent, Self-Build Loop, Brainstorm, Web Search |
+| **Code Tools** | Refactor, Code Quality, Test Runner, Dep Analyzer, Doc Generator, Snippets, Diff & Patch, Templates, Utilities |
+| **Project** | Roadmap, Knowledge, Library & Archive |
+| **DevOps** | Docker, Deploy, API Client, Database, Terminal |
+| **Operations** | Health Dashboard, Task Queue, Audit Log, Event Bus, Cron |
+| **Config & Security** | Env Vars, Vault, Webhooks, Rate Limits, Feature Flags, Notifications |
+| **Runtime** | Model Downloads, Plugins |
 
 ---
 
