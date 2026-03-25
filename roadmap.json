@@ -1,8 +1,8 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.16.0",
-  "last_updated": "2026-03-24",
+  "version": "1.17.0",
+  "last_updated": "2026-03-25",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
     "Pillar 2 — Visual Studio Integration: native VSIX extension for Visual Studio 2022",
@@ -1724,6 +1724,50 @@
           "title": "GET /ai/memory/stats — memory store statistics with optional prune=true to delete expired entries",
           "status": "done",
           "notes": "GET /ai/memory/stats: returns total, active, expired, pruned (0 unless prune=true), by_importance{1-5}, by_source{label:count}, all_tags[], oldest_entry, newest_entry, db_path. prune=true DELETEs expired rows then returns fresh counts."
+        }
+      ]
+    },
+    {
+      "id": "Phase15",
+      "title": "AI Conversations & Session Management — Persistent Named Chat Sessions",
+      "description": "SQLite-backed persistent conversation store. Named conversation sessions accumulate a full message history across restarts. Each reply can optionally inject relevant long-term memories (Phase 14) and/or live web-search context (Phase 13), giving every conversation full access to the platform's AI stack.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA15-1",
+          "title": "POST /ai/conversations — create a named, persistent conversation with optional system prompt, tags, and model hint",
+          "status": "done",
+          "notes": "POST /ai/conversations: stores to .arbiter/conversations.db SQLite (WAL mode). Auto-generates name from timestamp when empty. Returns id, name, system, tags[], model, created_at, updated_at, message_count."
+        },
+        {
+          "id": "PA15-2",
+          "title": "GET /ai/conversations — list all conversations with optional tag filter and pagination",
+          "status": "done",
+          "notes": "GET /ai/conversations: query params: tags (CSV, all must match), page, page_size (1-100). Returns total, page, page_size, pages, items[] ordered by updated_at desc."
+        },
+        {
+          "id": "PA15-3",
+          "title": "GET /ai/conversations/{id} — retrieve conversation metadata and full message history",
+          "status": "done",
+          "notes": "GET /ai/conversations/{id}: returns conversation dict plus messages[] ordered by created_at asc. Returns 404 if not found."
+        },
+        {
+          "id": "PA15-4",
+          "title": "DELETE /ai/conversations/{id} — delete a conversation and all its messages; returns 404 if not found",
+          "status": "done",
+          "notes": "DELETE /ai/conversations/{id}: deletes conv_messages rows then the conversation row. Returns {deleted: true, id} on success, 404 HTTPException if not found."
+        },
+        {
+          "id": "PA15-5",
+          "title": "POST /ai/conversations/{id}/message — send user message, get AI reply; supports inject_memories and web_augment flags",
+          "status": "done",
+          "notes": "POST /ai/conversations/{id}/message: loads history, optionally injects Phase-14 memories + Phase-13 web-search context into system prompt, calls local LLM with full history, persists user+assistant messages. Returns answer, web_augmented, memory_injected, message IDs."
+        },
+        {
+          "id": "PA15-6",
+          "title": "GET /ai/conversations/stats — aggregate statistics: totals, web/memory augmented counts, models used",
+          "status": "done",
+          "notes": "GET /ai/conversations/stats: returns total_conversations, total_messages, web_augmented_messages, memory_injected_messages, models_used[], newest_conversation, db_path."
         }
       ]
     }

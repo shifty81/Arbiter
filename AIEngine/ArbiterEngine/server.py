@@ -16479,6 +16479,479 @@ def ai_memory_stats(prune: bool = False) -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 15 — AI Conversations & Session Management
+#  SQLite-backed persistent conversation store.  Named conversations accumulate
+#  a full message history.  Each reply can optionally inject relevant long-term
+#  memories (Phase 14) and/or web-search context (Phase 13) before calling the
+#  local LLM, giving every conversation access to the platform's full AI stack.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import uuid as _conv_uuid
+import datetime as _conv_dt
+
+_CONV_DB_PATH = _BASE / ".arbiter" / "conversations.db"
+_CONV_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# ── Schema bootstrap ──────────────────────────────────────────────────────────
+
+def _conv_db() -> sqlite3.Connection:
+    """Return a SQLite connection to the conversations store."""
+    conn = sqlite3.connect(str(_CONV_DB_PATH), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id          TEXT    PRIMARY KEY,
+            name        TEXT    NOT NULL,
+            system      TEXT    NOT NULL DEFAULT '',
+            tags        TEXT    NOT NULL DEFAULT '',
+            model       TEXT    NOT NULL DEFAULT '',
+            created_at  TEXT    NOT NULL,
+            updated_at  TEXT    NOT NULL,
+            message_count INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS conv_messages (
+            id              TEXT    PRIMARY KEY,
+            conversation_id TEXT    NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            role            TEXT    NOT NULL,
+            content         TEXT    NOT NULL,
+            created_at      TEXT    NOT NULL,
+            tokens_used     INTEGER NOT NULL DEFAULT 0,
+            web_augmented   INTEGER NOT NULL DEFAULT 0,
+            memory_injected INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_conv_messages_conv
+            ON conv_messages(conversation_id, created_at);
+    """)
+    conn.commit()
+    return conn
+
+
+def _conv_now() -> str:
+    return _conv_dt.datetime.now(_conv_dt.timezone.utc).replace(tzinfo=None).isoformat()
+
+
+def _conv_tags_str(tags: list[str]) -> str:
+    return ",".join(t.strip().lower() for t in tags if t.strip())
+
+
+def _conv_tags_list(tags_str: str) -> list[str]:
+    return [t for t in tags_str.split(",") if t]
+
+
+def _conv_row_to_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["tags"] = _conv_tags_list(d.get("tags", ""))
+    return d
+
+
+# ── PA15-1: Create a conversation ─────────────────────────────────────────────
+
+class _ConvCreateReq(BaseModel):
+    name:   str  = ""
+    system: str  = ""
+    tags:   list[str] = []
+    model:  str  = ""
+
+
+@app.post("/ai/conversations")
+def ai_conv_create(req: _ConvCreateReq) -> dict:
+    """Create a new persistent conversation session.
+
+    Parameters
+    ----------
+    name
+        Human-readable label (auto-generated from timestamp if empty).
+    system
+        System prompt override for this conversation.
+    tags
+        Optional labels for organisation (lowercase-normalised).
+    model
+        Preferred model hint forwarded to the LLM backend.  Defaults to
+        the server's configured model when empty.
+
+    Returns
+    -------
+    id, name, system, tags, model, created_at, updated_at, message_count.
+
+    PA15-1
+    """
+    now   = _conv_now()
+    cid   = str(_conv_uuid.uuid4())
+    name  = req.name.strip() or f"Conversation {now[:16]}"
+    model = req.model.strip()
+
+    try:
+        conn = _conv_db()
+        conn.execute(
+            "INSERT INTO conversations(id,name,system,tags,model,created_at,updated_at,message_count)"
+            " VALUES (?,?,?,?,?,?,?,0)",
+            (cid, name, req.system.strip(), _conv_tags_str(req.tags), model, now, now),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    return {
+        "id":            cid,
+        "name":          name,
+        "system":        req.system.strip(),
+        "tags":          [t.strip().lower() for t in req.tags if t.strip()],
+        "model":         model,
+        "created_at":    now,
+        "updated_at":    now,
+        "message_count": 0,
+    }
+
+
+# ── PA15-2: List conversations ─────────────────────────────────────────────────
+
+@app.get("/ai/conversations")
+def ai_conv_list(
+    tags:      str = "",
+    page:      int = 1,
+    page_size: int = 20,
+) -> dict:
+    """List all conversations with optional tag filter and pagination.
+
+    Parameters
+    ----------
+    tags
+        Comma-separated tag filter; returned conversations must have ALL tags.
+    page
+        1-based page number.
+    page_size
+        Items per page (1–100).
+
+    PA15-2
+    """
+    page      = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    tag_filter = [t.strip().lower() for t in tags.split(",") if t.strip()]
+
+    try:
+        conn = _conv_db()
+        rows = conn.execute(
+            "SELECT * FROM conversations ORDER BY updated_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    items = [_conv_row_to_dict(r) for r in rows]
+    if tag_filter:
+        items = [c for c in items if all(t in c["tags"] for t in tag_filter)]
+
+    total  = len(items)
+    offset = (page - 1) * page_size
+    return {
+        "total":     total,
+        "page":      page,
+        "page_size": page_size,
+        "pages":     max(1, (total + page_size - 1) // page_size),
+        "items":     items[offset: offset + page_size],
+    }
+
+
+# ── PA15-3: Get a single conversation with its messages ───────────────────────
+
+@app.get("/ai/conversations/stats")
+def ai_conv_stats() -> dict:
+    """Return aggregate statistics about the conversation store.
+
+    Returns
+    -------
+    total_conversations
+        Total number of conversation sessions.
+    total_messages
+        Total messages across all conversations.
+    web_augmented_messages
+        Messages that included web-search context.
+    memory_injected_messages
+        Messages that had long-term memories injected.
+    models_used
+        Distinct model hints recorded across conversations.
+    newest_conversation
+        ISO timestamp of the most recently updated conversation (null if none).
+    db_path
+        Filesystem path of the SQLite database.
+
+    PA15-6
+    """
+    try:
+        conn = _conv_db()
+        conv_rows = conn.execute("SELECT * FROM conversations").fetchall()
+        msg_rows  = conn.execute("SELECT * FROM conv_messages").fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    conversations = [_conv_row_to_dict(r) for r in conv_rows]
+    messages      = [dict(r) for r in msg_rows]
+
+    models = sorted({c["model"] for c in conversations if c.get("model")})
+    newest = max((c["updated_at"] for c in conversations), default=None)
+
+    return {
+        "total_conversations":        len(conversations),
+        "total_messages":             len(messages),
+        "web_augmented_messages":     sum(1 for m in messages if m.get("web_augmented")),
+        "memory_injected_messages":   sum(1 for m in messages if m.get("memory_injected")),
+        "models_used":                models,
+        "newest_conversation":        newest,
+        "db_path":                    str(_CONV_DB_PATH),
+    }
+
+
+@app.get("/ai/conversations/{conversation_id}")
+def ai_conv_get(conversation_id: str) -> dict:
+    """Retrieve a conversation and its full message history.
+
+    Parameters
+    ----------
+    conversation_id
+        UUID of the conversation.
+
+    Returns
+    -------
+    Conversation metadata plus ``messages`` list ordered by creation time.
+
+    PA15-3
+    """
+    try:
+        conn  = _conv_db()
+        crows = conn.execute(
+            "SELECT * FROM conversations WHERE id=?", (conversation_id,)
+        ).fetchall()
+        mrows = conn.execute(
+            "SELECT * FROM conv_messages WHERE conversation_id=? ORDER BY created_at ASC",
+            (conversation_id,),
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    if not crows:
+        raise HTTPException(status_code=404, detail=f"Conversation '{conversation_id}' not found")
+
+    conv     = _conv_row_to_dict(crows[0])
+    conv["messages"] = [dict(r) for r in mrows]
+    return conv
+
+
+# ── PA15-4: Delete a conversation ─────────────────────────────────────────────
+
+@app.delete("/ai/conversations/{conversation_id}")
+def ai_conv_delete(conversation_id: str) -> dict:
+    """Delete a conversation and all its messages.
+
+    Returns 404 if the conversation does not exist.
+
+    PA15-4
+    """
+    try:
+        conn   = _conv_db()
+        # Messages are cascade-deleted by the FK constraint; execute manually
+        # anyway for robustness (e.g. older SQLite builds without FK pragma).
+        conn.execute("DELETE FROM conv_messages WHERE conversation_id=?", (conversation_id,))
+        cur    = conn.execute("DELETE FROM conversations WHERE id=?", (conversation_id,))
+        conn.commit()
+        deleted = cur.rowcount
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Conversation '{conversation_id}' not found")
+
+    return {"deleted": True, "id": conversation_id}
+
+
+# ── PA15-5: Send a message and get an AI reply ────────────────────────────────
+
+class _ConvMessageReq(BaseModel):
+    content:          str       = ""
+    inject_memories:  bool      = False
+    web_augment:      bool      = False
+    max_memories:     int       = 5
+    max_web_results:  int       = 3
+    system_override:  str       = ""
+
+
+@app.post("/ai/conversations/{conversation_id}/message")
+def ai_conv_message(conversation_id: str, req: _ConvMessageReq) -> dict:
+    """Send a user message in a conversation and receive an AI reply.
+
+    The conversation's full message history is forwarded to the LLM so it
+    can maintain context across turns.
+
+    Optional enhancements:
+    - **inject_memories** — retrieve relevant memories from the Phase 14
+      memory store and prepend them as system context.
+    - **web_augment** — run a web search on the user's message and inject
+      the top results as additional context (requires the Phase 13 web-search
+      module).
+
+    Parameters
+    ----------
+    conversation_id
+        UUID of the target conversation.
+    content
+        The user's message text.
+    inject_memories
+        When ``true``, search the long-term memory store for relevant entries
+        and inject them into the system prompt before calling the LLM.
+    web_augment
+        When ``true``, search the web for the user's message and inject the
+        top results as RAG context.
+    max_memories
+        Maximum number of memories to inject (1–20, default 5).
+    max_web_results
+        Maximum web results to inject (1–10, default 3).
+    system_override
+        One-shot system prompt that replaces the conversation's stored system
+        prompt for this turn only.
+
+    PA15-5
+    """
+    if not req.content.strip():
+        raise HTTPException(status_code=422, detail="content must not be empty")
+
+    max_mem     = max(1, min(req.max_memories, 20))
+    max_web     = max(1, min(req.max_web_results, 10))
+    now         = _conv_now()
+    user_msg_id = str(_conv_uuid.uuid4())
+    ai_msg_id   = str(_conv_uuid.uuid4())
+
+    # ── Load conversation ────────────────────────────────────────────────────
+    try:
+        conn  = _conv_db()
+        crows = conn.execute(
+            "SELECT * FROM conversations WHERE id=?", (conversation_id,)
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    if not crows:
+        raise HTTPException(status_code=404, detail=f"Conversation '{conversation_id}' not found")
+
+    conv = _conv_row_to_dict(crows[0])
+
+    # ── Load history ─────────────────────────────────────────────────────────
+    try:
+        conn  = _conv_db()
+        mrows = conn.execute(
+            "SELECT role, content FROM conv_messages"
+            " WHERE conversation_id=? ORDER BY created_at ASC",
+            (conversation_id,),
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    history = [{"role": r["role"], "content": r["content"]} for r in mrows]
+
+    # ── Build system prompt ───────────────────────────────────────────────────
+    system_parts: list[str] = []
+
+    base_system = req.system_override.strip() or conv.get("system", "").strip()
+    if base_system:
+        system_parts.append(base_system)
+
+    memory_injected = False
+    if req.inject_memories:
+        try:
+            mem_conn = _mem_db()
+            mem_rows = mem_conn.execute(
+                "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+            ).fetchall()
+            mem_conn.close()
+            q_lower  = req.content.strip().lower()
+            matched  = []
+            for row in mem_rows:
+                d = _mem_row_to_dict(row)
+                if d["expired"]:
+                    continue
+                if q_lower and q_lower not in d["content"].lower():
+                    continue
+                matched.append(d)
+                if len(matched) >= max_mem:
+                    break
+            if matched:
+                lines = ["=== Relevant memories ==="]
+                for i, m in enumerate(matched, 1):
+                    tag_str = f"  [tags: {', '.join(m['tags'])}]" if m["tags"] else ""
+                    lines.append(f"[{i}]{tag_str}\n    {m['content']}")
+                lines.append("=== End of memories ===")
+                system_parts.append("\n".join(lines))
+                memory_injected = True
+        except Exception:
+            pass
+
+    web_augmented = False
+    if req.web_augment:
+        try:
+            web_results = _do_web_search(req.content.strip(), max_results=max_web)
+            if web_results:
+                from llm.web_search import build_rag_context as _ws_build_rag
+                rag = _ws_build_rag(req.content.strip(), web_results)
+                system_parts.append(rag)
+                web_augmented = True
+        except Exception:
+            pass
+
+    # ── Assemble messages for LLM ─────────────────────────────────────────────
+    messages: list[dict] = []
+    if system_parts:
+        messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+    messages.extend(history)
+    messages.append({"role": "user", "content": req.content.strip()})
+
+    # ── Call LLM ─────────────────────────────────────────────────────────────
+    try:
+        answer = _llm.chat(messages)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # ── Persist user + assistant messages ─────────────────────────────────────
+    try:
+        conn = _conv_db()
+        conn.execute(
+            "INSERT INTO conv_messages(id,conversation_id,role,content,created_at,tokens_used,web_augmented,memory_injected)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (user_msg_id, conversation_id, "user", req.content.strip(), now, 0, 0, 0),
+        )
+        conn.execute(
+            "INSERT INTO conv_messages(id,conversation_id,role,content,created_at,tokens_used,web_augmented,memory_injected)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (ai_msg_id, conversation_id, "assistant", answer, now,
+             0, int(web_augmented), int(memory_injected)),
+        )
+        conn.execute(
+            "UPDATE conversations SET updated_at=?, message_count=message_count+2 WHERE id=?",
+            (now, conversation_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB persist error: {exc}") from exc
+
+    return {
+        "conversation_id":  conversation_id,
+        "user_message_id":  user_msg_id,
+        "ai_message_id":    ai_msg_id,
+        "answer":           answer,
+        "web_augmented":    web_augmented,
+        "memory_injected":  memory_injected,
+        "created_at":       now,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))
