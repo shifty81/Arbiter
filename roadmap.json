@@ -1536,13 +1536,25 @@
           "title": "GET /models/backends updated to include embedded backend with in-process reachability check",
           "status": "done",
           "notes": "GET /models/backends: embedded entry added with is_loaded from _ModelState as reachability indicator (no HTTP probe needed). base.py _fmt_unavailable updated to mention embedded. local.py stub message updated to recommend embedded. requirements.txt has llama-cpp-python as commented optional dep."
+        },
+        {
+          "id": "PA10-7",
+          "title": "llm/hardware.py — cross-platform hardware profiler: RAM/VRAM/CPU detection + adaptive config suggestion (n_gpu_layers, n_ctx, n_threads)",
+          "status": "done",
+          "notes": "New llm/hardware.py: HardwareProfile dataclass, detect_hardware() (psutil + /proc/meminfo + sysctl + nvidia-smi + wmic fallbacks), suggest_model_config() (VRAM-aware n_gpu_layers, RAM-aware n_ctx, physical-core n_threads with rationale list). Embedded load now accepts auto_configure=True. _ModelState stores hardware + suggested_config at load time."
+        },
+        {
+          "id": "PA10-8",
+          "title": "GET /ai/hardware — hardware profile endpoint with model fit table and human-readable fit_summary",
+          "status": "done",
+          "notes": "GET /ai/hardware: calls detect_hardware() and suggest_model_config(), returns hardware dict, suggested_config, fit_summary (text with emoji), model_path, and available_models_fit list per .gguf file in models/. POST /ai/embedded/load updated with auto_configure param and chat_format='auto' (heuristic template detection). GET /ai/embedded/status updated to return stored hardware profile. GET /ai/embedded/models updated to include hardware_fit per model. config.toml updated with auto_configure, chat_format, new sentinel defaults."
         }
       ]
     },
     {
       "id": "Phase11",
       "title": "AI Code Intelligence & Semantic Workspace Search",
-      "description": "Intelligent code search, one-shot AI fixes, security auditing, auto context building, symbol rename, and AI usage analytics — all powered by the existing LLM infrastructure.",
+      "description": "Intelligent code search, one-shot AI fixes, security auditing, auto context building, symbol rename, AI usage analytics, and hardware-adaptive model loading — all powered by the existing LLM infrastructure.",
       "status": "done",
       "tasks": [
         {

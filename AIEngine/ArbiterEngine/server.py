@@ -113,7 +113,7 @@ _PERSONAS = [
 ]
 _active_personas: dict[str, str] = {}
 _MAX_CHAT_HISTORY_TURNS = 40
-_SERVER_START_TIME: float = time.time()   # set at import time for uptime tracking
+_SERVER_START_TIME: float = time.time()   # recorded once at server boot for uptime tracking
 
 # ─── M13: Metrics, Budget tracking, and LRU response cache ───────────────────
 
@@ -13597,10 +13597,12 @@ def workspace_summary() -> dict:
 # ── PA10-1: Load a GGUF model into the embedded in-process backend ─────────────
 
 class _EmbeddedLoadReq(BaseModel):
-    model_path: str = ""       # path to .gguf file (relative to ArbiterEngine/ or absolute)
-    n_ctx: int = 4096          # context window in tokens
-    n_gpu_layers: int = -1     # -1 = all layers on GPU, 0 = CPU only
-    n_threads: int = 0         # 0 = auto-detect CPU threads
+    model_path: str = ""        # path to .gguf file (relative to ArbiterEngine/ or absolute)
+    auto_configure: bool = True # detect hardware and auto-tune n_gpu_layers / n_ctx / n_threads
+    n_ctx: int = -2             # -2 = auto; or explicit token count e.g. 4096
+    n_gpu_layers: int = -2      # -2 = auto; -1 = all GPU; 0 = CPU only
+    n_threads: int = -2         # -2 = auto; or explicit thread count
+    chat_format: str = "auto"   # "auto" | "chatml" | "llama-2" | "alpaca" | …
     verbose: bool = False
     switch_active: bool = True  # also make 'embedded' the active backend
 
@@ -13616,20 +13618,34 @@ async def ai_embedded_load(req: _EmbeddedLoadReq) -> dict:
     no LM Studio, nothing.  Install ``llama-cpp-python`` once and point it at
     any ``.gguf`` file.
 
+    Hardware-adaptive loading
+    -------------------------
+    When ``auto_configure=true`` (the default) Arbiter detects your system's
+    RAM, VRAM, and CPU core count and automatically selects the best values
+    for ``n_gpu_layers``, ``n_ctx``, and ``n_threads``.  Any field explicitly
+    set to a value other than ``-2`` overrides the auto-detected value.
+
+    For example, on a machine with 32 GiB RAM and 11 GiB VRAM:
+    - A 7B Q4 model (~4 GiB) → ``n_gpu_layers=-1`` (full GPU), ``n_ctx=8192``
+    - A 30B Q4 model (~17 GiB) → partial GPU offload, ``n_ctx=8192``
+
     Parameters
     ----------
     model_path
         Path to the ``.gguf`` model file.  Relative paths are resolved from
         the ``ArbiterEngine/`` directory.  Defaults to
         ``llm.embedded.model_path`` in ``config.toml``.
+    auto_configure
+        Default ``true`` — detect hardware and tune parameters automatically.
+        Set to ``false`` to use exact values from the other fields.
     n_ctx
-        Context window size in tokens (default 4096).
+        Context window in tokens.  ``-2`` = auto (hardware-adaptive).
     n_gpu_layers
-        Number of transformer layers to offload to GPU.
-        ``-1`` = offload everything (all layers) to GPU.
-        ``0``  = CPU-only inference.
+        GPU layer offload.  ``-2`` = auto; ``-1`` = all layers; ``0`` = CPU only.
     n_threads
-        CPU threads for inference (0 = auto).
+        CPU inference threads.  ``-2`` = auto.
+    chat_format
+        Chat template format.  ``"auto"`` guesses from the model filename.
     verbose
         Print llama.cpp progress/debug output.
     switch_active
@@ -13661,6 +13677,8 @@ async def ai_embedded_load(req: _EmbeddedLoadReq) -> dict:
             req.n_gpu_layers,
             req.n_threads,
             req.verbose,
+            req.chat_format,
+            req.auto_configure,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -13679,11 +13697,16 @@ async def ai_embedded_load(req: _EmbeddedLoadReq) -> dict:
         _llm = _EmbeddedLLM(model_path="", auto_load=False)
 
     return {
-        "status":         "ok",
-        "model_path":     state.model_path,
-        "n_ctx":          req.n_ctx,
-        "n_gpu_layers":   req.n_gpu_layers,
-        "active_backend": _config.get("agent.default_llm_backend", "ollama"),
+        "status":           "ok",
+        "model_path":       state.model_path,
+        "n_ctx":            state.n_ctx,
+        "n_gpu_layers":     state.n_gpu_layers,
+        "n_threads":        state.n_threads,
+        "chat_format":      state.chat_format,
+        "auto_configure":   req.auto_configure,
+        "hardware":         state.hardware,
+        "suggested_config": state.suggested_config,
+        "active_backend":   _config.get("agent.default_llm_backend", "ollama"),
     }
 
 
@@ -13696,9 +13719,10 @@ def ai_embedded_status() -> dict:
     Returns:
     - Whether ``llama-cpp-python`` is installed and its version
     - Whether a model is currently loaded and which file
-    - Current configuration (context size, GPU layers, threads)
+    - Current configuration (context size, GPU layers, threads, chat_format)
+    - The hardware profile that was detected at load time
+    - The suggested config that was applied at load time
     - Active backend name
-    - GPU hardware summary (if an NVIDIA GPU is present)
 
     PA10-2
     """
@@ -13714,39 +13738,19 @@ def ai_embedded_status() -> dict:
     from llm.embedded import get_state as _get_emb_state
     state = _get_emb_state()
 
-    # GPU detection (best-effort)
-    gpu_info: dict | None = None
-    try:
-        gpu_raw = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,memory.free",
-                "--format=csv,noheader",
-            ],
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        ).decode().strip()
-        if gpu_raw:
-            parts = [p.strip() for p in gpu_raw.split(",")]
-            gpu_info = {
-                "name":         parts[0] if len(parts) > 0 else "",
-                "memory_total": parts[1] if len(parts) > 1 else "",
-                "memory_free":  parts[2] if len(parts) > 2 else "",
-            }
-    except Exception:
-        pass
-
     return {
-        "installed":         installed,
-        "llama_cpp_version": llama_version,
-        "model_loaded":      state.is_loaded,
-        "model_path":        state.model_path if state.is_loaded else None,
-        "n_ctx":             state.n_ctx       if state.is_loaded else None,
-        "n_gpu_layers":      state.n_gpu_layers if state.is_loaded else None,
-        "n_threads":         state.n_threads    if state.is_loaded else None,
-        "active_backend":    _config.get("agent.default_llm_backend", "ollama"),
-        "gpu":               gpu_info,
-        "install_hint":      None if installed else "pip install llama-cpp-python",
+        "installed":          installed,
+        "llama_cpp_version":  llama_version,
+        "model_loaded":       state.is_loaded,
+        "model_path":         state.model_path     if state.is_loaded else None,
+        "n_ctx":              state.n_ctx           if state.is_loaded else None,
+        "n_gpu_layers":       state.n_gpu_layers    if state.is_loaded else None,
+        "n_threads":          state.n_threads       if state.is_loaded else None,
+        "chat_format":        state.chat_format     if state.is_loaded else None,
+        "hardware":           state.hardware,
+        "suggested_config":   state.suggested_config,
+        "active_backend":     _config.get("agent.default_llm_backend", "ollama"),
+        "install_hint":       None if installed else "pip install llama-cpp-python",
     }
 
 
@@ -13761,11 +13765,20 @@ def ai_embedded_models(search_dir: str = "") -> dict:
     2. ``ArbiterEngine/models/`` — created automatically if absent
     3. The directory of ``llm.embedded.model_path`` from ``config.toml``
 
-    Returns a list of found ``.gguf`` files with name, absolute path, and
-    file size.
+    Each model entry includes hardware-fit information: whether it fits in
+    VRAM, the estimated GPU layer count, and the recommended context window
+    size for the current hardware.
 
     PA10-3
     """
+    # Get hardware profile for fit calculations
+    hw_profile = None
+    try:
+        from llm.hardware import detect_hardware as _detect_hw, suggest_model_config as _suggest
+        hw_profile = _detect_hw()
+    except Exception:
+        pass
+
     search_dirs: list[Path] = []
 
     if search_dir:
@@ -13797,12 +13810,27 @@ def ai_embedded_models(search_dir: str = "") -> dict:
                     continue
                 seen.add(key)
                 size_bytes = f.stat().st_size
-                models.append({
+                entry: dict = {
                     "name":       f.name,
                     "path":       str(f),
                     "size_mb":    round(size_bytes / 1_048_576, 1),
                     "size_bytes": size_bytes,
-                })
+                    "hardware_fit": None,
+                }
+                # Add hardware fit if profile is available
+                if hw_profile is not None:
+                    try:
+                        sug = _suggest(str(f), hw_profile)
+                        entry["hardware_fit"] = {
+                            "fits_in_vram":  sug["fits_in_vram"],
+                            "n_gpu_layers":  sug["n_gpu_layers"],
+                            "n_ctx":         sug["n_ctx"],
+                            "n_threads":     sug["n_threads"],
+                            "rationale":     sug["rationale"],
+                        }
+                    except Exception:
+                        pass
+                models.append(entry)
         except Exception as exc:
             logger.warning("Could not scan %s for GGUF files: %s", d, exc)
 
@@ -13814,6 +13842,7 @@ def ai_embedded_models(search_dir: str = "") -> dict:
         "count":        len(models),
         "models_dir":   str(default_models),
         "active_model": state.model_path if state.is_loaded else None,
+        "hardware":     hw_profile.to_dict() if hw_profile else None,
     }
 
 
@@ -13851,6 +13880,133 @@ async def ai_embedded_unload() -> dict:
         "status":         "ok",
         "was_loaded":     was_loaded,
         "active_backend": _config.get("agent.default_llm_backend", "ollama"),
+    }
+
+
+# ── PA10-5: Hardware profile & model-fit advisor ──────────────────────────────
+
+@app.get("/ai/hardware")
+def ai_hardware(model_path: str = "") -> dict:
+    """Return the host hardware profile and AI configuration recommendations.
+
+    Detects available RAM, VRAM, CPU core count, and GPU model, then
+    provides:
+    - A complete hardware inventory
+    - Recommended ``n_gpu_layers``, ``n_ctx``, ``n_threads`` for the
+      currently configured or specified model
+    - A ``fit_summary`` describing how well your hardware suits local AI
+    - Per-model fit data for every ``.gguf`` file found in ``models/``
+
+    Query parameters
+    ----------------
+    model_path
+        Optional path to a specific ``.gguf`` file to evaluate.  If omitted,
+        uses ``llm.embedded.model_path`` from ``config.toml``.
+
+    Example response (32 GiB RAM, 11 GiB VRAM, 7B model):
+    ::
+
+        {
+          "hardware": {
+            "ram_total_gb": 32.0,
+            "vram_total_gb": 11.0,
+            "gpu_name": "NVIDIA GeForce RTX 3080",
+            ...
+          },
+          "suggested_config": {
+            "n_gpu_layers": -1,
+            "n_ctx": 8192,
+            "n_threads": 4,
+            "fits_in_vram": true,
+            "rationale": [...]
+          },
+          "fit_summary": "Excellent — your GPU has enough VRAM...",
+          ...
+        }
+
+    PA10-5
+    """
+    try:
+        from llm.hardware import detect_hardware as _detect_hw, suggest_model_config as _suggest
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Hardware detection module unavailable: {exc}"
+        ) from exc
+
+    hw = _detect_hw()
+
+    # Determine which model to evaluate
+    target_model = (
+        model_path.strip()
+        or _config.get("llm.embedded.model_path", "")
+    )
+    if target_model and not Path(target_model).is_absolute():
+        target_model = str(_BASE / target_model)
+
+    suggestion: dict = {}
+    if target_model:
+        try:
+            suggestion = _suggest(target_model, hw)
+        except Exception as exc:
+            logger.warning("suggest_model_config failed: %s", exc)
+
+    # Build a human-readable fit summary
+    def _fit_summary(hw_profile: "Any", sug: dict) -> str:
+        vram = hw_profile.vram_total_gb
+        ram  = hw_profile.ram_total_gb
+        if vram <= 0:
+            return (
+                "⚠️ No GPU detected. All inference will run on CPU, which is "
+                "significantly slower. For best performance, a CUDA-capable GPU "
+                "or Apple Silicon Mac is recommended."
+            )
+        if sug.get("fits_in_vram"):
+            return (
+                f"✅ Excellent — your {hw_profile.gpu_name or 'GPU'} has enough VRAM "
+                f"({vram:.1f} GiB) to run the selected model entirely on GPU. "
+                f"With {ram:.0f} GiB RAM, a context window of "
+                f"{sug.get('n_ctx', 4096)} tokens is configured."
+            )
+        else:
+            layers = sug.get("n_gpu_layers", 0)
+            return (
+                f"⚡ Partial GPU offload — {vram:.1f} GiB VRAM fits ~{layers} "
+                "transformer layers on GPU; remaining layers use CPU RAM. "
+                f"Performance will be slower than full GPU but faster than pure CPU. "
+                f"Consider a smaller quantisation (Q4_K_M or Q3_K_S) to fit more in VRAM."
+            )
+
+    fit_summary = _fit_summary(hw, suggestion) if suggestion else (
+        "No model specified — hardware profile available but no config suggestion."
+    )
+
+    # Per-model fit table for all models in the models dir
+    default_models = _BASE / "models"
+    models_fit: list[dict] = []
+    try:
+        for f in sorted(default_models.glob("*.gguf")):
+            try:
+                sug = _suggest(str(f), hw)
+                size_gb = f.stat().st_size / 1_073_741_824
+                models_fit.append({
+                    "name":          f.name,
+                    "size_gb":       round(size_gb, 2),
+                    "fits_in_vram":  sug["fits_in_vram"],
+                    "n_gpu_layers":  sug["n_gpu_layers"],
+                    "n_ctx":         sug["n_ctx"],
+                    "n_threads":     sug["n_threads"],
+                })
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return {
+        "hardware":        hw.to_dict(),
+        "suggested_config": suggestion if suggestion else None,
+        "fit_summary":     fit_summary,
+        "model_path":      target_model or None,
+        "available_models_fit": models_fit,
     }
 
 

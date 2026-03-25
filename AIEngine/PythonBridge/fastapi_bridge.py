@@ -2546,6 +2546,7 @@ for _stub_path, _stub_tag in [
     ("/ai/context/build", "phase11"),
     ("/ai/rename-symbol", "phase11"),
     ("/workspace/ai-stats", "phase11"),
+    ("/ai/hardware", "phase11"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),

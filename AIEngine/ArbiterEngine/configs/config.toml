@@ -34,11 +34,13 @@ model_path = "models/model.gguf"
 # In-process GGUF inference via llama-cpp-python — no external server required.
 # Install: pip install llama-cpp-python
 # GPU (CUDA): pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-model_path   = "models/model.gguf"  # relative to ArbiterEngine/ or absolute
-n_ctx        = 4096                  # context window in tokens
-n_gpu_layers = -1                    # -1 = all layers on GPU, 0 = CPU only
-n_threads    = 0                     # 0 = auto-detect
-verbose      = false
+model_path     = "models/model.gguf"  # relative to ArbiterEngine/ or absolute
+auto_configure = true                  # auto-detect RAM/VRAM/CPU and tune parameters
+n_ctx          = 0                     # 0 = auto (hardware-adaptive); or set explicitly e.g. 4096
+n_gpu_layers   = -2                    # -2 = auto; -1 = all layers on GPU; 0 = CPU only
+n_threads      = 0                     # 0 = auto; or set explicitly e.g. 8
+chat_format    = "auto"                # "auto" detects from filename; or "chatml"/"llama-2" etc.
+verbose        = false
 
 [llm.lmstudio]
 base_url = "http://localhost:1234"

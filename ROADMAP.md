@@ -46,7 +46,7 @@
 | **Phase 7** | Observability & Developer Experience | /metrics, project activity feed, AI explain, workspace health, git blame-explain, project changelog | ✅ Done |
 | **Phase 8** | Smart Automation & Workspace Productivity | /ai/project-refactor, /projects/{id}/docs, /workspace/todos, /ai/migrate, /projects/{id}/estimate, /projects/{id}/test-generate | ✅ Done |
 | **Phase 9** | Advanced Collaboration & Knowledge Management | /ai/code-walkthrough, /projects/{id}/coverage-report, /workspace/notes, /projects/{id}/progress, /projects/{id}/roadmap/task, /workspace/summary | ✅ Done |
-| **Phase 10** | Embedded AI & Zero-External-Dependency Local Inference | /ai/embedded/load, /ai/embedded/status, /ai/embedded/models, /ai/embedded/unload, llm/embedded.py (llama-cpp-python), /models/backends updated | ✅ Done |
+| **Phase 10** | Embedded AI & Zero-External-Dependency Local Inference | /ai/embedded/load (auto_configure), /ai/embedded/status, /ai/embedded/models (hardware fit), /ai/embedded/unload, /ai/hardware, llm/hardware.py (RAM/VRAM/CPU detection + adaptive config) | ✅ Done |
 | **Phase 11** | AI Code Intelligence & Semantic Workspace Search | /ai/semantic-search, /ai/fix, /projects/{id}/security-audit, /ai/context/build, /ai/rename-symbol, /workspace/ai-stats | ✅ Done |
 
 ---

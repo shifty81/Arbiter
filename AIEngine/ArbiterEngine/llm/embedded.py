@@ -4,6 +4,14 @@ No external server (Ollama / LM Studio / llama.cpp) is required.  The model
 is loaded once into RAM/VRAM and kept resident for the lifetime of the server
 (or until explicitly unloaded via POST /ai/embedded/unload).
 
+Hardware-adaptive loading
+-------------------------
+When ``auto_configure=True`` (the default when ``POST /ai/embedded/load`` is
+called), the backend detects the host's RAM, VRAM, and CPU core count and
+automatically selects optimal ``n_gpu_layers``, ``n_ctx``, and ``n_threads``
+values.  Explicit values in the request body always override the auto-detected
+ones.
+
 Requirements (optional — install separately):
     pip install llama-cpp-python
 
@@ -15,10 +23,12 @@ GPU acceleration:
 
 Config keys (config.toml → [llm.embedded]):
     model_path   = "models/model.gguf"
-    n_ctx        = 4096
-    n_gpu_layers = -1        # -1 = offload all layers to GPU, 0 = CPU only
-    n_threads    = 0         # 0 = auto-detect
+    n_ctx        = 0             # 0 = auto-detect from hardware
+    n_gpu_layers = -2            # -2 = auto-detect; -1 = all GPU; 0 = CPU only
+    n_threads    = 0             # 0 = auto-detect from hardware
+    chat_format  = "auto"        # "auto" tries chatml then falls back to llama-2
     verbose      = false
+    auto_configure = true        # use hardware profiler on load
 """
 from __future__ import annotations
 
@@ -31,6 +41,9 @@ from core.logger import get_logger
 from llm.base import BaseLLM
 
 logger = get_logger(__name__)
+
+# Sentinel: "use hardware-adaptive value" when passed to load()
+_AUTO = -2
 
 # ── Human-readable error strings ─────────────────────────────────────────────
 
@@ -55,7 +68,17 @@ _NO_MODEL = (
 # ── Thread-safe singleton state ───────────────────────────────────────────────
 
 class _ModelState:
-    """Thread-safe container for the live ``llama_cpp.Llama`` instance."""
+    """Thread-safe container for the live ``llama_cpp.Llama`` instance.
+
+    Streaming note
+    --------------
+    ``stream_chat`` holds ``_lock`` for the full duration of the stream because
+    the underlying C extension is not re-entrant.  Concurrent non-streaming
+    calls (``chat``, ``generate``, ``tool_call``) will block until the stream
+    finishes.  This is an intentional design choice: the embedded backend is
+    a single-model, single-GPU resource — serialising access is safer than
+    partial concurrent reads which can corrupt model state.
+    """
 
     def __init__(self) -> None:
         self._llm: Any = None
@@ -64,6 +87,10 @@ class _ModelState:
         self.n_ctx: int = 4096
         self.n_gpu_layers: int = -1
         self.n_threads: int = 0
+        self.chat_format: str = "chatml"
+        # Hardware profile recorded at load time
+        self.hardware: dict[str, Any] | None = None
+        self.suggested_config: dict[str, Any] | None = None
 
     @property
     def is_loaded(self) -> bool:
@@ -72,12 +99,19 @@ class _ModelState:
     def load(
         self,
         model_path: str,
-        n_ctx: int = 4096,
-        n_gpu_layers: int = -1,
-        n_threads: int = 0,
+        n_ctx: int = _AUTO,
+        n_gpu_layers: int = _AUTO,
+        n_threads: int = _AUTO,
         verbose: bool = False,
+        chat_format: str = "auto",
+        auto_configure: bool = True,
     ) -> None:
-        """Load a GGUF model file into memory.  Thread-safe; blocks until done."""
+        """Load a GGUF model file into memory.  Thread-safe; blocks until done.
+
+        When ``auto_configure=True`` (default) the hardware profiler runs
+        first and fills in any parameter that was left at its ``_AUTO`` (-2)
+        sentinel value.  Explicit non-AUTO values always take precedence.
+        """
         try:
             from llama_cpp import Llama  # type: ignore[import]
         except ImportError as exc:
@@ -92,6 +126,47 @@ class _ModelState:
         if not path.is_file():
             raise FileNotFoundError(f"GGUF model file not found: {path}")
 
+        # ── Hardware-adaptive configuration ───────────────────────────────────
+        hw_profile = None
+        suggestion: dict[str, Any] = {}
+        if auto_configure:
+            try:
+                from llm.hardware import detect_hardware, suggest_model_config
+                hw_profile = detect_hardware()
+                suggestion = suggest_model_config(str(path), hw_profile)
+                logger.info(
+                    "Hardware-adaptive config: n_gpu_layers=%d  n_ctx=%d  "
+                    "n_threads=%d  fits_in_vram=%s",
+                    suggestion["n_gpu_layers"], suggestion["n_ctx"],
+                    suggestion["n_threads"], suggestion.get("fits_in_vram"),
+                )
+            except Exception as exc:
+                logger.warning("Hardware detection failed — using explicit params: %s", exc)
+
+        # Resolve each parameter: explicit value beats suggestion beats default
+        def _resolve(val: int, suggested_key: str, fallback: int) -> int:
+            if val != _AUTO:
+                return val
+            if suggestion and suggested_key in suggestion:
+                return suggestion[suggested_key]
+            return fallback
+
+        n_ctx_final        = _resolve(n_ctx,        "n_ctx",        4096)
+        n_gpu_layers_final = _resolve(n_gpu_layers, "n_gpu_layers", -1)
+        n_threads_final    = _resolve(n_threads,    "n_threads",    0)
+
+        # Resolve chat_format
+        resolved_fmt = chat_format
+        if resolved_fmt == "auto":
+            # Heuristic: filename often contains model family hints
+            name_lower = path.name.lower()
+            if "llama" in name_lower or "mistral" in name_lower:
+                resolved_fmt = "llama-2"
+            elif "phi" in name_lower or "gemma" in name_lower:
+                resolved_fmt = "chatml"
+            else:
+                resolved_fmt = "chatml"   # safe default
+
         with self._lock:
             # Unload any existing model first to free memory
             if self._llm is not None:
@@ -102,24 +177,29 @@ class _ModelState:
                 self._llm = None
 
             logger.info(
-                "Loading embedded model: %s  ctx=%d  gpu_layers=%d",
-                path, n_ctx, n_gpu_layers,
+                "Loading embedded model: %s  ctx=%d  gpu_layers=%d  threads=%d  "
+                "chat_format=%s",
+                path, n_ctx_final, n_gpu_layers_final, n_threads_final,
+                resolved_fmt,
             )
             kwargs: dict[str, Any] = {
                 "model_path":   str(path),
-                "n_ctx":        n_ctx,
-                "n_gpu_layers": n_gpu_layers,
+                "n_ctx":        n_ctx_final,
+                "n_gpu_layers": n_gpu_layers_final,
                 "verbose":      verbose,
-                "chat_format":  "chatml",
+                "chat_format":  resolved_fmt,
             }
-            if n_threads > 0:
-                kwargs["n_threads"] = n_threads
+            if n_threads_final > 0:
+                kwargs["n_threads"] = n_threads_final
 
             self._llm = Llama(**kwargs)
-            self.model_path   = str(path)
-            self.n_ctx        = n_ctx
-            self.n_gpu_layers = n_gpu_layers
-            self.n_threads    = n_threads
+            self.model_path    = str(path)
+            self.n_ctx         = n_ctx_final
+            self.n_gpu_layers  = n_gpu_layers_final
+            self.n_threads     = n_threads_final
+            self.chat_format   = resolved_fmt
+            self.hardware      = hw_profile.to_dict() if hw_profile else None
+            self.suggested_config = suggestion or None
             logger.info("Embedded model loaded successfully: %s", path.name)
 
     def unload(self) -> None:
@@ -131,6 +211,8 @@ class _ModelState:
                 except Exception:
                     pass
                 self._llm = None
+                self.hardware = None
+                self.suggested_config = None
                 logger.info("Embedded model unloaded")
 
     def chat(self, messages: list[dict[str, str]], max_tokens: int = 1024) -> str:
@@ -157,7 +239,7 @@ class _ModelState:
         if self._llm is None:
             yield _NO_MODEL
             return
-        # llama.cpp streaming is not thread-safe; hold the lock for the entire stream
+        # NOTE: holds the lock for the entire stream duration — see class docstring.
         with self._lock:
             try:
                 for chunk in self._llm.create_chat_completion(
@@ -192,27 +274,41 @@ class EmbeddedLLM(BaseLLM):
 
     Shares the global ``_STATE`` singleton so that hot-switching backends in
     server.py always uses the already-loaded model without reloading it.
+
+    Hardware-adaptive defaults
+    --------------------------
+    When ``auto_configure=True`` (the default) and a ``model_path`` is given,
+    the hardware profiler detects available RAM/VRAM/CPU and selects the best
+    ``n_gpu_layers``, ``n_ctx``, and ``n_threads`` automatically.  Any value
+    explicitly passed as non-``_AUTO`` overrides the automatic selection.
     """
 
     def __init__(
         self,
         model_path: str = "",
-        n_ctx: int = 4096,
-        n_gpu_layers: int = -1,
-        n_threads: int = 0,
+        n_ctx: int = _AUTO,
+        n_gpu_layers: int = _AUTO,
+        n_threads: int = _AUTO,
         verbose: bool = False,
+        chat_format: str = "auto",
+        auto_configure: bool = True,
         auto_load: bool = True,
     ) -> None:
-        self._model_path   = model_path
-        self._n_ctx        = n_ctx
-        self._n_gpu_layers = n_gpu_layers
-        self._n_threads    = n_threads
-        self._verbose      = verbose
+        self._model_path    = model_path
+        self._n_ctx         = n_ctx
+        self._n_gpu_layers  = n_gpu_layers
+        self._n_threads     = n_threads
+        self._verbose       = verbose
+        self._chat_format   = chat_format
+        self._auto_configure = auto_configure
 
         # Auto-load only if a path was given and no model is already resident
         if auto_load and model_path and not _STATE.is_loaded:
             try:
-                _STATE.load(model_path, n_ctx, n_gpu_layers, n_threads, verbose)
+                _STATE.load(
+                    model_path, n_ctx, n_gpu_layers, n_threads,
+                    verbose, chat_format, auto_configure,
+                )
             except Exception as exc:
                 logger.warning("EmbeddedLLM auto-load failed: %s", exc)
 
@@ -263,3 +359,4 @@ class EmbeddedLLM(BaseLLM):
         except Exception as exc:
             logger.debug("Failed to parse embedded tool-call response: %s", exc)
         return []
+
