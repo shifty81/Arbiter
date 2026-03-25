@@ -17416,9 +17416,9 @@ def ai_mem_import(req: _MemImportReq) -> dict:
             if not content:
                 skipped += 1
                 continue
-            mid = str(entry.get("id", "")) or str(_conv_uuid.uuid4())
+            memory_id = str(entry.get("id", "")) or str(_conv_uuid.uuid4())
             if req.skip_duplicates:
-                existing = conn.execute("SELECT id FROM memories WHERE id=?", (mid,)).fetchone()
+                existing = conn.execute("SELECT id FROM memories WHERE id=?", (memory_id,)).fetchone()
                 if existing:
                     skipped += 1
                     continue
@@ -17436,7 +17436,7 @@ def ai_mem_import(req: _MemImportReq) -> dict:
             conn.execute(
                 "INSERT OR IGNORE INTO memories(id,content,tags,source,importance,created_at,expires_at,access_count,last_accessed)"
                 " VALUES (?,?,?,?,?,?,?,0,?)",
-                (mid, content, tags_str, str(entry.get("source", "")), imp,
+                (memory_id, content, tags_str, str(entry.get("source", "")), imp,
                  str(entry.get("created_at", now)), expires, now),
             )
             imported += 1
@@ -17549,6 +17549,7 @@ def ai_conv_summarize(conversation_id: str, req: _ConvSummarizeReq) -> dict:
             "message_count_summarized": 0,
         }
 
+    # Truncate each message to 500 chars to keep the prompt within typical LLM context limits
     transcript = "\n".join(
         f"{m['role'].upper()}: {m['content'][:500]}" for m in messages
     )
