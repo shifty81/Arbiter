@@ -16952,6 +16952,630 @@ def ai_conv_message(conversation_id: str, req: _ConvMessageReq) -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 16: AI Prompt Templates & Management
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Phase 16: AI Prompt Templates & Management ───────────────────────────────
+
+import uuid as _tpl_uuid
+import json as _tpl_json
+
+_TPL_DB_PATH = _BASE / ".arbiter" / "templates.db"
+_TPL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _tpl_db():
+    conn = sqlite3.connect(str(_TPL_DB_PATH), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS prompt_templates (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+        variables TEXT NOT NULL DEFAULT '[]', description TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, use_count INTEGER NOT NULL DEFAULT 0
+    )""")
+    conn.commit()
+    return conn
+
+
+def _tpl_now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _tpl_row_to_dict(row) -> dict:
+    d = dict(row)
+    try:
+        d["tags"] = [t.strip() for t in d.get("tags", "").split(",") if t.strip()]
+    except Exception:
+        d["tags"] = []
+    try:
+        d["variables"] = _tpl_json.loads(d.get("variables", "[]"))
+    except Exception:
+        d["variables"] = []
+    return d
+
+
+class _TplCreateReq(BaseModel):
+    name: str = ""
+    content: str = ""
+    category: str = ""
+    tags: list[str] = []
+    variables: list[str] = []
+    description: str = ""
+
+
+@app.post("/ai/templates")
+def ai_tpl_create(req: _TplCreateReq) -> dict:
+    """Create a reusable prompt template.
+
+    Templates support {{variable}} placeholders; list variable names in
+    ``variables`` so callers know what to substitute.
+
+    Returns id, name, category, tags, variables, created_at.
+
+    PA16-1
+    """
+    if not req.content.strip():
+        raise HTTPException(status_code=422, detail="content must not be empty")
+    now  = _tpl_now()
+    tid  = str(_tpl_uuid.uuid4())
+    name = req.name.strip() or f"Template {now[:16]}"
+    tags_str = ",".join(t.strip().lower() for t in req.tags if t.strip())
+    vars_json = _tpl_json.dumps([v.strip() for v in req.variables if v.strip()])
+    try:
+        conn = _tpl_db()
+        conn.execute(
+            "INSERT INTO prompt_templates(id,name,content,category,tags,variables,description,created_at,updated_at,use_count)"
+            " VALUES (?,?,?,?,?,?,?,?,?,0)",
+            (tid, name, req.content.strip(), req.category.strip().lower(),
+             tags_str, vars_json, req.description.strip(), now, now),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+    return {
+        "id": tid, "name": name, "content": req.content.strip(),
+        "category": req.category.strip().lower(),
+        "tags": [t.strip().lower() for t in req.tags if t.strip()],
+        "variables": [v.strip() for v in req.variables if v.strip()],
+        "description": req.description.strip(),
+        "created_at": now, "updated_at": now, "use_count": 0,
+    }
+
+
+@app.get("/ai/templates")
+def ai_tpl_list(tags: str = "", category: str = "", page: int = 1, page_size: int = 20) -> dict:
+    """List prompt templates with optional tag/category filter and pagination.
+
+    PA16-2
+    """
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    tag_filter = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    cat_filter = category.strip().lower()
+    try:
+        conn = _tpl_db()
+        rows = conn.execute("SELECT * FROM prompt_templates ORDER BY updated_at DESC").fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+    items = [_tpl_row_to_dict(r) for r in rows]
+    if tag_filter:
+        items = [t for t in items if all(tag in t["tags"] for tag in tag_filter)]
+    if cat_filter:
+        items = [t for t in items if t["category"] == cat_filter]
+    total  = len(items)
+    offset = (page - 1) * page_size
+    return {
+        "total": total, "page": page, "page_size": page_size,
+        "pages": max(1, (total + page_size - 1) // page_size),
+        "items": items[offset: offset + page_size],
+    }
+
+
+@app.get("/ai/templates/{template_id}")
+def ai_tpl_get(template_id: str) -> dict:
+    """Retrieve a single prompt template by ID.
+
+    PA16-3
+    """
+    try:
+        conn = _tpl_db()
+        rows = conn.execute("SELECT * FROM prompt_templates WHERE id=?", (template_id,)).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    return _tpl_row_to_dict(rows[0])
+
+
+@app.delete("/ai/templates/{template_id}")
+def ai_tpl_delete(template_id: str) -> dict:
+    """Delete a prompt template by ID. Returns 404 if not found.
+
+    PA16-4
+    """
+    try:
+        conn = _tpl_db()
+        cur  = conn.execute("DELETE FROM prompt_templates WHERE id=?", (template_id,))
+        conn.commit()
+        deleted = cur.rowcount
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    return {"deleted": True, "id": template_id}
+
+
+class _TplRenderReq(BaseModel):
+    variables: dict = {}
+
+
+@app.post("/ai/templates/{template_id}/render")
+def ai_tpl_render(template_id: str, req: _TplRenderReq) -> dict:
+    """Render a template by substituting {{variable}} placeholders.
+
+    Parameters
+    ----------
+    variables
+        Mapping of variable name → value for substitution.
+
+    Returns the rendered prompt string and any unfilled variables.
+
+    PA16-5
+    """
+    try:
+        conn = _tpl_db()
+        rows = conn.execute("SELECT * FROM prompt_templates WHERE id=?", (template_id,)).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    tpl  = _tpl_row_to_dict(rows[0])
+    text = tpl["content"]
+    import re as _re_mod
+    for var, val in req.variables.items():
+        text = text.replace(f"{{{{{var}}}}}", str(val))
+    unfilled = _re_mod.findall(r"\{\{(\w+)\}\}", text)
+    return {
+        "template_id": template_id,
+        "rendered":    text,
+        "unfilled_variables": unfilled,
+        "variables_provided": list(req.variables.keys()),
+    }
+
+
+class _TplRunReq(BaseModel):
+    variables: dict = {}
+    system: str = ""
+
+
+@app.post("/ai/templates/{template_id}/run")
+def ai_tpl_run(template_id: str, req: _TplRunReq) -> dict:
+    """Render a template and send it to the local LLM.
+
+    Variables are substituted first; the rendered prompt is forwarded to the
+    configured AI backend. The template's use_count is incremented.
+
+    Returns the rendered prompt, the LLM answer, and any unfilled variables.
+
+    PA16-6
+    """
+    try:
+        conn = _tpl_db()
+        rows = conn.execute("SELECT * FROM prompt_templates WHERE id=?", (template_id,)).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    tpl  = _tpl_row_to_dict(rows[0])
+    text = tpl["content"]
+    import re as _re_mod
+    for var, val in req.variables.items():
+        text = text.replace(f"{{{{{var}}}}}", str(val))
+    unfilled = _re_mod.findall(r"\{\{(\w+)\}\}", text)
+
+    messages = []
+    if req.system.strip():
+        messages.append({"role": "system", "content": req.system.strip()})
+    messages.append({"role": "user", "content": text})
+
+    try:
+        answer = _llm.chat(messages)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    try:
+        conn = _tpl_db()
+        conn.execute("UPDATE prompt_templates SET use_count=use_count+1, updated_at=? WHERE id=?",
+                     (_tpl_now(), template_id))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+    return {
+        "template_id":        template_id,
+        "rendered_prompt":    text,
+        "answer":             answer,
+        "unfilled_variables": unfilled,
+    }
+
+
+# ── Phase 17: Conversation Export & Data Portability ─────────────────────────
+
+@app.get("/ai/conversations/{conversation_id}/export")
+def ai_conv_export(conversation_id: str, fmt: str = "markdown") -> dict:
+    """Export a conversation as Markdown or JSON.
+
+    Parameters
+    ----------
+    fmt
+        ``markdown`` (default) or ``json``.
+
+    Returns the exported text plus metadata.
+
+    PA17-1
+    """
+    try:
+        conn  = _conv_db()
+        crows = conn.execute("SELECT * FROM conversations WHERE id=?", (conversation_id,)).fetchall()
+        mrows = conn.execute(
+            "SELECT role, content, created_at FROM conv_messages"
+            " WHERE conversation_id=? ORDER BY created_at ASC",
+            (conversation_id,),
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+    if not crows:
+        raise HTTPException(status_code=404, detail=f"Conversation '{conversation_id}' not found")
+
+    conv     = _conv_row_to_dict(crows[0])
+    messages = [dict(r) for r in mrows]
+    fmt      = fmt.strip().lower()
+
+    if fmt == "json":
+        export_obj = {"conversation": conv, "messages": messages}
+        content    = _tpl_json.dumps(export_obj, indent=2, ensure_ascii=False)
+    else:
+        lines = [f"# {conv['name']}", ""]
+        if conv.get("system"):
+            lines += [f"> **System:** {conv['system']}", ""]
+        if conv.get("tags"):
+            lines += [f"**Tags:** {', '.join(conv['tags'])}", ""]
+        lines += [f"*Exported: {_conv_now()}*", "---", ""]
+        for msg in messages:
+            role = msg["role"].capitalize()
+            lines += [f"**{role}** ({msg.get('created_at','')[:19]})", "", msg["content"], ""]
+        content = "\n".join(lines)
+
+    return {
+        "conversation_id": conversation_id,
+        "format":          fmt,
+        "content":         content,
+        "message_count":   len(messages),
+        "exported_at":     _conv_now(),
+    }
+
+
+class _ConvImportReq(BaseModel):
+    data: dict = {}
+    name_override: str = ""
+
+
+@app.post("/ai/conversations/import")
+def ai_conv_import(req: _ConvImportReq) -> dict:
+    """Import a conversation from a JSON export produced by /export.
+
+    The imported conversation receives a new ID. Messages are re-inserted in
+    their original order.
+
+    Returns the new conversation id and message_count.
+
+    PA17-2
+    """
+    src_conv = req.data.get("conversation", {})
+    src_msgs = req.data.get("messages", [])
+    if not src_conv and not src_msgs:
+        raise HTTPException(status_code=422, detail="data.conversation or data.messages required")
+
+    now  = _conv_now()
+    cid  = str(_conv_uuid.uuid4())
+    name = req.name_override.strip() or src_conv.get("name", f"Imported {now[:16]}")
+
+    try:
+        conn = _conv_db()
+        conn.execute(
+            "INSERT INTO conversations(id,name,system,tags,model,created_at,updated_at,message_count)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (cid, name,
+             src_conv.get("system", ""),
+             src_conv.get("tags", "") if isinstance(src_conv.get("tags", ""), str)
+                 else ",".join(src_conv.get("tags", [])),
+             src_conv.get("model", ""),
+             now, now, 0),
+        )
+        for msg in src_msgs:
+            conn.execute(
+                "INSERT INTO conv_messages(id,conversation_id,role,content,created_at,tokens_used,web_augmented,memory_injected)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (str(_conv_uuid.uuid4()), cid,
+                 msg.get("role", "user"), msg.get("content", ""),
+                 msg.get("created_at", now), 0, 0, 0),
+            )
+        conn.execute("UPDATE conversations SET message_count=? WHERE id=?", (len(src_msgs), cid))
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    return {
+        "imported":      True,
+        "id":            cid,
+        "name":          name,
+        "message_count": len(src_msgs),
+        "created_at":    now,
+    }
+
+
+@app.get("/ai/memory/export")
+def ai_mem_export(fmt: str = "json", min_importance: int = 1, tags: str = "") -> dict:
+    """Export stored memories as JSON or CSV.
+
+    Parameters
+    ----------
+    fmt
+        ``json`` (default) or ``csv``.
+    min_importance
+        Only include memories with importance >= this value (1–5).
+    tags
+        Comma-separated tag filter; all must match.
+
+    PA17-3
+    """
+    min_imp    = max(1, min(min_importance, 5))
+    tag_filter = [t.strip().lower() for t in tags.split(",") if t.strip()]
+
+    try:
+        conn = _mem_db()
+        rows = conn.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, created_at DESC"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    items = [_mem_row_to_dict(r) for r in rows]
+    items = [m for m in items if m["importance"] >= min_imp]
+    if tag_filter:
+        items = [m for m in items if all(t in m["tags"] for t in tag_filter)]
+
+    fmt = fmt.strip().lower()
+    if fmt == "csv":
+        import io as _io_mod
+        import csv as _csv_mod
+        buf = _io_mod.StringIO()
+        writer = _csv_mod.DictWriter(buf, fieldnames=[
+            "id", "content", "tags", "source", "importance", "created_at", "expires_at", "access_count"
+        ])
+        writer.writeheader()
+        for m in items:
+            writer.writerow({
+                "id": m["id"], "content": m["content"],
+                "tags": "|".join(m["tags"]), "source": m.get("source", ""),
+                "importance": m["importance"], "created_at": m["created_at"],
+                "expires_at": m.get("expires_at", ""), "access_count": m.get("access_count", 0),
+            })
+        content = buf.getvalue()
+    else:
+        content = _tpl_json.dumps({"memories": items}, indent=2, ensure_ascii=False)
+
+    return {
+        "format":      fmt,
+        "count":       len(items),
+        "content":     content,
+        "exported_at": _tpl_now(),
+    }
+
+
+class _MemImportReq(BaseModel):
+    memories: list[dict] = []
+    skip_duplicates: bool = True
+
+
+@app.post("/ai/memory/import")
+def ai_mem_import(req: _MemImportReq) -> dict:
+    """Import memories from a JSON list (as produced by /ai/memory/export).
+
+    Each entry may include content, tags, source, importance, ttl_days.
+    Existing IDs are skipped when skip_duplicates is True (default).
+
+    Returns imported_count and skipped_count.
+
+    PA17-4
+    """
+    if not req.memories:
+        raise HTTPException(status_code=422, detail="memories list must not be empty")
+
+    now      = _tpl_now()
+    imported = 0
+    skipped  = 0
+
+    try:
+        conn = _mem_db()
+        for entry in req.memories:
+            content = str(entry.get("content", "")).strip()
+            if not content:
+                skipped += 1
+                continue
+            mid = str(entry.get("id", "")) or str(_conv_uuid.uuid4())
+            if req.skip_duplicates:
+                existing = conn.execute("SELECT id FROM memories WHERE id=?", (mid,)).fetchone()
+                if existing:
+                    skipped += 1
+                    continue
+            tags_raw = entry.get("tags", [])
+            if isinstance(tags_raw, list):
+                tags_str = ",".join(str(t).strip().lower() for t in tags_raw if str(t).strip())
+            else:
+                tags_str = str(tags_raw)
+            imp = max(1, min(int(entry.get("importance", 3)), 5))
+            ttl = entry.get("ttl_days")
+            expires = None
+            if ttl:
+                from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                expires = (_dt.now(_tz.utc) + _td(days=int(ttl))).isoformat(timespec="seconds")
+            conn.execute(
+                "INSERT OR IGNORE INTO memories(id,content,tags,source,importance,created_at,expires_at,access_count,last_accessed)"
+                " VALUES (?,?,?,?,?,?,?,0,?)",
+                (mid, content, tags_str, str(entry.get("source", "")), imp,
+                 str(entry.get("created_at", now)), expires, now),
+            )
+            imported += 1
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    return {
+        "imported":       imported,
+        "skipped":        skipped,
+        "total_provided": len(req.memories),
+    }
+
+
+@app.get("/workspace/export")
+def workspace_export() -> dict:
+    """Export full workspace state: conversations, memories, and notes.
+
+    Returns a single JSON-serialisable bundle containing all stored data
+    (no LLM calls). Intended for backup or migration.
+
+    PA17-5
+    """
+    # Conversations
+    try:
+        conn  = _conv_db()
+        crows = conn.execute("SELECT * FROM conversations").fetchall()
+        mrows = conn.execute("SELECT * FROM conv_messages ORDER BY created_at ASC").fetchall()
+        conn.close()
+        convs = [_conv_row_to_dict(r) for r in crows]
+        for c in convs:
+            c["messages"] = [dict(m) for m in mrows if m["conversation_id"] == c["id"]]
+    except Exception:
+        convs = []
+
+    # Memories
+    try:
+        conn = _mem_db()
+        mems = [_mem_row_to_dict(r) for r in conn.execute("SELECT * FROM memories").fetchall()]
+        conn.close()
+    except Exception:
+        mems = []
+
+    # Notes
+    notes = []
+    try:
+        notes_path = _BASE / ".arbiter" / "workspace_notes.json"
+        if notes_path.exists():
+            notes = _tpl_json.loads(notes_path.read_text(encoding="utf-8"))
+    except Exception:
+        notes = []
+
+    return {
+        "exported_at":     _tpl_now(),
+        "arbiter_version": "1.19.0",
+        "conversations":   convs,
+        "memories":        mems,
+        "notes":           notes,
+    }
+
+
+class _ConvSummarizeReq(BaseModel):
+    max_messages: int = 50
+    focus: str = ""
+
+
+@app.post("/ai/conversations/{conversation_id}/summarize")
+def ai_conv_summarize(conversation_id: str, req: _ConvSummarizeReq) -> dict:
+    """Generate an AI summary of a conversation.
+
+    Loads the conversation history and asks the local LLM to produce a
+    concise summary, optionally focused on a specific aspect.
+
+    Parameters
+    ----------
+    max_messages
+        Maximum number of recent messages to include (1–200, default 50).
+    focus
+        Optional focus hint, e.g. "key decisions", "action items", "code changes".
+
+    Returns summary text and message_count_summarized.
+
+    PA17-6
+    """
+    max_msgs = max(1, min(req.max_messages, 200))
+
+    try:
+        conn  = _conv_db()
+        crows = conn.execute("SELECT * FROM conversations WHERE id=?", (conversation_id,)).fetchall()
+        mrows = conn.execute(
+            "SELECT role, content FROM conv_messages"
+            " WHERE conversation_id=? ORDER BY created_at ASC LIMIT ?",
+            (conversation_id, max_msgs),
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    if not crows:
+        raise HTTPException(status_code=404, detail=f"Conversation '{conversation_id}' not found")
+
+    conv     = _conv_row_to_dict(crows[0])
+    messages = [dict(r) for r in mrows]
+
+    if not messages:
+        return {
+            "conversation_id":          conversation_id,
+            "summary":                  "No messages to summarize.",
+            "message_count_summarized": 0,
+        }
+
+    transcript = "\n".join(
+        f"{m['role'].upper()}: {m['content'][:500]}" for m in messages
+    )
+    focus_hint = f" Focus on: {req.focus.strip()}." if req.focus.strip() else ""
+    prompt = (
+        f"Summarize the following conversation titled '{conv['name']}'.{focus_hint}\n\n"
+        f"CONVERSATION:\n{transcript}\n\nProvide a concise, informative summary."
+    )
+
+    try:
+        summary = _llm.chat([
+            {"role": "system", "content": "You are a helpful assistant that summarizes conversations accurately."},
+            {"role": "user",   "content": prompt},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    return {
+        "conversation_id":          conversation_id,
+        "summary":                  summary,
+        "message_count_summarized": len(messages),
+        "focus":                    req.focus.strip(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))
