@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1636,6 +1636,50 @@
           "title": "GET /ai/models/recommend — recommend best backend and model tier for a task type using hardware profile",
           "status": "done",
           "notes": "GET /ai/models/recommend: task types: code/chat/analysis/summarise/embedding/translation/vision/long_context. Uses llm/hardware.py detect_hardware() to assess VRAM/RAM, maps to model size tiers, ranks embedded/ollama/openai backends by quality. Returns top_recommendation, recommendations[] with setup instructions, hardware_summary."
+        }
+      ]
+    },
+    {
+      "id": "Phase13",
+      "title": "Web-Augmented Local AI — Local LLM with Live Web Search",
+      "description": "The local AI (embedded/Ollama) remains the sole inference backend. Web search results are fetched from DuckDuckGo Lite (no API key) or a self-hosted SearXNG instance and injected as RAG context into the LLM prompt, giving it access to live web information without any cloud API calls.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA13-1",
+          "title": "POST /ai/web-ask — web-augmented Q&A: search web → inject top results as RAG context → answer via local LLM; includes sources[] in response",
+          "status": "done",
+          "notes": "POST /ai/web-ask: calls _do_web_search(), builds RAG context block via llm/web_search.build_rag_context(), then asks local LLM with 'web-grounded assistant' system prompt. Returns answer, sources_used, sources[]. max_results clamped 1-10."
+        },
+        {
+          "id": "PA13-2",
+          "title": "POST /ai/web-search — raw web search: returns structured {title, url, snippet} results without LLM synthesis",
+          "status": "done",
+          "notes": "POST /ai/web-search: pure search endpoint — no LLM call. Returns query, provider, result_count, results[]. max_results clamped 1-20. Useful for debugging, custom prompting, or direct display."
+        },
+        {
+          "id": "PA13-3",
+          "title": "GET /ai/web-search/config — return current web search runtime configuration",
+          "status": "done",
+          "notes": "GET /ai/web-search/config: returns _ws_config dict (enabled, provider, max_results, timeout_s, searxng_url). Config initially loaded from [web_search] in config.toml, updatable at runtime."
+        },
+        {
+          "id": "PA13-4",
+          "title": "POST /ai/web-search/config — update web search config at runtime: enabled, provider, max_results, timeout_s, searxng_url",
+          "status": "done",
+          "notes": "POST /ai/web-search/config: updates _ws_config under _ws_lock. Validates provider against {duckduckgo, searxng}. Clamps max_results 1-20, timeout_s 1-60. Changes take effect immediately; not persisted to disk."
+        },
+        {
+          "id": "PA13-5",
+          "title": "POST /ai/chat/web — web-grounded chat with full conversation history; injects search context from last user message",
+          "status": "done",
+          "notes": "POST /ai/chat/web: accepts messages[] history + optional search_latest_message flag. Derives search query from last user message, fetches results, prepends as system context, forwards full history to local LLM. Returns answer, search_query, sources_used, sources[]."
+        },
+        {
+          "id": "PA13-6",
+          "title": "GET /ai/web-search/providers — list available search providers with configuration status and note about local-only inference",
+          "status": "done",
+          "notes": "GET /ai/web-search/providers: returns providers[] with name, description, requires, configured, selected flags. DuckDuckGo always configured=true; SearXNG configured=true only when searxng_url is set. Includes a note clarifying local-only inference architecture."
         }
       ]
     }

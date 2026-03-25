@@ -90,3 +90,13 @@ max_size_mb = 512
 #   database_engineer, mobile_developer, devops_engineer, security_auditor,
 #   test_engineer, code_reviewer, performance_engineer, documentation_writer, ai_ml_engineer
 active = ""
+
+[web_search]
+# Web search augmentation for the local AI — no API key required.
+# When enabled, /ai/web-ask and /ai/chat/web fetch live search results and
+# inject them as context into the local LLM's prompt.
+enabled     = true
+provider    = "duckduckgo"   # "duckduckgo" (no API key) | "searxng" (self-hosted)
+max_results = 5              # number of search results to retrieve per query
+timeout_s   = 8              # HTTP timeout for each search request (seconds)
+searxng_url = ""             # required only when provider = "searxng", e.g. "http://localhost:8080"

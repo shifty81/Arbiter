@@ -7,7 +7,7 @@
 
 ## Current Status
 
-**Version:** 1.14.0 | **All M0–M14 milestones + Phases 1–12 complete** ✅
+**Version:** 1.15.0 | **All M0–M14 milestones + Phases 1–13 complete** ✅
 
 ---
 
@@ -49,6 +49,7 @@
 | **Phase 10** | Embedded AI & Zero-External-Dependency Local Inference | /ai/embedded/load (auto_configure), /ai/embedded/status, /ai/embedded/models (hardware fit), /ai/embedded/unload, /ai/hardware, llm/hardware.py (RAM/VRAM/CPU detection + adaptive config) | ✅ Done |
 | **Phase 11** | AI Code Intelligence & Semantic Workspace Search | /ai/semantic-search, /ai/fix, /projects/{id}/security-audit, /ai/context/build, /ai/rename-symbol, /workspace/ai-stats | ✅ Done |
 | **Phase 12** | AI Agent Workflows & Multi-Step Task Pipelines | /ai/workflow/run, /ai/workflow/{id}, /ai/workflow/list, /projects/{id}/generate, /ai/code-review, /ai/models/recommend | ✅ Done |
+| **Phase 13** | Web-Augmented Local AI — Local LLM + Live Web Search | /ai/web-ask, /ai/web-search, /ai/web-search/config, /ai/web-search/providers, /ai/chat/web | ✅ Done |
 
 ---
 
@@ -78,4 +79,4 @@ Monaco IDE. See [Self-Build Loop](docs/wiki/SELF_BUILD.md) for details.
 
 ---
 
-*Last updated: 2026-03-25 — v1.14.0*
+*Last updated: 2026-03-25 — v1.15.0*

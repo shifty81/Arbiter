@@ -15534,6 +15534,406 @@ def ai_models_recommend(task: str = "code") -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 13 — Web-Augmented Local AI
+#  Uses the local LLM (embedded/Ollama/etc.) as the sole AI backend.
+#  Web search results are fetched from DuckDuckGo Lite (no API key) or a
+#  self-hosted SearXNG instance and injected as RAG context before the prompt.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Runtime web-search config (mirrors [web_search] in config.toml) ───────────
+
+_ws_lock = threading.Lock()
+_ws_config: dict[str, Any] = {
+    "enabled":     _config.get("web_search.enabled",     True),
+    "provider":    _config.get("web_search.provider",    "duckduckgo"),
+    "max_results": int(_config.get("web_search.max_results", 5)),
+    "timeout_s":   float(_config.get("web_search.timeout_s", 8.0)),
+    "searxng_url": _config.get("web_search.searxng_url", ""),
+}
+
+
+def _ws_get() -> dict[str, Any]:
+    with _ws_lock:
+        return dict(_ws_config)
+
+
+def _do_web_search(query: str, max_results: int | None = None) -> list[dict]:
+    """Run a web search using the current runtime config.
+
+    Returns a list of ``{title, url, snippet}`` dicts.  Never raises — returns
+    an empty list with a logged warning on any error.
+    """
+    try:
+        from llm.web_search import search as _ws_search
+    except ImportError as exc:
+        logger.warning("llm.web_search import failed: %s", exc)
+        return []
+
+    cfg = _ws_get()
+    if not cfg.get("enabled", True):
+        return []
+
+    n = max_results if max_results is not None else cfg["max_results"]
+    try:
+        results = _ws_search(
+            query=query,
+            max_results=n,
+            provider=cfg.get("provider", "duckduckgo"),
+            timeout_s=cfg.get("timeout_s", 8.0),
+            searxng_url=cfg.get("searxng_url", ""),
+        )
+        return [r.to_dict() for r in results]
+    except Exception as exc:
+        logger.warning("Web search error for %r: %s", query, exc)
+        return []
+
+
+# ── PA13-1: Web-augmented Q&A via local LLM ──────────────────────────────────
+
+class _WebAskReq(BaseModel):
+    query:        str                  # natural-language question
+    max_results:  int   = 5            # number of search results to use as context
+    system:       str   = ""           # optional system-message override
+    include_sources: bool = True       # include sources[] in response
+
+
+@app.post("/ai/web-ask")
+def ai_web_ask(req: _WebAskReq) -> dict:
+    """Answer a question using web search results as context for the local LLM.
+
+    Workflow
+    --------
+    1. Search the web for ``query`` using the configured provider (DuckDuckGo
+       Lite by default — **no API key required**).
+    2. Format the top results into a RAG context block.
+    3. Ask the local LLM to synthesise an answer grounded in those results.
+
+    The local AI is the sole inference backend — no cloud API is used.
+
+    Parameters
+    ----------
+    query
+        The question or information request.
+    max_results
+        Number of search results to retrieve and inject (1–10, default 5).
+    system
+        Optional system message to override the default ``web-grounded
+        assistant`` persona.
+    include_sources
+        Include the raw search results in the response (default ``true``).
+
+    PA13-1
+    """
+    import re as _re13
+
+    if not req.query.strip():
+        raise HTTPException(status_code=422, detail="query must not be empty")
+
+    n = max(1, min(req.max_results, 10))
+
+    # ── Step 1: Web search ────────────────────────────────────────────────────
+    raw_results = _do_web_search(req.query, max_results=n)
+
+    # ── Step 2: Build RAG context ─────────────────────────────────────────────
+    try:
+        from llm.web_search import SearchResult as _SR, build_rag_context as _brc
+        sr_objects = [_SR(**r) for r in raw_results]
+        ctx = _brc(sr_objects, req.query)
+    except Exception:
+        ctx = "\n".join(
+            f"[{i}] {r['title']}\n    URL: {r['url']}\n    {r['snippet']}"
+            for i, r in enumerate(raw_results, 1)
+        ) or "(no search results available)"
+
+    # ── Step 3: Ask local LLM ─────────────────────────────────────────────────
+    system = req.system.strip() or (
+        "You are a helpful, accurate assistant. You have been given web search "
+        "results as context. Use them to answer the user's question. "
+        "Cite sources by their index number [1], [2], etc. "
+        "If the search results do not contain enough information, say so clearly. "
+        "Do not invent facts not present in the search results."
+    )
+
+    user_msg = f"{ctx}\n\nQuestion: {req.query}"
+
+    try:
+        answer = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    return {
+        "query":          req.query,
+        "answer":         answer,
+        "sources_used":   len(raw_results),
+        "sources":        raw_results if req.include_sources else [],
+        "web_search_cfg": {
+            "provider":   _ws_get().get("provider"),
+            "enabled":    _ws_get().get("enabled"),
+        },
+    }
+
+
+# ── PA13-2: Raw web search (no LLM synthesis) ────────────────────────────────
+
+@app.post("/ai/web-search")
+def ai_web_search_raw(query: str, max_results: int = 5) -> dict:
+    """Perform a web search and return raw structured results.
+
+    Unlike ``POST /ai/web-ask``, this endpoint does **not** invoke the LLM —
+    it simply returns the search results so callers can use them in their own
+    prompts or display them directly.
+
+    Parameters
+    ----------
+    query
+        The search query.
+    max_results
+        Number of results to return (1–20, default 5).
+
+    PA13-2
+    """
+    if not query.strip():
+        raise HTTPException(status_code=422, detail="query must not be empty")
+
+    n = max(1, min(max_results, 20))
+    results = _do_web_search(query, max_results=n)
+    cfg     = _ws_get()
+
+    return {
+        "query":      query,
+        "provider":   cfg.get("provider", "duckduckgo"),
+        "result_count": len(results),
+        "results":    results,
+    }
+
+
+# ── PA13-3 + PA13-4: Web search config view/update ───────────────────────────
+
+_WS_VALID_PROVIDERS = {"duckduckgo", "searxng"}
+
+
+@app.get("/ai/web-search/config")
+def ai_web_search_config_get() -> dict:
+    """Return the current web search configuration.
+
+    Configuration is initially loaded from ``[web_search]`` in
+    ``configs/config.toml`` and can be updated at runtime via
+    ``POST /ai/web-search/config``.
+
+    PA13-3
+    """
+    return _ws_get()
+
+
+class _WsConfigUpdate(BaseModel):
+    enabled:     bool | None   = None
+    provider:    str | None    = None   # "duckduckgo" | "searxng"
+    max_results: int | None    = None   # 1–20
+    timeout_s:   float | None  = None   # 1.0–60.0
+    searxng_url: str | None    = None   # required when provider="searxng"
+
+
+@app.post("/ai/web-search/config")
+def ai_web_search_config_set(req: _WsConfigUpdate) -> dict:
+    """Update the web search configuration at runtime.
+
+    Changes take effect immediately for subsequent requests.  Settings are
+    **not** persisted to disk — restart the server to reload ``config.toml``.
+
+    Parameters
+    ----------
+    enabled
+        Toggle web search globally.
+    provider
+        ``"duckduckgo"`` (no API key) or ``"searxng"`` (requires
+        ``searxng_url``).
+    max_results
+        Default number of results per search (1–20).
+    timeout_s
+        HTTP timeout per search request in seconds (1–60).
+    searxng_url
+        Base URL of your SearXNG instance
+        (e.g. ``"http://localhost:8080"``).
+
+    PA13-4
+    """
+    errors: list[str] = []
+
+    with _ws_lock:
+        if req.enabled is not None:
+            _ws_config["enabled"] = bool(req.enabled)
+
+        if req.provider is not None:
+            if req.provider not in _WS_VALID_PROVIDERS:
+                errors.append(
+                    f"Invalid provider '{req.provider}'. "
+                    f"Valid options: {sorted(_WS_VALID_PROVIDERS)}"
+                )
+            else:
+                _ws_config["provider"] = req.provider
+
+        if req.max_results is not None:
+            clamped = max(1, min(int(req.max_results), 20))
+            _ws_config["max_results"] = clamped
+
+        if req.timeout_s is not None:
+            clamped_t = max(1.0, min(float(req.timeout_s), 60.0))
+            _ws_config["timeout_s"] = clamped_t
+
+        if req.searxng_url is not None:
+            _ws_config["searxng_url"] = req.searxng_url.rstrip("/")
+
+        snapshot = dict(_ws_config)
+
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+
+    return {"updated": True, "config": snapshot}
+
+
+# ── PA13-5: Web-grounded chat with history ───────────────────────────────────
+
+class _WebChatMessage(BaseModel):
+    role:    str   # "user" | "assistant" | "system"
+    content: str
+
+
+class _WebChatReq(BaseModel):
+    messages: list[_WebChatMessage]   # full conversation history
+    max_results: int = 5              # search results to inject
+    system:      str = ""             # optional system override
+    search_latest_message: bool = True  # search based on last user message
+
+
+@app.post("/ai/chat/web")
+def ai_chat_web(req: _WebChatReq) -> dict:
+    """Web-grounded chat with full conversation history.
+
+    Extracts the most recent user message, searches the web for it, and
+    injects the results as a system-level context block before forwarding
+    the full conversation to the local LLM.
+
+    Parameters
+    ----------
+    messages
+        Conversation history as ``[{role, content}]``.  The last ``user``
+        message is used as the search query.
+    max_results
+        Number of search results to inject (1–10).
+    system
+        Optional system message to prepend (before the search context).
+    search_latest_message
+        If ``true`` (default), derive the search query from the last user
+        message.  Set to ``false`` to skip the web search and behave like a
+        plain local-LLM chat.
+
+    PA13-5
+    """
+    if not req.messages:
+        raise HTTPException(status_code=422, detail="messages must not be empty")
+
+    # Extract last user message for search query
+    search_query = ""
+    if req.search_latest_message:
+        for m in reversed(req.messages):
+            if m.role == "user":
+                search_query = m.content.strip()
+                break
+
+    # Web search
+    raw_results: list[dict] = []
+    ctx_block = ""
+    if search_query:
+        n = max(1, min(req.max_results, 10))
+        raw_results = _do_web_search(search_query, max_results=n)
+        try:
+            from llm.web_search import SearchResult as _SR2, build_rag_context as _brc2
+            sr_objs = [_SR2(**r) for r in raw_results]
+            ctx_block = _brc2(sr_objs, search_query)
+        except Exception:
+            ctx_block = "\n".join(
+                f"[{i}] {r['title']}: {r['snippet']}"
+                for i, r in enumerate(raw_results, 1)
+            )
+
+    # Build messages for LLM
+    base_system = req.system.strip() or (
+        "You are a knowledgeable assistant with access to recent web information. "
+        "Use the provided search results to give accurate, up-to-date answers. "
+        "Cite sources as [1], [2] etc."
+    )
+    system_content = base_system
+    if ctx_block:
+        system_content = f"{base_system}\n\n{ctx_block}"
+
+    llm_messages: list[dict] = [{"role": "system", "content": system_content}]
+    for m in req.messages:
+        if m.role in ("user", "assistant"):
+            llm_messages.append({"role": m.role, "content": m.content})
+
+    try:
+        answer = _llm.chat(llm_messages)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    return {
+        "answer":       answer,
+        "search_query": search_query,
+        "sources_used": len(raw_results),
+        "sources":      raw_results,
+    }
+
+
+# ── PA13-6: List available search providers and their status ─────────────────
+
+@app.get("/ai/web-search/providers")
+def ai_web_search_providers() -> dict:
+    """List available web search providers and their configuration status.
+
+    Returns each provider's name, whether it is selected, and whether the
+    required configuration (e.g. ``searxng_url``) is present.
+
+    PA13-6
+    """
+    cfg = _ws_get()
+    current = cfg.get("provider", "duckduckgo")
+
+    providers = [
+        {
+            "name":        "duckduckgo",
+            "description": "DuckDuckGo Lite — no API key, no account required. Uses HTTP scraping.",
+            "requires":    "none",
+            "configured":  True,
+            "selected":    current == "duckduckgo",
+        },
+        {
+            "name":        "searxng",
+            "description": "SearXNG — self-hosted privacy-respecting meta-search. Requires a running SearXNG instance.",
+            "requires":    "searxng_url in config",
+            "configured":  bool(cfg.get("searxng_url", "").strip()),
+            "selected":    current == "searxng",
+            "instance":    cfg.get("searxng_url", ""),
+        },
+    ]
+
+    return {
+        "enabled":          cfg.get("enabled", True),
+        "active_provider":  current,
+        "providers":        providers,
+        "note": (
+            "The local AI (embedded/Ollama) is the sole inference backend. "
+            "Web search provides live context injected into the LLM prompt — "
+            "no cloud AI API is ever called."
+        ),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))

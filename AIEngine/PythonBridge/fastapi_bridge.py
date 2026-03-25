@@ -2576,6 +2576,12 @@ for _stub_path, _stub_tag in [
     ("/ai/workflow/list", "phase12"),
     ("/ai/code-review", "phase12"),
     ("/ai/models/recommend", "phase12"),
+    # Phase 13 — Web-Augmented Local AI
+    ("/ai/web-ask", "phase13"),
+    ("/ai/web-search", "phase13"),
+    ("/ai/web-search/config", "phase13"),
+    ("/ai/web-search/providers", "phase13"),
+    ("/ai/chat/web", "phase13"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),

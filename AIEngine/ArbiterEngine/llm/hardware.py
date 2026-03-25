@@ -110,12 +110,13 @@ def _ram_bytes() -> tuple[int, int]:
             page_size_out = subprocess.check_output(
                 ["pagesize"], timeout=5
             ).decode().strip()
-            if not page_size_out.isdigit():
+            is_numeric = page_size_out.isdigit()
+            if not is_numeric:
                 logger.warning(
                     "macOS pagesize command returned unexpected output %r — "
                     "falling back to 4096 bytes", page_size_out
                 )
-            page_size = int(page_size_out) if page_size_out.isdigit() else 4096
+            page_size = int(page_size_out) if is_numeric else 4096
             return total, pages_free * page_size
         except Exception as exc:
             logger.debug("macOS sysctl RAM detection failed: %s", exc)
