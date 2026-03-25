@@ -7,7 +7,7 @@
 
 ## Current Status
 
-**Version:** 1.17.0 | **All M0–M14 milestones + Phases 1–15 complete** ✅
+**Version:** 1.19.0 | **All M0–M14 milestones + Phases 1–17 complete** ✅
 
 ---
 
@@ -52,6 +52,8 @@
 | **Phase 13** | Web-Augmented Local AI — Local LLM + Live Web Search | /ai/web-ask, /ai/web-search, /ai/web-search/config, /ai/web-search/providers, /ai/chat/web | ✅ Done |
 | **Phase 14** | AI Memory & Persistent Context — Long-Term Memory Store | /ai/memory, /ai/memory/search, /ai/memory/list, /ai/memory/{id} (DELETE), /ai/memory/inject, /ai/memory/stats | ✅ Done |
 | **Phase 15** | AI Conversations & Session Management — Persistent Named Chat Sessions | /ai/conversations (POST+GET), /ai/conversations/{id} (GET+DELETE), /ai/conversations/{id}/message, /ai/conversations/stats | ✅ Done |
+| **Phase 16** | AI Prompt Templates & Management | /ai/templates (POST+GET), /ai/templates/{id} (GET+DELETE), /ai/templates/{id}/render, /ai/templates/{id}/run | ✅ Done |
+| **Phase 17** | Conversation Export & Data Portability | /ai/conversations/{id}/export, /ai/conversations/import, /ai/memory/export, /ai/memory/import, /workspace/export, /ai/conversations/{id}/summarize | ✅ Done |
 
 ---
 
@@ -81,4 +83,4 @@ Monaco IDE. See [Self-Build Loop](docs/wiki/SELF_BUILD.md) for details.
 
 ---
 
-*Last updated: 2026-03-25 — v1.17.0*
+*Last updated: 2026-03-25 — v1.19.0*

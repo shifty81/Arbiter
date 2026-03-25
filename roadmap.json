@@ -1,13 +1,13 @@
 {
   "project": "ArbiterAI",
-  "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.17.0",
+  "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects \u2014 it does not integrate project code into its own engine.",
+  "version": "1.19.0",
   "last_updated": "2026-03-25",
   "pillars": [
-    "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
-    "Pillar 2 — Visual Studio Integration: native VSIX extension for Visual Studio 2022",
-    "Pillar 3 — Self-Iteration: autonomous roadmap-driven self-build loop",
-    "Phase 1–7 — Full Vision: platform consolidation → tooling layer → server management → game systems (PCG/mech) → development agent → integration & testing → deployment & scaling"
+    "Pillar 1 \u2014 Chat Engine: context-aware, multi-turn conversational development assistant",
+    "Pillar 2 \u2014 Visual Studio Integration: native VSIX extension for Visual Studio 2022",
+    "Pillar 3 \u2014 Self-Iteration: autonomous roadmap-driven self-build loop",
+    "Phase 1\u20137 \u2014 Full Vision: platform consolidation \u2192 tooling layer \u2192 server management \u2192 game systems (PCG/mech) \u2192 development agent \u2192 integration & testing \u2192 deployment & scaling"
   ],
   "milestones": [
     {
@@ -63,7 +63,7 @@
         },
         {
           "id": "M0-10",
-          "title": "Git integration (LibGit2Sharp — commit, push, pull, branch, log)",
+          "title": "Git integration (LibGit2Sharp \u2014 commit, push, pull, branch, log)",
           "status": "done"
         },
         {
@@ -85,7 +85,7 @@
     },
     {
       "id": "M1",
-      "title": "IDE Integration — Monaco Editor + WebView2",
+      "title": "IDE Integration \u2014 Monaco Editor + WebView2",
       "description": "Monaco IDE embedded in the WPF client via WebView2. AI features connected directly to the editor.",
       "status": "done",
       "tasks": [
@@ -96,12 +96,12 @@
         },
         {
           "id": "M1-2",
-          "title": "LauncherWindow — startup picker (ArbiterAI vs Arbiter Engine)",
+          "title": "LauncherWindow \u2014 startup picker (ArbiterAI vs Arbiter Engine)",
           "status": "done"
         },
         {
           "id": "M1-3",
-          "title": "AppConfig static class — mode + API URL shared across all windows",
+          "title": "AppConfig static class \u2014 mode + API URL shared across all windows",
           "status": "done"
         },
         {
@@ -111,7 +111,7 @@
         },
         {
           "id": "M1-5",
-          "title": "Monaco GUI served from /gui/ — Explorer, Editor, Git, AI Chat, Terminal, 40+ panels",
+          "title": "Monaco GUI served from /gui/ \u2014 Explorer, Editor, Git, AI Chat, Terminal, 40+ panels",
           "status": "done"
         },
         {
@@ -151,12 +151,12 @@
         },
         {
           "id": "M1-13",
-          "title": "IdeWindow.xaml — WPF window hosting Monaco IDE via WebView2",
+          "title": "IdeWindow.xaml \u2014 WPF window hosting Monaco IDE via WebView2",
           "status": "done"
         },
         {
           "id": "M1-14",
-          "title": "IdeWindow.xaml.cs — native tool-call bridge (WPF ↔ Monaco JS postMessage)",
+          "title": "IdeWindow.xaml.cs \u2014 native tool-call bridge (WPF \u2194 Monaco JS postMessage)",
           "status": "done"
         },
         {
@@ -178,7 +178,7 @@
     },
     {
       "id": "M2",
-      "title": "Arbiter Engine — Full Agentic Backend",
+      "title": "Arbiter Engine \u2014 Full Agentic Backend",
       "description": "Complete Python agent engine with 12 LLM backends, module/plugin system, and self-build infrastructure.",
       "status": "done",
       "tasks": [
@@ -189,12 +189,12 @@
         },
         {
           "id": "M2-2",
-          "title": "AgenticChatEngine: plan → file-edit → diff → summarise loop",
+          "title": "AgenticChatEngine: plan \u2192 file-edit \u2192 diff \u2192 summarise loop",
           "status": "done"
         },
         {
           "id": "M2-3",
-          "title": "SelfBuildLoop infrastructure: roadmap-driven patch → test → commit cycle",
+          "title": "SelfBuildLoop infrastructure: roadmap-driven patch \u2192 test \u2192 commit cycle",
           "status": "done"
         },
         {
@@ -219,12 +219,12 @@
         },
         {
           "id": "M2-8",
-          "title": "setup_modules.py — sparse-clone 42-module toolset",
+          "title": "setup_modules.py \u2014 sparse-clone 42-module toolset",
           "status": "done"
         },
         {
           "id": "M2-9",
-          "title": "configs/config.toml — full runtime configuration",
+          "title": "configs/config.toml \u2014 full runtime configuration",
           "status": "done"
         },
         {
@@ -259,18 +259,18 @@
     },
     {
       "id": "M3",
-      "title": "Archive & Library — Living Knowledge Codex",
+      "title": "Archive & Library \u2014 Living Knowledge Codex",
       "description": "Configurable library folders that Arbiter monitors, indexes, and builds into a searchable Archive used as persistent AI context.",
       "status": "done",
       "tasks": [
         {
           "id": "M3-1",
-          "title": "library_manager.py — library path CRUD stored in Memory/library_config.json",
+          "title": "library_manager.py \u2014 library path CRUD stored in Memory/library_config.json",
           "status": "done"
         },
         {
           "id": "M3-2",
-          "title": "archive_manager.py — ArchiveEntry dataclass, Archive class, JSON persistence",
+          "title": "archive_manager.py \u2014 ArchiveEntry dataclass, Archive class, JSON persistence",
           "status": "done"
         },
         {
@@ -305,7 +305,7 @@
         },
         {
           "id": "M3-9",
-          "title": "Markdown export: GET /archive/export → full Archive as a .md codex document",
+          "title": "Markdown export: GET /archive/export \u2192 full Archive as a .md codex document",
           "status": "done"
         },
         {
@@ -334,19 +334,19 @@
     },
     {
       "id": "M4",
-      "title": "WPF IDE — Full Native Client",
+      "title": "WPF IDE \u2014 Full Native Client",
       "description": "The WPF Windows client becomes a full IDE: Monaco editor embedded via WebView2, native tool dispatch, drag-and-drop workspace, WPF-native panels.",
       "status": "done",
       "tasks": [
         {
           "id": "M4-1",
-          "title": "IdeWindow.xaml — full-screen WebView2 hosting Monaco IDE",
+          "title": "IdeWindow.xaml \u2014 full-screen WebView2 hosting Monaco IDE",
           "status": "done",
           "notes": "IdeWindow.xaml hosts Monaco IDE full-screen via WebView2."
         },
         {
           "id": "M4-2",
-          "title": "IdeWindow: WebMessageReceived handler — dispatch native tool calls from JS",
+          "title": "IdeWindow: WebMessageReceived handler \u2014 dispatch native tool calls from JS",
           "status": "done",
           "notes": "WebMessageReceived handler dispatches native tool calls from JS."
         },
@@ -405,7 +405,7 @@
       "title": "Advanced Chat & AI Capabilities",
       "description": "RAG knowledge retrieval, context-aware completions, voice-in-IDE, AI code review, session memory, and multi-agent orchestration.",
       "status": "done",
-      "pillar": "Pillar 1 — Chat Engine",
+      "pillar": "Pillar 1 \u2014 Chat Engine",
       "tasks": [
         {
           "id": "M5-1",
@@ -421,7 +421,7 @@
         },
         {
           "id": "M5-3",
-          "title": "Voice in IDE: push-to-talk STT → chat input, TTS reads AI responses aloud from IDE",
+          "title": "Voice in IDE: push-to-talk STT \u2192 chat input, TTS reads AI responses aloud from IDE",
           "status": "done",
           "notes": "Voice: /voice/tts (pyttsx3) and /voice/stt (SpeechRecognition) endpoints in server.py."
         },
@@ -433,25 +433,25 @@
         },
         {
           "id": "M5-5",
-          "title": "Chat: inline diff preview — AI shows file diff before applying changes",
+          "title": "Chat: inline diff preview \u2014 AI shows file diff before applying changes",
           "status": "done",
           "notes": "Inline diff preview: /ai/diff asks LLM to apply instruction and returns unified diff."
         },
         {
           "id": "M5-6",
-          "title": "Chat: file attachment — drag a file into chat to include its content as context",
+          "title": "Chat: file attachment \u2014 drag a file into chat to include its content as context",
           "status": "done",
           "notes": "File attachment: attachment + attachment_name fields on /chat/context endpoint."
         },
         {
           "id": "M5-7",
-          "title": "Chat: selection context — selected text in editor auto-populates chat input",
+          "title": "Chat: selection context \u2014 selected text in editor auto-populates chat input",
           "status": "done",
           "notes": "Selection context: selection field on /chat/context, injected into augmented prompt."
         },
         {
           "id": "M5-8",
-          "title": "Chat: /task command — AI creates a roadmap task from natural language",
+          "title": "Chat: /task command \u2014 AI creates a roadmap task from natural language",
           "status": "done",
           "notes": "Chat /task <desc> slash command creates a new roadmap task via POST /roadmap/task."
         },
@@ -499,7 +499,7 @@
         },
         {
           "id": "M5-16",
-          "title": "Chat: custom personas — developer defines additional system prompts via settings",
+          "title": "Chat: custom personas \u2014 developer defines additional system prompts via settings",
           "status": "done",
           "notes": "Custom personas: /persona/custom CRUD; stored in logs/custom_personas.json."
         },
@@ -537,38 +537,38 @@
     },
     {
       "id": "M6",
-      "title": "Visual Studio Integration — VSIX Extension",
+      "title": "Visual Studio Integration \u2014 VSIX Extension",
       "description": "Native VSIX extension for Visual Studio 2022 that embeds Arbiter's full chat and tooling directly into the IDE. Pillar 2 of the platform.",
       "status": "done",
-      "pillar": "Pillar 2 — Visual Studio Integration",
+      "pillar": "Pillar 2 \u2014 Visual Studio Integration",
       "tasks": [
         {
           "id": "M6-1",
-          "title": "VisualStudioExtension/ project scaffold — VSIX .csproj, source.extension.vsixmanifest",
+          "title": "VisualStudioExtension/ project scaffold \u2014 VSIX .csproj, source.extension.vsixmanifest",
           "status": "done",
           "notes": "VisualStudioExtension/ directory created with ArbiterVSIX.csproj and source.extension.vsixmanifest"
         },
         {
           "id": "M6-2",
-          "title": "ArbiterPackage.cs — VS Package entry point, service initialisation, backend auto-detect",
+          "title": "ArbiterPackage.cs \u2014 VS Package entry point, service initialisation, backend auto-detect",
           "status": "done",
           "notes": "ArbiterPackage.cs implemented: AsyncPackage entry point, backend auto-detect, service init"
         },
         {
           "id": "M6-3",
-          "title": "ChatToolWindow.cs — dockable Arbiter chat panel (WebView2-hosted, same UI as /gui/)",
+          "title": "ChatToolWindow.cs \u2014 dockable Arbiter chat panel (WebView2-hosted, same UI as /gui/)",
           "status": "done",
           "notes": "ChatToolWindow.cs + ChatToolWindowControl.cs: dockable WebView2-hosted chat panel"
         },
         {
           "id": "M6-4",
-          "title": "InlineSuggestionProvider.cs — Roslyn-based inline AI completions on // Arbiter: comment trigger",
+          "title": "InlineSuggestionProvider.cs \u2014 Roslyn-based inline AI completions on // Arbiter: comment trigger",
           "status": "done",
           "notes": "InlineSuggestionProvider.cs: MEF IAsyncCompletionSourceProvider triggered by // Arbiter: comments"
         },
         {
           "id": "M6-5",
-          "title": "ArbiterCommands.cs — VS command table registration (9 commands with keyboard shortcuts)",
+          "title": "ArbiterCommands.cs \u2014 VS command table registration (9 commands with keyboard shortcuts)",
           "status": "done",
           "notes": "ArbiterCommands.cs: 9 VS commands registered with keyboard shortcuts (CmdIds 0x0101-0x0109)"
         },
@@ -616,9 +616,9 @@
         },
         {
           "id": "M6-13",
-          "title": "Settings page: Tools → Options → Arbiter (backend URL, persona, voice, port)",
+          "title": "Settings page: Tools \u2192 Options \u2192 Arbiter (backend URL, persona, voice, port)",
           "status": "done",
-          "notes": "ArbiterSettings.cs: Tools→Options→Arbiter AI page (BackendUrl, persona, voice, inline suggestions)"
+          "notes": "ArbiterSettings.cs: Tools\u2192Options\u2192Arbiter AI page (BackendUrl, persona, voice, inline suggestions)"
         },
         {
           "id": "M6-14",
@@ -678,20 +678,20 @@
     },
     {
       "id": "M7",
-      "title": "Self-Iteration — Autonomous Self-Build Loop",
+      "title": "Self-Iteration \u2014 Autonomous Self-Build Loop",
       "description": "Arbiter reads its own roadmap, plans implementation steps, writes code, runs tests, and commits changes. Four autonomy modes from Assist to FullAuto.",
       "status": "done",
-      "pillar": "Pillar 3 — Self-Iteration",
+      "pillar": "Pillar 3 \u2014 Self-Iteration",
       "tasks": [
         {
           "id": "M7-1",
           "title": "SelfBuildController: orchestrator that reads roadmap.json, selects next pending task, coordinates pipeline",
           "status": "done",
-          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan → identify → generate → validate → test → commit)."
+          "notes": "SelfBuildController orchestrates the full self-build pipeline (plan \u2192 identify \u2192 generate \u2192 validate \u2192 test \u2192 commit)."
         },
         {
           "id": "M7-2",
-          "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto — configurable per session",
+          "title": "Four autonomy modes: Manual, Assist, SemiAuto, FullAuto \u2014 configurable per session",
           "status": "done",
           "notes": "Four autonomy modes: Manual (read-only), Assist (pauses before apply), SemiAuto (pauses before commit), FullAuto (autonomous)."
         },
@@ -815,7 +815,7 @@
           "id": "M8-5",
           "title": "CLI: arbiter build / arbiter chat / arbiter archive rebuild from terminal",
           "status": "done",
-          "notes": "CLI: AIEngine/arbiter_cli.py — build/run/test/chat/archive/self-build/review/diagram/deps-scan."
+          "notes": "CLI: AIEngine/arbiter_cli.py \u2014 build/run/test/chat/archive/self-build/review/diagram/deps-scan."
         },
         {
           "id": "M8-6",
@@ -996,7 +996,7 @@
         },
         {
           "id": "M11-6",
-          "title": "Semantic code search: natural language query over the entire codebase using embeddings (ChromaDB / FAISS) — find functions by what they do",
+          "title": "Semantic code search: natural language query over the entire codebase using embeddings (ChromaDB / FAISS) \u2014 find functions by what they do",
           "status": "done"
         },
         {
@@ -1074,7 +1074,7 @@
         },
         {
           "id": "M13-8",
-          "title": "Add automatic LLM backend failover: if the primary backend returns a connection error or timeout, transparently retry the request against the next backend in a configured fallback chain (e.g. ollama → lmstudio → api) and log which backend served the request",
+          "title": "Add automatic LLM backend failover: if the primary backend returns a connection error or timeout, transparently retry the request against the next backend in a configured fallback chain (e.g. ollama \u2192 lmstudio \u2192 api) and log which backend served the request",
           "status": "done"
         }
       ]
@@ -1155,7 +1155,7 @@
         },
         {
           "id": "P1-3",
-          "title": "Server shutdown prompt — ask user to keep servers live or shut down on app close",
+          "title": "Server shutdown prompt \u2014 ask user to keep servers live or shut down on app close",
           "status": "done",
           "notes": "Updated App.xaml.cs App_Exit handler to show a Yes/No dialog when managed server processes are running. Yes = kill processes; No = leave running for remote web UI access."
         },
@@ -1185,7 +1185,7 @@
         },
         {
           "id": "P1-8",
-          "title": "Changelog automation — generate CHANGELOG entries from git log [arbiter-self-build] commits",
+          "title": "Changelog automation \u2014 generate CHANGELOG entries from git log [arbiter-self-build] commits",
           "status": "done",
           "notes": "Added POST /changelog/generate (parses git log for [arbiter-self-build] commits, groups by date, writes docs/wiki/CHANGELOG.md) and GET /changelog endpoints to server.py."
         }
@@ -1199,7 +1199,7 @@
       "tasks": [
         {
           "id": "P2-1",
-          "title": "Arbiter IDE complete rework — WPF shell retained; full redesign of panels, layout, and interaction model; no ImGui dependencies",
+          "title": "Arbiter IDE complete rework \u2014 WPF shell retained; full redesign of panels, layout, and interaction model; no ImGui dependencies",
           "status": "done",
           "notes": "ArbiterEngine IDE integration reworked: /projects/list enumerates tracked projects (name, version, active phase, task progress). WPF IdeWindow continues to use Monaco via WebView2. New /vs/capabilities, /vs/inline-completion, /vs/explain-diagnostic, /vs/refactor endpoints provide the deeper integration layer."
         },
@@ -1213,7 +1213,7 @@
           "id": "P2-3",
           "title": "ArbiterAI agent for automated coding, asset iteration, PCG, and system debugging",
           "status": "done",
-          "notes": "Added POST /agent/run to server.py: multi-step Plan→Act→Observe loop with configurable max_steps, persona (specialist), project context injection, write_file and run_analysis actions, and dry_run mode. Returns full step trace and final_answer."
+          "notes": "Added POST /agent/run to server.py: multi-step Plan\u2192Act\u2192Observe loop with configurable max_steps, persona (specialist), project context injection, write_file and run_analysis actions, and dry_run mode. Returns full step trace and final_answer."
         },
         {
           "id": "P2-4",
@@ -1232,31 +1232,31 @@
       "tasks": [
         {
           "id": "P3-1",
-          "title": "POST /projects/{id}/activate — prime AI context with project roadmap, key files, and recent commits",
+          "title": "POST /projects/{id}/activate \u2014 prime AI context with project roadmap, key files, and recent commits",
           "status": "done",
           "notes": "POST /projects/{id}/activate: loads project roadmap (completion stats, pending tasks), source file list, recent git commits into workspace_state active_project_context. Response includes summary and context length."
         },
         {
           "id": "P3-2",
-          "title": "GET /projects/{id}/health — roadmap completion %, pending task count, last git activity",
+          "title": "GET /projects/{id}/health \u2014 roadmap completion %, pending task count, last git activity",
           "status": "done",
           "notes": "GET /projects/{id}/health: returns roadmap version, total/done/pending task counts, completion_pct, active_phase, and last 10 git commits for the project path."
         },
         {
           "id": "P3-3",
-          "title": "GET /git/status, GET /git/log, GET /git/diff — live git introspection for the active workspace",
+          "title": "GET /git/status, GET /git/log, GET /git/diff \u2014 live git introspection for the active workspace",
           "status": "done",
           "notes": "Existing /git/status, /git/log, /git/diff endpoints (from earlier milestones) already fulfil workspace introspection. Enhanced /git/diff with ?staged=true to return staged (cached) diffs alongside normal working-tree diffs."
         },
         {
           "id": "P3-4",
-          "title": "GET /workspace/state + POST /workspace/state — persist active project, preferences to .arbiter/workspace_state.json",
+          "title": "GET /workspace/state + POST /workspace/state \u2014 persist active project, preferences to .arbiter/workspace_state.json",
           "status": "done",
           "notes": "GET /workspace/state: returns persisted state (active_project, recent_files, preferences) from .arbiter/workspace_state.json (excludes large context blob). POST /workspace/state: merges supplied fields; recent_files deduplicated, capped at 20."
         },
         {
           "id": "P3-5",
-          "title": "POST /projects/scaffold — AI-assisted new project scaffolding from a text description",
+          "title": "POST /projects/scaffold \u2014 AI-assisted new project scaffolding from a text description",
           "status": "done",
           "notes": "POST /projects/scaffold: validates project_id, creates Projects/{id}/ skeleton (src/ docs/ tests/ config/ scripts/), roadmap.json, workspace_profile.json. AI enriches roadmap phases from description if LLM is available."
         }
@@ -1270,27 +1270,27 @@
       "tasks": [
         {
           "id": "P4-1",
-          "title": "GET /git/watch (SSE) — stream new commit events as they land; surface AI-generated summaries",
+          "title": "GET /git/watch (SSE) \u2014 stream new commit events as they land; surface AI-generated summaries",
           "status": "done",
-          "notes": "GET /git/watch (SSE): polls git log every N seconds (clamp 5–300s). Emits one event per new commit with sha, author, date, subject, ai_summary. Heartbeat event sent when no new commits. Scoped to Projects/{project} path if supplied."
+          "notes": "GET /git/watch (SSE): polls git log every N seconds (clamp 5\u2013300s). Emits one event per new commit with sha, author, date, subject, ai_summary. Heartbeat event sent when no new commits. Scoped to Projects/{project} path if supplied."
         },
         {
           "id": "P4-2",
-          "title": "POST /git/review-commit — AI reviews the latest commit diff and returns structured feedback",
+          "title": "POST /git/review-commit \u2014 AI reviews the latest commit diff and returns structured feedback",
           "status": "done",
           "notes": "POST /git/review-commit: fetches diff for any SHA/branch (defaults HEAD). LLM returns JSON: summary, issues[], suggestions[], verdict (approve|needs_work|blocking). SHA whitelist validated; diff capped at max_diff_chars (default 6000)."
         },
         {
           "id": "P4-3",
-          "title": "POST /self/improve — Arbiter agent proposes and applies improvements to its own codebase via the agent loop",
+          "title": "POST /self/improve \u2014 Arbiter agent proposes and applies improvements to its own codebase via the agent loop",
           "status": "done",
-          "notes": "POST /self/improve: runs the Plan→Act→Observe agent loop scoped to AIEngine/ArbiterEngine/. dry_run=True by default — only proposes changes, never writes without explicit opt-in. Optional target_file scopes analysis to a single source file."
+          "notes": "POST /self/improve: runs the Plan\u2192Act\u2192Observe agent loop scoped to AIEngine/ArbiterEngine/. dry_run=True by default \u2014 only proposes changes, never writes without explicit opt-in. Optional target_file scopes analysis to a single source file."
         },
         {
           "id": "P4-4",
-          "title": "POST /tests/run — run a project's test suite and feed results back to the AI for analysis",
+          "title": "POST /tests/run \u2014 run a project's test suite and feed results back to the AI for analysis",
           "status": "done",
-          "notes": "POST /tests/run: auto-detects pytest/dotnet/npm/cargo/go test runner. Runs test suite with configurable timeout (10–600s). AI analyses combined stdout+stderr and returns pass/fail root cause and next-step suggestions."
+          "notes": "POST /tests/run: auto-detects pytest/dotnet/npm/cargo/go test runner. Runs test suite with configurable timeout (10\u2013600s). AI analyses combined stdout+stderr and returns pass/fail root cause and next-step suggestions."
         }
       ]
     },
@@ -1302,25 +1302,25 @@
       "tasks": [
         {
           "id": "P5-1",
-          "title": "Dockerfile for ArbiterEngine — single-container deployment with config volume mount",
+          "title": "Dockerfile for ArbiterEngine \u2014 single-container deployment with config volume mount",
           "status": "done",
           "notes": "Dockerfile updated: added /app/arbiter-config, /app/configs, /app/plugins volumes. docker-compose.yml has corresponding named volumes. docker-entrypoint.sh symlinks volumes into container on start."
         },
         {
           "id": "P5-2",
-          "title": "POST /self/update — pull latest Arbiter source, apply, and hot-reload endpoints without downtime",
+          "title": "POST /self/update \u2014 pull latest Arbiter source, apply, and hot-reload endpoints without downtime",
           "status": "done",
           "notes": "POST /self/update: git fetch + git pull --ff-only; returns sha_before/sha_after, pull_summary, changed_files. restart=true triggers os.execv after 2s delay. Branch name validated with _GIT_REF_PATTERN."
         },
         {
           "id": "P5-3",
-          "title": "Multi-user API keys — per-user keys with role enforcement; rate limiting middleware",
+          "title": "Multi-user API keys \u2014 per-user keys with role enforcement; rate limiting middleware",
           "status": "done",
           "notes": "Multi-user API keys stored in .arbiter/api_keys.json. X-API-Key header validated by _ApiKeyRateLimitMiddleware. Rate limiter: sliding 60s window per key (or per IP when no keys registered). CRUD: POST /api-keys/create, GET /api-keys, DELETE /api-keys/{key_id}, POST /api-keys/{key_id}/disable|enable, POST /api-keys/validate."
         },
         {
           "id": "P5-4",
-          "title": "Plugin system — loadable Python modules in plugins/ that register new FastAPI routes on startup",
+          "title": "Plugin system \u2014 loadable Python modules in plugins/ that register new FastAPI routes on startup",
           "status": "done",
           "notes": "Plugin route registration: plugins/*/routes.py can expose 'router' (APIRouter) or 'register(app)' callable. PluginLoader stores _dir in meta for discovery. POST /plugins/install now fully functional. GET /plugins/routes lists mounted paths."
         }
@@ -1334,37 +1334,37 @@
       "tasks": [
         {
           "id": "PA6-1",
-          "title": "POST /ai/commit-message — diff + context → AI-generated conventional commit message",
+          "title": "POST /ai/commit-message \u2014 diff + context \u2192 AI-generated conventional commit message",
           "status": "done"
         },
         {
           "id": "PA6-2",
-          "title": "POST /ai/plan — natural-language goal → structured task list for project roadmap",
+          "title": "POST /ai/plan \u2014 natural-language goal \u2192 structured task list for project roadmap",
           "status": "done"
         },
         {
           "id": "PA6-3",
-          "title": "GET /workspace/timeline — unified git commit timeline across all managed Projects/",
+          "title": "GET /workspace/timeline \u2014 unified git commit timeline across all managed Projects/",
           "status": "done"
         },
         {
           "id": "PA6-4",
-          "title": "GET /projects/{id}/dependencies — parse requirements.txt / package.json / .csproj / go.mod / Cargo.toml into a structured dependency list",
+          "title": "GET /projects/{id}/dependencies \u2014 parse requirements.txt / package.json / .csproj / go.mod / Cargo.toml into a structured dependency list",
           "status": "done"
         },
         {
           "id": "PA6-5",
-          "title": "POST /workspace/snapshot, GET /workspace/snapshots, POST /workspace/snapshots/{id}/restore — named workspace state snapshots",
+          "title": "POST /workspace/snapshot, GET /workspace/snapshots, POST /workspace/snapshots/{id}/restore \u2014 named workspace state snapshots",
           "status": "done"
         },
         {
           "id": "PA6-6",
-          "title": "POST /projects/{id}/context/summary — AI-generated compressed architecture summary for fast context injection",
+          "title": "POST /projects/{id}/context/summary \u2014 AI-generated compressed architecture summary for fast context injection",
           "status": "done"
         },
         {
           "id": "PA6-7",
-          "title": "GET /projects/search — full-text search across all files in all managed project workspaces",
+          "title": "GET /projects/search \u2014 full-text search across all files in all managed project workspaces",
           "status": "done"
         }
       ]
@@ -1377,32 +1377,32 @@
       "tasks": [
         {
           "id": "PA7-1",
-          "title": "GET /metrics — runtime stats: request counts, LLM latency p50/p95/p99, memory usage, uptime",
+          "title": "GET /metrics \u2014 runtime stats: request counts, LLM latency p50/p95/p99, memory usage, uptime",
           "status": "done"
         },
         {
           "id": "PA7-2",
-          "title": "GET /projects/{id}/activity — per-project activity feed combining git commits, test runs, AI calls, and open issues",
+          "title": "GET /projects/{id}/activity \u2014 per-project activity feed combining git commits, test runs, AI calls, and open issues",
           "status": "done"
         },
         {
           "id": "PA7-3",
-          "title": "POST /ai/explain — paste any code snippet or error message, get AI explanation with optional archive cross-reference",
+          "title": "POST /ai/explain \u2014 paste any code snippet or error message, get AI explanation with optional archive cross-reference",
           "status": "done"
         },
         {
           "id": "PA7-4",
-          "title": "GET /workspace/health — aggregate health check: all projects + git status + LLM backend + disk space",
+          "title": "GET /workspace/health \u2014 aggregate health check: all projects + git status + LLM backend + disk space",
           "status": "done"
         },
         {
           "id": "PA7-5",
-          "title": "POST /git/blame-explain — git blame a file path and have the AI summarise ownership and change history per logical block",
+          "title": "POST /git/blame-explain \u2014 git blame a file path and have the AI summarise ownership and change history per logical block",
           "status": "done"
         },
         {
           "id": "PA7-6",
-          "title": "POST /projects/{id}/changelog — generate a human-readable CHANGELOG from git log, grouped by version tag or date range",
+          "title": "POST /projects/{id}/changelog \u2014 generate a human-readable CHANGELOG from git log, grouped by version tag or date range",
           "status": "done"
         }
       ]
@@ -1415,37 +1415,37 @@
       "tasks": [
         {
           "id": "PA8-1",
-          "title": "POST /ai/project-refactor — project-wide code-smell & refactoring opportunity analysis across all source files",
+          "title": "POST /ai/project-refactor \u2014 project-wide code-smell & refactoring opportunity analysis across all source files",
           "status": "done",
           "notes": "POST /ai/project-refactor: scans up to 30 source files in the project, builds compact excerpts, asks LLM to rank up to 8 refactoring opportunities by impact. Each opportunity includes file, impact (High/Medium/Low), category, and description. Optional focus hint steers analysis."
         },
         {
           "id": "PA8-2",
-          "title": "POST /projects/{id}/docs — AI-generated project documentation suite: overview, architecture, module summaries, API reference, and a Markdown README skeleton",
+          "title": "POST /projects/{id}/docs \u2014 AI-generated project documentation suite: overview, architecture, module summaries, API reference, and a Markdown README skeleton",
           "status": "done",
           "notes": "POST /projects/{id}/docs: reads roadmap.json + up to 20 source files, generates overview/architecture/modules/api_summary sections via LLM. Returns structured JSON plus a ready-to-use Markdown README skeleton."
         },
         {
           "id": "PA8-3",
-          "title": "GET /workspace/todos — aggregate all TODO/FIXME/HACK/NOTE/DEPRECATED annotations across every managed project",
+          "title": "GET /workspace/todos \u2014 aggregate all TODO/FIXME/HACK/NOTE/DEPRECATED annotations across every managed project",
           "status": "done",
           "notes": "GET /workspace/todos: regex-scans source files in all Projects/ directories (or a single project). Returns items grouped by project with file, line, category, and text. Supports project/category/limit query params."
         },
         {
           "id": "PA8-4",
-          "title": "POST /ai/migrate — AI-generated step-by-step framework/runtime migration plan with breaking changes, risk levels, and code examples",
+          "title": "POST /ai/migrate \u2014 AI-generated step-by-step framework/runtime migration plan with breaking changes, risk levels, and code examples",
           "status": "done",
           "notes": "POST /ai/migrate: accepts project_id, from_framework, to_framework, notes. Samples up to 10 source files for context. LLM returns overview, breaking_changes[], steps[] (each with step, risk, title, detail), and estimated_effort."
         },
         {
           "id": "PA8-5",
-          "title": "POST /projects/{id}/estimate — AI effort and complexity estimation (Low/Medium/High + hours range + risk) for every pending roadmap task",
+          "title": "POST /projects/{id}/estimate \u2014 AI effort and complexity estimation (Low/Medium/High + hours range + risk) for every pending roadmap task",
           "status": "done",
           "notes": "POST /projects/{id}/estimate: parses roadmap.json for pending tasks, asks LLM to produce per-task estimates. Returns estimates[] with complexity, hours, risk, dependencies, plus complexity_summary totals."
         },
         {
           "id": "PA8-6",
-          "title": "POST /projects/{id}/test-generate — AI generates unit-test stubs (pytest/jest/xunit/auto) for all untested functions and classes in a project",
+          "title": "POST /projects/{id}/test-generate \u2014 AI generates unit-test stubs (pytest/jest/xunit/auto) for all untested functions and classes in a project",
           "status": "done",
           "notes": "POST /projects/{id}/test-generate: detects test framework from existing test files, scans up to 15 source files, generates complete test stub files per source file with arrange/act/assert structure and TODO markers. Supports file_path restriction."
         }
@@ -1459,37 +1459,37 @@
       "tasks": [
         {
           "id": "PA9-1",
-          "title": "POST /ai/code-walkthrough — narrative AI walkthrough of any source file: purpose, execution flow, key decisions, and gotchas",
+          "title": "POST /ai/code-walkthrough \u2014 narrative AI walkthrough of any source file: purpose, execution flow, key decisions, and gotchas",
           "status": "done",
           "notes": "POST /ai/code-walkthrough: reads file_path (project-relative or absolute) or inline content, applies audience hint (developer/reviewer/onboarding). LLM returns structured PURPOSE/FLOW/KEY_DECISIONS/GOTCHAS sections."
         },
         {
           "id": "PA9-2",
-          "title": "GET /projects/{id}/coverage-report — static test-coverage estimation via symbol name cross-reference (no test execution required)",
+          "title": "GET /projects/{id}/coverage-report \u2014 static test-coverage estimation via symbol name cross-reference (no test execution required)",
           "status": "done",
           "notes": "GET /projects/{id}/coverage-report: uses ast.walk for Python, regex for other langs to list public symbols; cross-references symbol names against test file content. Returns per-file breakdown and overall_coverage % with uncovered symbol lists."
         },
         {
           "id": "PA9-3",
-          "title": "GET+POST+DELETE /workspace/notes — persistent multi-project developer scratchpad notes with full-text search",
+          "title": "GET+POST+DELETE /workspace/notes \u2014 persistent multi-project developer scratchpad notes with full-text search",
           "status": "done",
           "notes": "Three endpoints: GET /workspace/notes (list, filter by project/q/limit), POST /workspace/notes (create note with title/body/project/tags), DELETE /workspace/notes/{id} (delete by id). Persisted to logs/workspace_notes.json with atomic writes."
         },
         {
           "id": "PA9-4",
-          "title": "GET /projects/{id}/progress — velocity and progress dashboard: roadmap completion stats, commit frequency, open TODO count",
+          "title": "GET /projects/{id}/progress \u2014 velocity and progress dashboard: roadmap completion stats, commit frequency, open TODO count",
           "status": "done",
           "notes": "GET /projects/{id}/progress: combines roadmap completion pct, active phase, git commit frequency (by week over last N weeks), recent commits list, and open TODO/FIXME count from static scan."
         },
         {
           "id": "PA9-5",
-          "title": "POST /projects/{id}/roadmap/task — add a new task to a project roadmap programmatically with AI-generated description",
+          "title": "POST /projects/{id}/roadmap/task \u2014 add a new task to a project roadmap programmatically with AI-generated description",
           "status": "done",
           "notes": "POST /projects/{id}/roadmap/task: validates phase_id exists in roadmap.json, auto-generates task id, AI enriches description if blank, atomically rewrites roadmap.json. Supports status (pending/in_progress/done)."
         },
         {
           "id": "PA9-6",
-          "title": "GET /workspace/summary — cross-project executive summary: status of all projects, recent activity, open TODOs, AI narrative",
+          "title": "GET /workspace/summary \u2014 cross-project executive summary: status of all projects, recent activity, open TODOs, AI narrative",
           "status": "done",
           "notes": "GET /workspace/summary: iterates all Projects/ directories, collects roadmap completion, 7-day git commits, TODO count, last-modified. LLM writes 2-4 sentence executive narrative. Returns projects[] array plus narrative and generated_at timestamp."
         }
@@ -1503,31 +1503,31 @@
       "tasks": [
         {
           "id": "PA10-1",
-          "title": "POST /ai/embedded/load — load a GGUF model into process memory (no external server required)",
+          "title": "POST /ai/embedded/load \u2014 load a GGUF model into process memory (no external server required)",
           "status": "done",
           "notes": "POST /ai/embedded/load: resolves model_path (relative to ArbiterEngine/ or absolute), calls llama-cpp-python Llama() in a thread, stores in global _ModelState singleton, optionally switches active backend to 'embedded'. Parameters: model_path, n_ctx (4096), n_gpu_layers (-1=all GPU), n_threads (0=auto), verbose, switch_active."
         },
         {
           "id": "PA10-2",
-          "title": "GET /ai/embedded/status — model state, GPU hardware info, llama-cpp-python install status",
+          "title": "GET /ai/embedded/status \u2014 model state, GPU hardware info, llama-cpp-python install status",
           "status": "done",
           "notes": "GET /ai/embedded/status: checks llama_cpp import, reads _ModelState (is_loaded, model_path, n_ctx, n_gpu_layers, n_threads), queries nvidia-smi for GPU name/memory. Returns install_hint if not installed."
         },
         {
           "id": "PA10-3",
-          "title": "GET /ai/embedded/models — discover .gguf model files in ArbiterEngine/models/ and config path",
+          "title": "GET /ai/embedded/models \u2014 discover .gguf model files in ArbiterEngine/models/ and config path",
           "status": "done",
           "notes": "GET /ai/embedded/models: scans ArbiterEngine/models/ (auto-created), optional search_dir override, config-derived path. Returns list with name, path, size_mb. Auto-creates models/ directory."
         },
         {
           "id": "PA10-4",
-          "title": "POST /ai/embedded/unload — free the loaded model from RAM/VRAM and revert active backend",
+          "title": "POST /ai/embedded/unload \u2014 free the loaded model from RAM/VRAM and revert active backend",
           "status": "done",
           "notes": "POST /ai/embedded/unload: calls _ModelState.unload() in a thread (del self._llm), reverts active backend to 'ollama' if it was 'embedded'. Returns was_loaded flag and new active_backend."
         },
         {
           "id": "PA10-5",
-          "title": "llm/embedded.py — thread-safe in-process GGUF backend with GPU acceleration and graceful llama-cpp-python absence handling",
+          "title": "llm/embedded.py \u2014 thread-safe in-process GGUF backend with GPU acceleration and graceful llama-cpp-python absence handling",
           "status": "done",
           "notes": "New llm/embedded.py: EmbeddedLLM class backed by _ModelState singleton. chat/generate/stream_chat/tool_call all delegate to singleton. Graceful _NOT_INSTALLED and _NO_MODEL strings when llama-cpp-python absent or model not loaded. factory.py updated with embedded case. config.toml updated with [llm.embedded] section."
         },
@@ -1539,13 +1539,13 @@
         },
         {
           "id": "PA10-7",
-          "title": "llm/hardware.py — cross-platform hardware profiler: RAM/VRAM/CPU detection + adaptive config suggestion (n_gpu_layers, n_ctx, n_threads)",
+          "title": "llm/hardware.py \u2014 cross-platform hardware profiler: RAM/VRAM/CPU detection + adaptive config suggestion (n_gpu_layers, n_ctx, n_threads)",
           "status": "done",
           "notes": "New llm/hardware.py: HardwareProfile dataclass, detect_hardware() (psutil + /proc/meminfo + sysctl + nvidia-smi + wmic fallbacks), suggest_model_config() (VRAM-aware n_gpu_layers, RAM-aware n_ctx, physical-core n_threads with rationale list). Embedded load now accepts auto_configure=True. _ModelState stores hardware + suggested_config at load time."
         },
         {
           "id": "PA10-8",
-          "title": "GET /ai/hardware — hardware profile endpoint with model fit table and human-readable fit_summary",
+          "title": "GET /ai/hardware \u2014 hardware profile endpoint with model fit table and human-readable fit_summary",
           "status": "done",
           "notes": "GET /ai/hardware: calls detect_hardware() and suggest_model_config(), returns hardware dict, suggested_config, fit_summary (text with emoji), model_path, and available_models_fit list per .gguf file in models/. POST /ai/embedded/load updated with auto_configure param and chat_format='auto' (heuristic template detection). GET /ai/embedded/status updated to return stored hardware profile. GET /ai/embedded/models updated to include hardware_fit per model. config.toml updated with auto_configure, chat_format, new sentinel defaults."
         }
@@ -1554,42 +1554,42 @@
     {
       "id": "Phase11",
       "title": "AI Code Intelligence & Semantic Workspace Search",
-      "description": "Intelligent code search, one-shot AI fixes, security auditing, auto context building, symbol rename, AI usage analytics, and hardware-adaptive model loading — all powered by the existing LLM infrastructure.",
+      "description": "Intelligent code search, one-shot AI fixes, security auditing, auto context building, symbol rename, AI usage analytics, and hardware-adaptive model loading \u2014 all powered by the existing LLM infrastructure.",
       "status": "done",
       "tasks": [
         {
           "id": "PA11-1",
-          "title": "POST /ai/semantic-search — natural-language search across workspace source files with AI keyword expansion and re-ranking",
+          "title": "POST /ai/semantic-search \u2014 natural-language search across workspace source files with AI keyword expansion and re-ranking",
           "status": "done",
           "notes": "POST /ai/semantic-search: uses LLM to expand query into 10-15 keywords, scores source files by TF-weighted keyword frequency, returns top results with snippets. Optional AI re-ranking step ranks candidates and writes a summary. Parameters: query, project_id, max_results (1-20), include_snippet, ai_rank."
         },
         {
           "id": "PA11-2",
-          "title": "POST /ai/fix — one-shot AI code fix given file + error/lint message; returns original, fixed, unified diff, and explanation",
+          "title": "POST /ai/fix \u2014 one-shot AI code fix given file + error/lint message; returns original, fixed, unified diff, and explanation",
           "status": "done",
           "notes": "POST /ai/fix: reads file (or inline content), sends to LLM with error description + optional context. LLM returns complete corrected source + EXPLANATION: section. Response includes original, fixed, unified diff (difflib), lines_changed count, explanation. Parameters: file_path, project_id, error, content, context."
         },
         {
           "id": "PA11-3",
-          "title": "POST /projects/{id}/security-audit — AI-powered OWASP/CWE security scan of project source; structured findings with severity",
+          "title": "POST /projects/{id}/security-audit \u2014 AI-powered OWASP/CWE security scan of project source; structured findings with severity",
           "status": "done",
           "notes": "POST /projects/{id}/security-audit: iterates up to 30 source files, sends excerpts to LLM with OWASP/CWE audit prompt. Parses structured FINDING blocks (SEVERITY/FILE/LINE/CATEGORY/DESCRIPTION/RECOMMENDATION/END_FINDING). Returns findings sorted by severity + audit summary. Supports all major language extensions."
         },
         {
           "id": "PA11-4",
-          "title": "POST /ai/context/build — auto-build focused AI context window by scoring project files for a query",
+          "title": "POST /ai/context/build \u2014 auto-build focused AI context window by scoring project files for a query",
           "status": "done",
           "notes": "POST /ai/context/build: tokenises query, scores all project source files by keyword frequency, selects top max_files (capped at 10) within max_total_chars (capped at 20000). Returns assembled context string + per-file score/char breakdown + usage hint. Parameters: query, project_id, max_files, max_total_chars."
         },
         {
           "id": "PA11-5",
-          "title": "POST /ai/rename-symbol — AI-assisted whole-project symbol rename with dry-run, word-boundary matching, and advisory notes",
+          "title": "POST /ai/rename-symbol \u2014 AI-assisted whole-project symbol rename with dry-run, word-boundary matching, and advisory notes",
           "status": "done",
           "notes": "POST /ai/rename-symbol: whole-word regex rename across all source files in a project. dry_run=true by default (returns plan without writing). AI advisory step identifies risky cases (serialised keys, reflection, config files). Parameters: project_id, old_name, new_name, dry_run, whole_word."
         },
         {
           "id": "PA11-6",
-          "title": "GET /workspace/ai-stats — AI usage statistics: call count, token estimates, active backend, per-project breakdown, top endpoints, cache size, uptime",
+          "title": "GET /workspace/ai-stats \u2014 AI usage statistics: call count, token estimates, active backend, per-project breakdown, top endpoints, cache size, uptime",
           "status": "done",
           "notes": "GET /workspace/ai-stats: aggregates _budget (per-project calls + estimated tokens), _metrics (per-endpoint request/error/latency), _llm_cache size, _SERVER_START_TIME for uptime. Returns structured JSON: total_ai_calls, total_estimated_tokens, active_backend, projects[], top_endpoints[], cache_size, uptime_seconds, session_start."
         }
@@ -1598,42 +1598,42 @@
     {
       "id": "Phase12",
       "title": "AI Agent Workflows & Multi-Step Task Pipelines",
-      "description": "Multi-step AI workflows with state passing, AI-driven source file generation, structured code review, and backend/model recommendation — all building on the existing LLM and hardware-profiling infrastructure.",
+      "description": "Multi-step AI workflows with state passing, AI-driven source file generation, structured code review, and backend/model recommendation \u2014 all building on the existing LLM and hardware-profiling infrastructure.",
       "status": "done",
       "tasks": [
         {
           "id": "PA12-1",
-          "title": "POST /ai/workflow/run — execute a named multi-step AI workflow; steps pass output forward via {{output}} placeholder; returns run-id + per-step results",
+          "title": "POST /ai/workflow/run \u2014 execute a named multi-step AI workflow; steps pass output forward via {{output}} placeholder; returns run-id + per-step results",
           "status": "done",
           "notes": "POST /ai/workflow/run: accepts workflow_name, steps[] (name/prompt/system), project_id, initial_context. Executes up to 20 steps sequentially; each step can use {{output}} to reference prior result. In-memory store (_WORKFLOW_STORE, max 200 entries). Returns run_id, status, steps[], final_output. Chain stops on error unless last step."
         },
         {
           "id": "PA12-2",
-          "title": "GET /ai/workflow/{run_id} — retrieve a stored workflow result by run ID",
+          "title": "GET /ai/workflow/{run_id} \u2014 retrieve a stored workflow result by run ID",
           "status": "done",
           "notes": "GET /ai/workflow/{run_id}: looks up _WORKFLOW_STORE by UUID, 404 if not found. Returns full result including all step outputs."
         },
         {
           "id": "PA12-3",
-          "title": "GET /ai/workflow/list — list stored workflow runs with optional project filter",
+          "title": "GET /ai/workflow/list \u2014 list stored workflow runs with optional project filter",
           "status": "done",
           "notes": "GET /ai/workflow/list: returns summary view (no step details) sorted newest-first. Query params: project_id (filter), limit (1-200, default 50). Returns total, runs[]."
         },
         {
           "id": "PA12-4",
-          "title": "POST /projects/{id}/generate — AI-driven source file generation from a natural-language spec; writes file to project; dry_run supported",
+          "title": "POST /projects/{id}/generate \u2014 AI-driven source file generation from a natural-language spec; writes file to project; dry_run supported",
           "status": "done",
           "notes": "POST /projects/{id}/generate: LLM writes complete production-ready source code from spec. Language detected from file_path extension or explicit hint. dry_run=false (default) writes to disk; overwrite=false (default) prevents clobbering. Strips markdown fences from output. Returns content, file_path, written, line_count, char_count."
         },
         {
           "id": "PA12-5",
-          "title": "POST /ai/code-review — structured AI code review: quality/security/performance/style issues with severity, line hints, and recommendations",
+          "title": "POST /ai/code-review \u2014 structured AI code review: quality/security/performance/style issues with severity, line hints, and recommendations",
           "status": "done",
           "notes": "POST /ai/code-review: reads file or inline content, sends to LLM with focus-aware system prompt (all/quality/security/performance/style). Parses ISSUE:...END_ISSUE blocks into structured findings (severity/line/category/description/suggestion). Returns issues[] sorted by severity + REVIEW_SUMMARY. Max 10000 chars reviewed. Uses _PA12ReviewReq to avoid class name conflict with existing M5-4 _ReviewReq."
         },
         {
           "id": "PA12-6",
-          "title": "GET /ai/models/recommend — recommend best backend and model tier for a task type using hardware profile",
+          "title": "GET /ai/models/recommend \u2014 recommend best backend and model tier for a task type using hardware profile",
           "status": "done",
           "notes": "GET /ai/models/recommend: task types: code/chat/analysis/summarise/embedding/translation/vision/long_context. Uses llm/hardware.py detect_hardware() to assess VRAM/RAM, maps to model size tiers, ranks embedded/ollama/openai backends by quality. Returns top_recommendation, recommendations[] with setup instructions, hardware_summary."
         }
@@ -1641,43 +1641,43 @@
     },
     {
       "id": "Phase13",
-      "title": "Web-Augmented Local AI — Local LLM with Live Web Search",
+      "title": "Web-Augmented Local AI \u2014 Local LLM with Live Web Search",
       "description": "The local AI (embedded/Ollama) remains the sole inference backend. Web search results are fetched from DuckDuckGo Lite (no API key) or a self-hosted SearXNG instance and injected as RAG context into the LLM prompt, giving it access to live web information without any cloud API calls.",
       "status": "done",
       "tasks": [
         {
           "id": "PA13-1",
-          "title": "POST /ai/web-ask — web-augmented Q&A: search web → inject top results as RAG context → answer via local LLM; includes sources[] in response",
+          "title": "POST /ai/web-ask \u2014 web-augmented Q&A: search web \u2192 inject top results as RAG context \u2192 answer via local LLM; includes sources[] in response",
           "status": "done",
           "notes": "POST /ai/web-ask: calls _do_web_search(), builds RAG context block via llm/web_search.build_rag_context(), then asks local LLM with 'web-grounded assistant' system prompt. Returns answer, sources_used, sources[]. max_results clamped 1-10."
         },
         {
           "id": "PA13-2",
-          "title": "POST /ai/web-search — raw web search: returns structured {title, url, snippet} results without LLM synthesis",
+          "title": "POST /ai/web-search \u2014 raw web search: returns structured {title, url, snippet} results without LLM synthesis",
           "status": "done",
-          "notes": "POST /ai/web-search: pure search endpoint — no LLM call. Returns query, provider, result_count, results[]. max_results clamped 1-20. Useful for debugging, custom prompting, or direct display."
+          "notes": "POST /ai/web-search: pure search endpoint \u2014 no LLM call. Returns query, provider, result_count, results[]. max_results clamped 1-20. Useful for debugging, custom prompting, or direct display."
         },
         {
           "id": "PA13-3",
-          "title": "GET /ai/web-search/config — return current web search runtime configuration",
+          "title": "GET /ai/web-search/config \u2014 return current web search runtime configuration",
           "status": "done",
           "notes": "GET /ai/web-search/config: returns _ws_config dict (enabled, provider, max_results, timeout_s, searxng_url). Config initially loaded from [web_search] in config.toml, updatable at runtime."
         },
         {
           "id": "PA13-4",
-          "title": "POST /ai/web-search/config — update web search config at runtime: enabled, provider, max_results, timeout_s, searxng_url",
+          "title": "POST /ai/web-search/config \u2014 update web search config at runtime: enabled, provider, max_results, timeout_s, searxng_url",
           "status": "done",
           "notes": "POST /ai/web-search/config: updates _ws_config under _ws_lock. Validates provider against {duckduckgo, searxng}. Clamps max_results 1-20, timeout_s 1-60. Changes take effect immediately; not persisted to disk."
         },
         {
           "id": "PA13-5",
-          "title": "POST /ai/chat/web — web-grounded chat with full conversation history; injects search context from last user message",
+          "title": "POST /ai/chat/web \u2014 web-grounded chat with full conversation history; injects search context from last user message",
           "status": "done",
           "notes": "POST /ai/chat/web: accepts messages[] history + optional search_latest_message flag. Derives search query from last user message, fetches results, prepends as system context, forwards full history to local LLM. Returns answer, search_query, sources_used, sources[]."
         },
         {
           "id": "PA13-6",
-          "title": "GET /ai/web-search/providers — list available search providers with configuration status and note about local-only inference",
+          "title": "GET /ai/web-search/providers \u2014 list available search providers with configuration status and note about local-only inference",
           "status": "done",
           "notes": "GET /ai/web-search/providers: returns providers[] with name, description, requires, configured, selected flags. DuckDuckGo always configured=true; SearXNG configured=true only when searxng_url is set. Includes a note clarifying local-only inference architecture."
         }
@@ -1685,43 +1685,43 @@
     },
     {
       "id": "Phase14",
-      "title": "AI Memory & Persistent Context — Long-Term Memory Store",
+      "title": "AI Memory & Persistent Context \u2014 Long-Term Memory Store",
       "description": "SQLite-backed long-term memory store. The AI remembers facts, decisions, and context across chat sessions. Memories can be tagged, importance-ranked, given an optional TTL, and retrieved via keyword/tag search or injected automatically as RAG context before LLM prompts.",
       "status": "done",
       "tasks": [
         {
           "id": "PA14-1",
-          "title": "POST /ai/memory — store a memory with content, tags[], source, importance (1-5), optional ttl_days",
+          "title": "POST /ai/memory \u2014 store a memory with content, tags[], source, importance (1-5), optional ttl_days",
           "status": "done",
           "notes": "POST /ai/memory: stores to .arbiter/memory.db SQLite (WAL mode). Generates UUID id. Encodes tags as comma-separated lowercase string. Computes expires_at from ttl_days. Returns id, created_at, expires_at, importance, tags[]."
         },
         {
           "id": "PA14-2",
-          "title": "GET /ai/memory/search — keyword + tag search across stored memories; ranked by importance desc, recency desc",
+          "title": "GET /ai/memory/search \u2014 keyword + tag search across stored memories; ranked by importance desc, recency desc",
           "status": "done",
           "notes": "GET /ai/memory/search: query params: q (keyword), tags (CSV), source, min_importance, include_expired, limit (1-100). Keyword match is case-insensitive substring in content. All specified tags must be present. Returns query, tag_filter, result_count, results[]."
         },
         {
           "id": "PA14-3",
-          "title": "GET /ai/memory/list — list all memories with optional tag/source/importance filters and pagination",
+          "title": "GET /ai/memory/list \u2014 list all memories with optional tag/source/importance filters and pagination",
           "status": "done",
-          "notes": "GET /ai/memory/list: query params: tags, source, min_importance, include_expired, page, page_size (1-200). Returns total, page, page_size, pages, items[]. No keyword filter — use /search for that."
+          "notes": "GET /ai/memory/list: query params: tags, source, min_importance, include_expired, page, page_size (1-200). Returns total, page, page_size, pages, items[]. No keyword filter \u2014 use /search for that."
         },
         {
           "id": "PA14-4",
-          "title": "DELETE /ai/memory/{id} — delete a specific memory by UUID; returns 404 if not found",
+          "title": "DELETE /ai/memory/{id} \u2014 delete a specific memory by UUID; returns 404 if not found",
           "status": "done",
           "notes": "DELETE /ai/memory/{memory_id}: executes DELETE WHERE id=? and checks rowcount. Returns {deleted: true, id} on success, 404 HTTPException if not found."
         },
         {
           "id": "PA14-5",
-          "title": "POST /ai/memory/inject — build RAG context block from relevant memories; optionally ask the local LLM grounded in retrieved memories",
+          "title": "POST /ai/memory/inject \u2014 build RAG context block from relevant memories; optionally ask the local LLM grounded in retrieved memories",
           "status": "done",
           "notes": "POST /ai/memory/inject: retrieves memories matching query + tag/importance filters. Formats as '=== Relevant memories for: ... ===' block. Updates access_count + last_accessed for matched rows. Optional 'ask' field triggers local LLM call with memory context. Returns context_block, memories[], memories_used, optional answer."
         },
         {
           "id": "PA14-6",
-          "title": "GET /ai/memory/stats — memory store statistics with optional prune=true to delete expired entries",
+          "title": "GET /ai/memory/stats \u2014 memory store statistics with optional prune=true to delete expired entries",
           "status": "done",
           "notes": "GET /ai/memory/stats: returns total, active, expired, pruned (0 unless prune=true), by_importance{1-5}, by_source{label:count}, all_tags[], oldest_entry, newest_entry, db_path. prune=true DELETEs expired rows then returns fresh counts."
         }
@@ -1729,45 +1729,133 @@
     },
     {
       "id": "Phase15",
-      "title": "AI Conversations & Session Management — Persistent Named Chat Sessions",
+      "title": "AI Conversations & Session Management \u2014 Persistent Named Chat Sessions",
       "description": "SQLite-backed persistent conversation store. Named conversation sessions accumulate a full message history across restarts. Each reply can optionally inject relevant long-term memories (Phase 14) and/or live web-search context (Phase 13), giving every conversation full access to the platform's AI stack.",
       "status": "done",
       "tasks": [
         {
           "id": "PA15-1",
-          "title": "POST /ai/conversations — create a named, persistent conversation with optional system prompt, tags, and model hint",
+          "title": "POST /ai/conversations \u2014 create a named, persistent conversation with optional system prompt, tags, and model hint",
           "status": "done",
           "notes": "POST /ai/conversations: stores to .arbiter/conversations.db SQLite (WAL mode). Auto-generates name from timestamp when empty. Returns id, name, system, tags[], model, created_at, updated_at, message_count."
         },
         {
           "id": "PA15-2",
-          "title": "GET /ai/conversations — list all conversations with optional tag filter and pagination",
+          "title": "GET /ai/conversations \u2014 list all conversations with optional tag filter and pagination",
           "status": "done",
           "notes": "GET /ai/conversations: query params: tags (CSV, all must match), page, page_size (1-100). Returns total, page, page_size, pages, items[] ordered by updated_at desc."
         },
         {
           "id": "PA15-3",
-          "title": "GET /ai/conversations/{id} — retrieve conversation metadata and full message history",
+          "title": "GET /ai/conversations/{id} \u2014 retrieve conversation metadata and full message history",
           "status": "done",
           "notes": "GET /ai/conversations/{id}: returns conversation dict plus messages[] ordered by created_at asc. Returns 404 if not found."
         },
         {
           "id": "PA15-4",
-          "title": "DELETE /ai/conversations/{id} — delete a conversation and all its messages; returns 404 if not found",
+          "title": "DELETE /ai/conversations/{id} \u2014 delete a conversation and all its messages; returns 404 if not found",
           "status": "done",
           "notes": "DELETE /ai/conversations/{id}: deletes conv_messages rows then the conversation row. Returns {deleted: true, id} on success, 404 HTTPException if not found."
         },
         {
           "id": "PA15-5",
-          "title": "POST /ai/conversations/{id}/message — send user message, get AI reply; supports inject_memories and web_augment flags",
+          "title": "POST /ai/conversations/{id}/message \u2014 send user message, get AI reply; supports inject_memories and web_augment flags",
           "status": "done",
           "notes": "POST /ai/conversations/{id}/message: loads history, optionally injects Phase-14 memories + Phase-13 web-search context into system prompt, calls local LLM with full history, persists user+assistant messages. Returns answer, web_augmented, memory_injected, message IDs."
         },
         {
           "id": "PA15-6",
-          "title": "GET /ai/conversations/stats — aggregate statistics: totals, web/memory augmented counts, models used",
+          "title": "GET /ai/conversations/stats \u2014 aggregate statistics: totals, web/memory augmented counts, models used",
           "status": "done",
           "notes": "GET /ai/conversations/stats: returns total_conversations, total_messages, web_augmented_messages, memory_injected_messages, models_used[], newest_conversation, db_path."
+        }
+      ]
+    },
+    {
+      "id": "Phase16",
+      "title": "AI Prompt Templates & Management",
+      "description": "SQLite-backed prompt template library. Templates support {{variable}} placeholders, are tagged and categorised, track use counts, and can be rendered or run directly against the local LLM.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA16-1",
+          "title": "POST /ai/templates \u2014 create a reusable prompt template with name, content, tags[], variables[], category",
+          "status": "done",
+          "notes": "POST /ai/templates: stores to .arbiter/templates.db SQLite (WAL). Generates UUID id. variables stored as JSON array. Returns id, name, category, tags[], variables[], created_at."
+        },
+        {
+          "id": "PA16-2",
+          "title": "GET /ai/templates \u2014 list templates with optional tag/category filter and pagination",
+          "status": "done",
+          "notes": "GET /ai/templates: query params: tags (CSV), category, page, page_size (1-100). Returns total, page, page_size, pages, items[]."
+        },
+        {
+          "id": "PA16-3",
+          "title": "GET /ai/templates/{id} \u2014 retrieve a single template by ID",
+          "status": "done",
+          "notes": "GET /ai/templates/{id}: returns full template dict. 404 if not found."
+        },
+        {
+          "id": "PA16-4",
+          "title": "DELETE /ai/templates/{id} \u2014 delete a template; returns 404 if not found",
+          "status": "done",
+          "notes": "DELETE /ai/templates/{id}: rowcount check, 404 if missing. Returns {deleted: true, id}."
+        },
+        {
+          "id": "PA16-5",
+          "title": "POST /ai/templates/{id}/render \u2014 render {{variable}} placeholders from provided values; returns rendered string and unfilled variables",
+          "status": "done",
+          "notes": "POST /ai/templates/{id}/render: substitutes {{var}} with values dict. Returns rendered, unfilled_variables[], variables_provided[]."
+        },
+        {
+          "id": "PA16-6",
+          "title": "POST /ai/templates/{id}/run \u2014 render template and send to local LLM; increments use_count",
+          "status": "done",
+          "notes": "POST /ai/templates/{id}/run: render step then _llm.chat(). Increments use_count. Returns rendered_prompt, answer, unfilled_variables[]."
+        }
+      ]
+    },
+    {
+      "id": "Phase17",
+      "title": "Conversation Export & Data Portability",
+      "description": "Export conversations as Markdown or JSON, import them back, export/import memories as JSON or CSV, download a full workspace backup bundle, and generate AI summaries of conversations.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA17-1",
+          "title": "GET /ai/conversations/{id}/export \u2014 export conversation as Markdown or JSON",
+          "status": "done",
+          "notes": "GET /ai/conversations/{id}/export?fmt=markdown|json. Returns content string, message_count, exported_at."
+        },
+        {
+          "id": "PA17-2",
+          "title": "POST /ai/conversations/import \u2014 import a conversation from a JSON export; assigns new ID",
+          "status": "done",
+          "notes": "POST /ai/conversations/import: accepts {conversation:{}, messages:[]}. Generates new UUID. Inserts all messages. Returns id, name, message_count."
+        },
+        {
+          "id": "PA17-3",
+          "title": "GET /ai/memory/export \u2014 export memories as JSON or CSV with optional importance/tag filter",
+          "status": "done",
+          "notes": "GET /ai/memory/export?fmt=json|csv&min_importance=1&tags=. CSV columns: id,content,tags,source,importance,created_at,expires_at,access_count. JSON wraps in {memories:[]}."
+        },
+        {
+          "id": "PA17-4",
+          "title": "POST /ai/memory/import \u2014 import memories from JSON; skip_duplicates=true default",
+          "status": "done",
+          "notes": "POST /ai/memory/import: memories[] list. Each entry: content, tags[], source, importance, ttl_days, id (optional). Returns imported, skipped, total_provided."
+        },
+        {
+          "id": "PA17-5",
+          "title": "GET /workspace/export \u2014 full workspace export bundle: conversations + memories + notes",
+          "status": "done",
+          "notes": "GET /workspace/export: no LLM call. Returns {exported_at, arbiter_version, conversations[], memories[], notes[]} as single JSON object."
+        },
+        {
+          "id": "PA17-6",
+          "title": "POST /ai/conversations/{id}/summarize \u2014 AI-generated summary; supports max_messages and focus hint",
+          "status": "done",
+          "notes": "POST /ai/conversations/{id}/summarize: loads history (up to max_messages), sends condensed transcript to LLM. Returns summary, message_count_summarized, focus."
         }
       ]
     }
