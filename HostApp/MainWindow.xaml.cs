@@ -90,10 +90,7 @@ namespace ArbiterHost
             {
                 sb.AppendLine();
                 sb.AppendLine("The following services will be stopped:");
-                if (serverRunning)
-                    sb.AppendLine("  •  Arbiter server  (port 8000)");
-                if (engineRunning)
-                    sb.AppendLine($"  •  Arbiter Engine  (port {AppConfig.ArbiterEnginePort})");
+                sb.AppendLine($"  •  Arbiter Engine  (port {AppConfig.ArbiterEnginePort})");
             }
 
             if (hasUnsent)
@@ -115,7 +112,7 @@ namespace ArbiterHost
                 return;
             }
 
-            // Stop the bridge server (port 8000)
+            // Stop the Arbiter Engine server (port managed by AppConfig.ArbiterEnginePort)
             try
             {
                 if (_serverProcess != null && !_serverProcess.HasExited)
@@ -362,15 +359,13 @@ namespace ArbiterHost
 
             try
             {
-                string appDir = AppDomain.CurrentDomain.BaseDirectory;
-                // Build output: HostApp/bin/Debug/net8.0-windows/ — 4 levels up = repo root (ArbiterAI/)
-                string bridgePath = Path.GetFullPath(
-                    Path.Combine(appDir, "..", "..", "..", "..", "AIEngine", "PythonBridge", "fastapi_bridge.py"));
+                string serverPath = FindEngineServerScript();
 
-                if (!File.Exists(bridgePath))
+                if (!File.Exists(serverPath))
                 {
-                    string msg = $"Could not find fastapi_bridge.py at:\n{bridgePath}\n\n" +
-                                 "Please start the server manually:\n  cd AIEngine/PythonBridge\n  python fastapi_bridge.py";
+                    string msg = $"Could not find ArbiterEngine server.py.\n\n" +
+                                 "Please start it manually:\n" +
+                                 "  cd AIEngine/ArbiterEngine\n  python server.py";
                     AppendConsole(ServerConsoleBox, "ERROR: " + msg);
                     AppendConsole(AppConsoleBox, "Server not found — start it manually.");
                     MessageBox.Show(msg, "Server Not Found", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -378,17 +373,17 @@ namespace ArbiterHost
                     return;
                 }
 
-                string bridgeDir = Path.GetDirectoryName(bridgePath)!;
+                string serverDir = Path.GetDirectoryName(serverPath)!;
                 string python = PythonHelper.FindExecutable();
                 AppendConsole(ServerConsoleBox, $"Python: {python}");
-                AppendConsole(ServerConsoleBox, $"Bridge: {bridgePath}");
-                AppendConsole(AppConsoleBox, $"Starting server with: {python} \"{bridgePath}\"");
+                AppendConsole(ServerConsoleBox, $"Script: {serverPath}");
+                AppendConsole(AppConsoleBox, $"Starting Arbiter Engine with: {python} \"{serverPath}\"");
 
                 var psi = new ProcessStartInfo
                 {
                     FileName = python,
-                    Arguments = $"\"{bridgePath}\"",
-                    WorkingDirectory = bridgeDir,
+                    Arguments = $"\"{serverPath}\"",
+                    WorkingDirectory = serverDir,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
@@ -396,7 +391,7 @@ namespace ArbiterHost
                 };
 
                 _serverProcess = Process.Start(psi);
-                AppConfig.BridgeProcess = _serverProcess; // register for app-level cleanup
+                AppConfig.EngineProcess = _serverProcess; // register for app-level cleanup
 
                 if (_serverProcess == null)
                 {
@@ -455,7 +450,7 @@ namespace ArbiterHost
                                      detail + "\n" +
                                      "──────────────────────────────\n\n" +
                                      "If packages are missing, run:\n" +
-                                     "  pip install -r AIEngine/PythonBridge/requirements.txt\n\n" +
+                                     "  pip install -r AIEngine/ArbiterEngine/requirements.txt\n\n" +
                                      "The server will attempt to install them automatically on next start.";
                         MessageBox.Show(msg, "Server Exited", MessageBoxButton.OK, MessageBoxImage.Error);
                         SetServerOffline();
@@ -491,9 +486,9 @@ namespace ArbiterHost
             }
             catch (Exception ex)
             {
-                string msg = $"Failed to start Python server:\n{ex.Message}\n\n" +
+                string msg = $"Failed to start Arbiter Engine:\n{ex.Message}\n\n" +
                              "Ensure Python is installed and in PATH, then start manually:\n" +
-                             "  cd AIEngine/PythonBridge\n  python fastapi_bridge.py";
+                             "  cd AIEngine/ArbiterEngine\n  python server.py";
                 AppendConsole(ServerConsoleBox, $"Exception: {ex.Message}");
                 AppendConsole(AppConsoleBox, $"Server start exception: {ex.Message}");
                 MessageBox.Show(msg, "Start Server Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -506,6 +501,28 @@ namespace ArbiterHost
             ServerStatusDot.Fill = Brushes.Red;
             ServerStatusText.Text = "Server: Offline";
             StartServerButton.IsEnabled = true;
+        }
+
+        /// <summary>
+        /// Resolves the path to AIEngine/ArbiterEngine/server.py by walking
+        /// up from the application base directory (up to 6 levels).
+        /// </summary>
+        private static string FindEngineServerScript()
+        {
+            if (!string.IsNullOrWhiteSpace(AppConfig.ArbiterEnginePath))
+            {
+                string configuredPath = Path.Combine(AppConfig.ArbiterEnginePath, "server.py");
+                if (File.Exists(configuredPath)) return configuredPath;
+            }
+
+            string? dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 6 && dir != null; i++)
+            {
+                string candidate = Path.Combine(dir, "AIEngine", "ArbiterEngine", "server.py");
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+            return string.Empty;
         }
 
         // ── Console helpers ───────────────────────────────────────────────────
@@ -591,8 +608,8 @@ namespace ArbiterHost
                 SetServerOffline();
                 AppendConsole(AppConsoleBox, "Chat error: server connection refused.");
                 ChatDisplay.Items.Add(
-                    "Error: Python server is not running. Click 'Start Server' or run: " +
-                    "cd AIEngine/PythonBridge && python fastapi_bridge.py");
+                    "Error: Arbiter Engine is not running. Click 'Start Server' or run: " +
+                    "cd AIEngine/ArbiterEngine && python server.py");
             }
             catch (TaskCanceledException)
             {

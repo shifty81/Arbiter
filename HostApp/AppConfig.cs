@@ -6,15 +6,13 @@ namespace ArbiterHost
     /// </summary>
     internal static class AppConfig
     {
-        /// <summary>Which mode the user launched: "ArbiterAI" or "ArbiterEngine".</summary>
-        public static string Mode { get; set; } = "ArbiterAI";
+        /// <summary>Always "ArbiterEngine" — the launcher has been removed.</summary>
+        public static string Mode { get; set; } = "ArbiterEngine";
 
         /// <summary>
-        /// Base URL of the active Python backend.
-        /// ArbiterAI bridge  → http://127.0.0.1:8000
-        /// Arbiter Engine    → http://127.0.0.1:8001
+        /// Base URL of the Arbiter Engine backend (server.py, port 8001 by default).
         /// </summary>
-        public static string ApiBaseUrl { get; set; } = "http://127.0.0.1:8000";
+        public static string ApiBaseUrl { get; set; } = "http://127.0.0.1:8001";
 
         /// <summary>Filesystem path to the AIEngine/ArbiterEngine directory.</summary>
         public static string ArbiterEnginePath { get; set; } = string.Empty;
