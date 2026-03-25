@@ -202,6 +202,24 @@ body {
 }
 .ab-ov-item:hover { background: var(--accent); color: #fff; }
 
+/* Group section headings inside the overflow panel picker */
+.ab-ov-sect {
+  padding: 6px 14px 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .9px;
+  color: var(--accent, #4fc3f7);
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+  pointer-events: none;
+}
+/* First section sits directly below the "All Panels" header — no extra border */
+.ab-ov-hdr + .ab-ov-sect {
+  border-top: none;
+  margin-top: 0;
+}
+
 /* Keep backwards-compat aliases so any residual .ab-btn refs don't break */
 .ab-btn { display: none; }
 .ab-group { display: none; }
