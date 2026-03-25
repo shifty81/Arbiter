@@ -1,7 +1,7 @@
 {
   "project": "ArbiterAI",
   "description": "Self-hosted, fully offline AI-powered development platform. Arbiter manages all project roadmaps and provides AI assistance for working on those projects — it does not integrate project code into its own engine.",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "last_updated": "2026-03-24",
   "pillars": [
     "Pillar 1 — Chat Engine: context-aware, multi-turn conversational development assistant",
@@ -1592,6 +1592,50 @@
           "title": "GET /workspace/ai-stats — AI usage statistics: call count, token estimates, active backend, per-project breakdown, top endpoints, cache size, uptime",
           "status": "done",
           "notes": "GET /workspace/ai-stats: aggregates _budget (per-project calls + estimated tokens), _metrics (per-endpoint request/error/latency), _llm_cache size, _SERVER_START_TIME for uptime. Returns structured JSON: total_ai_calls, total_estimated_tokens, active_backend, projects[], top_endpoints[], cache_size, uptime_seconds, session_start."
+        }
+      ]
+    },
+    {
+      "id": "Phase12",
+      "title": "AI Agent Workflows & Multi-Step Task Pipelines",
+      "description": "Multi-step AI workflows with state passing, AI-driven source file generation, structured code review, and backend/model recommendation — all building on the existing LLM and hardware-profiling infrastructure.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "PA12-1",
+          "title": "POST /ai/workflow/run — execute a named multi-step AI workflow; steps pass output forward via {{output}} placeholder; returns run-id + per-step results",
+          "status": "done",
+          "notes": "POST /ai/workflow/run: accepts workflow_name, steps[] (name/prompt/system), project_id, initial_context. Executes up to 20 steps sequentially; each step can use {{output}} to reference prior result. In-memory store (_WORKFLOW_STORE, max 200 entries). Returns run_id, status, steps[], final_output. Chain stops on error unless last step."
+        },
+        {
+          "id": "PA12-2",
+          "title": "GET /ai/workflow/{run_id} — retrieve a stored workflow result by run ID",
+          "status": "done",
+          "notes": "GET /ai/workflow/{run_id}: looks up _WORKFLOW_STORE by UUID, 404 if not found. Returns full result including all step outputs."
+        },
+        {
+          "id": "PA12-3",
+          "title": "GET /ai/workflow/list — list stored workflow runs with optional project filter",
+          "status": "done",
+          "notes": "GET /ai/workflow/list: returns summary view (no step details) sorted newest-first. Query params: project_id (filter), limit (1-200, default 50). Returns total, runs[]."
+        },
+        {
+          "id": "PA12-4",
+          "title": "POST /projects/{id}/generate — AI-driven source file generation from a natural-language spec; writes file to project; dry_run supported",
+          "status": "done",
+          "notes": "POST /projects/{id}/generate: LLM writes complete production-ready source code from spec. Language detected from file_path extension or explicit hint. dry_run=false (default) writes to disk; overwrite=false (default) prevents clobbering. Strips markdown fences from output. Returns content, file_path, written, line_count, char_count."
+        },
+        {
+          "id": "PA12-5",
+          "title": "POST /ai/code-review — structured AI code review: quality/security/performance/style issues with severity, line hints, and recommendations",
+          "status": "done",
+          "notes": "POST /ai/code-review: reads file or inline content, sends to LLM with focus-aware system prompt (all/quality/security/performance/style). Parses ISSUE:...END_ISSUE blocks into structured findings (severity/line/category/description/suggestion). Returns issues[] sorted by severity + REVIEW_SUMMARY. Max 10000 chars reviewed. Uses _PA12ReviewReq to avoid class name conflict with existing M5-4 _ReviewReq."
+        },
+        {
+          "id": "PA12-6",
+          "title": "GET /ai/models/recommend — recommend best backend and model tier for a task type using hardware profile",
+          "status": "done",
+          "notes": "GET /ai/models/recommend: task types: code/chat/analysis/summarise/embedding/translation/vision/long_context. Uses llm/hardware.py detect_hardware() to assess VRAM/RAM, maps to model size tiers, ranks embedded/ollama/openai backends by quality. Returns top_recommendation, recommendations[] with setup instructions, hardware_summary."
         }
       ]
     }

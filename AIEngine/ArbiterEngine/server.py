@@ -14852,6 +14852,688 @@ def workspace_ai_stats() -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Phase 12 — AI Agent Workflows & Multi-Step Task Pipelines
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Workflow storage ──────────────────────────────────────────────────────────
+
+import uuid as _uuid
+
+_WORKFLOW_STORE: dict[str, dict] = {}   # run_id → result dict
+_workflow_lock = threading.Lock()
+
+
+def _workflow_save(run_id: str, data: dict) -> None:
+    with _workflow_lock:
+        _WORKFLOW_STORE[run_id] = data
+        # Keep only the last 200 runs to avoid unbounded growth.
+        # dict preserves insertion order in Python 3.7+; first key is oldest.
+        if len(_WORKFLOW_STORE) > 200:
+            oldest = next(iter(_WORKFLOW_STORE))
+            del _WORKFLOW_STORE[oldest]
+
+
+# ── PA12-1: Multi-step AI workflow runner ─────────────────────────────────────
+
+class _WorkflowStep(BaseModel):
+    name: str                       # human label for this step
+    prompt: str                     # user-turn prompt; use {{output}} to inject prior step result
+    system: str = ""                # optional system message override for this step
+    role: str = "user"              # "user" | "assistant" (rarely needed)
+
+
+class _WorkflowRunReq(BaseModel):
+    workflow_name: str              # descriptive name for the workflow
+    steps: list[_WorkflowStep]      # ordered list of steps (min 1, max 20)
+    project_id: str = ""            # optional — included in stored result for filtering
+    initial_context: str = ""       # text prepended to the first step's prompt
+
+
+@app.post("/ai/workflow/run")
+def ai_workflow_run(req: _WorkflowRunReq) -> dict:
+    """Execute a named multi-step AI workflow.
+
+    A workflow is a sequence of LLM prompts where each step can reference the
+    output of the previous step using the ``{{output}}`` placeholder.  The
+    engine feeds results forward automatically, letting you build chains like:
+
+    1. *"Summarise this code"* → summary
+    2. *"Based on the summary: {{output}}, identify the top 3 risks"* → risk list
+    3. *"For each risk in {{output}}, suggest a mitigation"* → mitigations
+
+    Parameters
+    ----------
+    workflow_name
+        A human-readable label for this workflow run (stored with the result).
+    steps
+        Ordered list of up to 20 steps.  Each step has:
+        - ``name``   — label used in the response
+        - ``prompt`` — user message; ``{{output}}`` is replaced with the
+          previous step's output
+        - ``system`` — optional system-message override for this step
+    project_id
+        If set, stored with the run result for filtering via
+        ``GET /ai/workflow/list``.
+    initial_context
+        Text prepended to the first step's prompt (e.g. file content).
+
+    Returns a ``run_id`` that can be used with ``GET /ai/workflow/{run_id}``
+    to retrieve the result later.
+
+    PA12-1
+    """
+    if not req.steps:
+        raise HTTPException(status_code=422, detail="Workflow must have at least one step")
+    if len(req.steps) > 20:
+        raise HTTPException(status_code=422, detail="Workflow may have at most 20 steps")
+
+    run_id = str(_uuid.uuid4())
+    started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    step_results: list[dict] = []
+    last_output = ""
+    overall_ok = True
+
+    for i, step in enumerate(req.steps):
+        # Inject previous output and optional initial context
+        user_content = step.prompt.replace("{{output}}", last_output)
+        if i == 0 and req.initial_context:
+            user_content = req.initial_context + "\n\n" + user_content
+
+        system_content = step.system or (
+            "You are a helpful AI assistant performing a multi-step workflow task. "
+            "Be concise and structured."
+        )
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user",   "content": user_content},
+        ]
+
+        step_start = time.time()
+        error_msg = ""
+        output = ""
+        try:
+            output = _llm.chat(messages)
+        except Exception as exc:
+            error_msg = str(exc)
+            overall_ok = False
+            output = f"[STEP ERROR] {exc}"
+
+        step_results.append({
+            "step":      i + 1,
+            "name":      step.name,
+            "elapsed_s": round(time.time() - step_start, 2),
+            "output":    output,
+            "error":     error_msg,
+        })
+        last_output = output
+
+        # Stop chain on error unless it's the last step
+        if error_msg and i < len(req.steps) - 1:
+            break
+
+    finished_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    result = {
+        "run_id":        run_id,
+        "workflow_name": req.workflow_name,
+        "project_id":    req.project_id,
+        "status":        "ok" if overall_ok else "error",
+        "steps_run":     len(step_results),
+        "steps_total":   len(req.steps),
+        "started_at":    started_at,
+        "finished_at":   finished_at,
+        "steps":         step_results,
+        "final_output":  last_output,
+    }
+    _workflow_save(run_id, result)
+    return result
+
+
+# ── PA12-3: List stored workflow runs ────────────────────────────────────────
+
+@app.get("/ai/workflow/list")
+def ai_workflow_list(project_id: str = "", limit: int = 50) -> dict:
+    """List stored workflow run summaries.
+
+    Returns a summary (no step details) of the most recent workflow runs,
+    optionally filtered by project.
+
+    Parameters
+    ----------
+    project_id
+        If set, only return runs associated with this project.
+    limit
+        Maximum number of runs to return (default 50, max 200).
+
+    PA12-3
+    """
+    limit = max(1, min(limit, 200))
+    with _workflow_lock:
+        runs = list(_WORKFLOW_STORE.values())
+
+    if project_id:
+        runs = [r for r in runs if r.get("project_id") == project_id]
+
+    # Sort most recent first using finished_at ISO string (lexicographic is fine for ISO-8601)
+    runs.sort(key=lambda r: r.get("finished_at", ""), reverse=True)
+    runs = runs[:limit]
+
+    summaries = [
+        {
+            "run_id":        r["run_id"],
+            "workflow_name": r["workflow_name"],
+            "project_id":    r.get("project_id", ""),
+            "status":        r.get("status", ""),
+            "steps_run":     r.get("steps_run", 0),
+            "steps_total":   r.get("steps_total", 0),
+            "started_at":    r.get("started_at", ""),
+            "finished_at":   r.get("finished_at", ""),
+        }
+        for r in runs
+    ]
+    return {
+        "total":   len(summaries),
+        "limit":   limit,
+        "project_id": project_id,
+        "runs":    summaries,
+    }
+
+
+# ── PA12-2: Retrieve a workflow run by ID ────────────────────────────────────
+
+@app.get("/ai/workflow/{run_id}")
+def ai_workflow_get(run_id: str) -> dict:
+    """Retrieve a stored workflow run result by its ID.
+
+    Workflow runs are stored in memory for the lifetime of the server session
+    (up to 200 most recent runs).
+
+    Parameters
+    ----------
+    run_id
+        The UUID returned by ``POST /ai/workflow/run``.
+
+    PA12-2
+    """
+    with _workflow_lock:
+        result = _WORKFLOW_STORE.get(run_id)
+    if result is None:
+        raise HTTPException(status_code=404,
+                            detail=f"Workflow run '{run_id}' not found")
+    return result
+
+
+# ── PA12-4: AI-driven source file generation from spec ───────────────────────
+
+_GEN_EXTS_BY_LANG = {
+    "python":     ".py",
+    "javascript": ".js",
+    "typescript": ".ts",
+    "csharp":     ".cs",
+    "go":         ".go",
+    "rust":       ".rs",
+    "java":       ".java",
+    "cpp":        ".cpp",
+    "c":          ".c",
+    "ruby":       ".rb",
+    "php":        ".php",
+    "swift":      ".swift",
+    "kotlin":     ".kt",
+    "html":       ".html",
+    "css":        ".css",
+    "bash":       ".sh",
+    "yaml":       ".yaml",
+    "json":       ".json",
+    "markdown":   ".md",
+}
+
+
+class _GenerateReq(BaseModel):
+    project_id: str              # project to generate into
+    spec: str                    # natural-language description of the file(s) to generate
+    file_path: str = ""          # desired output path (relative to project root)
+    language: str = ""           # hint: "python" | "typescript" | ... (auto-detected if blank)
+    overwrite: bool = False      # overwrite if the file already exists
+    dry_run: bool = False        # return generated content without writing to disk
+
+
+@app.post("/projects/{project_id}/generate")
+def project_generate(project_id: str, req: _GenerateReq) -> dict:
+    """Generate a source file from a natural-language specification.
+
+    Asks the LLM to write a complete, production-ready source file based on
+    the description in ``spec``.  The file is written to
+    ``Projects/{project_id}/{file_path}`` unless ``dry_run=true``.
+
+    Parameters
+    ----------
+    project_id
+        The target project.
+    spec
+        Plain-English description of what to generate, e.g.
+        ``"A FastAPI router with CRUD endpoints for a User model backed by
+        SQLite using aiosqlite"``.
+    file_path
+        Desired output path relative to the project root.  If omitted, the
+        LLM infers an appropriate filename.
+    language
+        Optional language hint (``"python"``, ``"typescript"``, etc.).
+        Auto-detected from ``file_path`` extension when not supplied.
+    overwrite
+        Default ``false`` — refuse to overwrite existing files.
+    dry_run
+        Default ``false`` — set to ``true`` to get the generated content
+        without writing anything to disk.
+
+    PA12-4
+    """
+    import re as _re12
+
+    if not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise HTTPException(status_code=422, detail="Invalid project_id")
+    if req.project_id and req.project_id != project_id:
+        raise HTTPException(status_code=422,
+                            detail="project_id in URL and body must match")
+
+    project_dir = _PROJECTS_DIR / project_id
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404,
+                            detail=f"Project '{project_id}' not found")
+
+    # Resolve language from file extension or hint
+    language = req.language.lower().strip()
+    ext_hint = ""
+    if req.file_path:
+        fp_ext = Path(req.file_path).suffix.lower()
+        for lang, ext in _GEN_EXTS_BY_LANG.items():
+            if ext == fp_ext:
+                language = language or lang
+                break
+        ext_hint = fp_ext
+    if not language:
+        language = "python"   # safe default
+    file_ext = _GEN_EXTS_BY_LANG.get(language, ext_hint or ".py")
+
+    # Ask LLM to generate the file
+    system = (
+        f"You are an expert {language} developer. "
+        "Generate a complete, production-ready source file based on the specification. "
+        "Output ONLY the source code — no markdown fences, no explanations, no preamble. "
+        "The code must be immediately runnable/compilable with no placeholders."
+    )
+    file_label = req.file_path or f"(inferred){file_ext}"
+    user_msg = (
+        f"Project: {project_id}\n"
+        f"Target file: {file_label}\n"
+        f"Language: {language}\n\n"
+        f"Specification:\n{req.spec}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # Strip accidental markdown fences
+    generated = _re12.sub(r"^```[^\n]*\n?", "", raw, flags=_re12.MULTILINE)
+    generated = _re12.sub(r"\n?```$", "", generated, flags=_re12.MULTILINE)
+    generated = generated.strip()
+
+    # Determine output path
+    if req.file_path:
+        out_rel = req.file_path
+    else:
+        # Ask the LLM to suggest a filename from the first comment or class/module name
+        first_line = generated.splitlines()[0] if generated else ""
+        name_match = _re12.search(r"\b([A-Za-z][A-Za-z0-9_]+)\b", first_line)
+        suggested_name = (name_match.group(1).lower() if name_match else "generated") + file_ext
+        out_rel = suggested_name
+
+    out_path = project_dir / out_rel
+    written = False
+    write_error = ""
+
+    if not req.dry_run:
+        if out_path.exists() and not req.overwrite:
+            raise HTTPException(
+                status_code=409,
+                detail=f"File already exists: {out_rel}. Set overwrite=true to replace it.",
+            )
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(generated, encoding="utf-8")
+            written = True
+        except Exception as exc:
+            write_error = str(exc)
+            logger.warning("Could not write generated file %s: %s", out_path, exc)
+
+    return {
+        "project_id":  project_id,
+        "file_path":   out_rel,
+        "language":    language,
+        "dry_run":     req.dry_run,
+        "written":     written,
+        "write_error": write_error,
+        "line_count":  len(generated.splitlines()),
+        "char_count":  len(generated),
+        "content":     generated,
+    }
+
+
+# ── PA12-5: Structured AI code review ────────────────────────────────────────
+
+_REVIEW_MAX_FILE_CHARS = 10_000
+
+
+class _PA12ReviewReq(BaseModel):
+    file_path: str              # path to the file to review
+    project_id: str = ""        # optional — restricts path resolution to project dir
+    content: str = ""           # inline source; overrides file_path read if provided
+    focus: str = "all"          # "quality" | "security" | "performance" | "style" | "all"
+
+
+@app.post("/ai/code-review")
+def ai_code_review_structured(req: _PA12ReviewReq) -> dict:
+    """Perform a structured AI code review on a source file.
+
+    Unlike ``POST /projects/{id}/security-audit`` (which focuses on OWASP
+    vulnerabilities), this review covers:
+    - **Code quality** — logic errors, unreachable code, edge-case gaps
+    - **Best practices** — design patterns, SOLID principles, naming
+    - **Performance** — inefficient algorithms, unnecessary allocations
+    - **Style** — formatting, consistency, documentation
+    - **Security** — basic credential exposure, injection vectors
+
+    Each finding includes a severity (CRITICAL / HIGH / MEDIUM / LOW / INFO),
+    the approximate line number, a category, and a specific recommendation.
+
+    Parameters
+    ----------
+    file_path
+        Path to the source file.  Relative paths are resolved inside
+        ``project_id`` if set.
+    project_id
+        Scope path resolution to ``Projects/{project_id}/``.
+    content
+        Inline source content — overrides disk read.
+    focus
+        Review focus: ``"all"`` (default), ``"quality"``, ``"security"``,
+        ``"performance"``, or ``"style"``.
+
+    PA12-5
+    """
+    import re as _re12b
+
+    # ── Resolve content ────────────────────────────────────────────────────────
+    code = req.content.strip()
+    resolved_path = req.file_path
+
+    if not code:
+        candidate: Path | None = None
+        if req.project_id and _PROJECT_ID_PATTERN.fullmatch(req.project_id):
+            candidate = _PROJECTS_DIR / req.project_id / req.file_path
+        if candidate is None or not candidate.is_file():
+            candidate = Path(req.file_path)
+        if not candidate.is_file():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {req.file_path}")
+        try:
+            code = candidate.read_text(encoding="utf-8", errors="replace")
+            resolved_path = str(candidate)
+        except Exception as exc:
+            raise HTTPException(status_code=500,
+                                detail=f"Could not read file: {exc}") from exc
+
+    truncated = len(code) > _REVIEW_MAX_FILE_CHARS
+    excerpt = code[:_REVIEW_MAX_FILE_CHARS]
+
+    # ── Build focus-aware system prompt ───────────────────────────────────────
+    focus_notes = {
+        "quality":     "Focus exclusively on code quality: logic errors, missing edge cases, unreachable code, unclear naming.",
+        "security":    "Focus exclusively on security: credential exposure, injection, insecure defaults, missing validation.",
+        "performance": "Focus exclusively on performance: algorithmic complexity, unnecessary loops, memory allocation, I/O efficiency.",
+        "style":       "Focus exclusively on style: formatting, naming conventions, documentation coverage, consistency.",
+        "all":         "Cover all aspects: quality, security, performance, and style.",
+    }
+    focus_instruction = focus_notes.get(req.focus, focus_notes["all"])
+
+    system = (
+        "You are a senior code reviewer. "
+        f"{focus_instruction}\n\n"
+        "For each issue output EXACTLY this block:\n"
+        "ISSUE:\n"
+        "SEVERITY: CRITICAL|HIGH|MEDIUM|LOW|INFO\n"
+        "LINE: <approximate line number or range>\n"
+        "CATEGORY: <Code Quality|Security|Performance|Style|Best Practice>\n"
+        "DESCRIPTION: <specific explanation of the problem>\n"
+        "SUGGESTION: <concrete fix>\n"
+        "END_ISSUE\n\n"
+        "After all issues output:\n"
+        "REVIEW_SUMMARY: <2-3 sentence overall assessment with a score out of 10>\n\n"
+        "If the code has no issues output: NO_ISSUES"
+    )
+    user_msg = (
+        f"Review the following code from `{req.file_path}`"
+        + (f" (project: {req.project_id})" if req.project_id else "")
+        + ("\n[Content truncated to first 10 000 chars]" if truncated else "")
+        + f":\n\n{excerpt}"
+    )
+
+    try:
+        raw = _llm.chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_msg},
+        ])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+    # ── Parse issues ──────────────────────────────────────────────────────────
+    issues: list[dict] = []
+    review_summary = ""
+
+    if "NO_ISSUES" in raw.upper():
+        review_summary = "No issues identified — code looks clean."
+    else:
+        for block in _re12b.split(r"ISSUE:", raw, flags=_re12b.IGNORECASE):
+            block = block.strip()
+            if not block:
+                continue
+            end_pos = block.upper().find("END_ISSUE")
+            if end_pos >= 0:
+                block = block[:end_pos].strip()
+
+            def _get(label: str, text: str) -> str:
+                m = _re12b.search(
+                    rf"^{label}\s*:\s*(.+)$", text,
+                    _re12b.IGNORECASE | _re12b.MULTILINE,
+                )
+                return m.group(1).strip() if m else ""
+
+            severity    = _get("SEVERITY", block)
+            line_hint   = _get("LINE", block)
+            category    = _get("CATEGORY", block)
+            description = _get("DESCRIPTION", block)
+            suggestion  = _get("SUGGESTION", block)
+
+            if severity or description:
+                issues.append({
+                    "severity":    severity or "INFO",
+                    "line":        line_hint,
+                    "category":    category,
+                    "description": description,
+                    "suggestion":  suggestion,
+                })
+
+        summ_m = _re12b.search(
+            r"REVIEW_SUMMARY\s*:\s*(.+?)(?:$|\nISSUE:)",
+            raw, _re12b.IGNORECASE | _re12b.DOTALL,
+        )
+        if summ_m:
+            review_summary = summ_m.group(1).strip()
+
+    # Sort by severity
+    _sev = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+    issues.sort(key=lambda i: _sev.get(i["severity"].upper(), 5))
+
+    return {
+        "file_path":     resolved_path,
+        "project_id":    req.project_id,
+        "focus":         req.focus,
+        "truncated":     truncated,
+        "issue_count":   len(issues),
+        "issues":        issues,
+        "summary":       review_summary,
+    }
+
+
+# ── PA12-6: Model / backend recommendation ────────────────────────────────────
+
+# Task-type → recommended model size tier and capabilities
+_TASK_PROFILES: dict[str, dict] = {
+    "code":          {"min_size_gb": 4,  "ideal_size_gb": 7,  "note": "Code generation/editing — needs strong reasoning"},
+    "chat":          {"min_size_gb": 2,  "ideal_size_gb": 4,  "note": "General chat — any decent model works well"},
+    "analysis":      {"min_size_gb": 7,  "ideal_size_gb": 13, "note": "Deep analysis/audit — bigger models perform better"},
+    "summarise":     {"min_size_gb": 2,  "ideal_size_gb": 4,  "note": "Summarisation — medium models are sufficient"},
+    "embedding":     {"min_size_gb": 0,  "ideal_size_gb": 1,  "note": "Embedding models are tiny (< 1 GiB typically)"},
+    "translation":   {"min_size_gb": 4,  "ideal_size_gb": 7,  "note": "Translation — multilingual models recommended"},
+    "vision":        {"min_size_gb": 7,  "ideal_size_gb": 14, "note": "Vision/multimodal — requires multimodal GGUF"},
+    "long_context":  {"min_size_gb": 7,  "ideal_size_gb": 13, "note": "Long-context tasks — maximise n_ctx on your hardware"},
+}
+
+
+@app.get("/ai/models/recommend")
+def ai_models_recommend(task: str = "code") -> dict:
+    """Recommend the best AI backend and model tier for a given task type.
+
+    Uses the hardware profiler to assess available VRAM and RAM, then
+    suggests which backend (``embedded``, ``ollama``, ``openai``) and which
+    model size tier is most appropriate for the specified task on this machine.
+
+    Task types
+    ----------
+    ``code``         — code generation, editing, refactoring (default)
+    ``chat``         — general conversational AI
+    ``analysis``     — deep code analysis, security audit, architecture review
+    ``summarise``    — text/code summarisation
+    ``embedding``    — vector embedding generation
+    ``translation``  — multi-language translation
+    ``vision``       — image understanding (requires multimodal GGUF)
+    ``long_context`` — tasks requiring large context windows (>8 K tokens)
+
+    PA12-6
+    """
+    task_key = task.lower().strip()
+    if task_key not in _TASK_PROFILES:
+        task_key = "code"
+        note_override = (
+            f"Unknown task type '{task}' — defaulting to 'code' profile. "
+            f"Valid types: {', '.join(sorted(_TASK_PROFILES))}."
+        )
+    else:
+        note_override = ""
+
+    profile_info = _TASK_PROFILES[task_key]
+    min_size   = profile_info["min_size_gb"]
+    ideal_size = profile_info["ideal_size_gb"]
+
+    # Detect hardware
+    hw = None
+    try:
+        from llm.hardware import detect_hardware as _detect_hw
+        hw = _detect_hw()
+    except Exception as exc:
+        logger.warning("Hardware detection failed in recommend: %s", exc)
+
+    vram_gb  = hw.vram_total_gb  if hw else 0.0
+    ram_gb   = hw.ram_total_gb   if hw else 0.0
+    gpu_name = hw.gpu_name       if hw else ""
+
+    # Score backends and model tiers
+    recommendations: list[dict] = []
+
+    # ── Embedded (llama-cpp-python) ───────────────────────────────────────────
+    if vram_gb >= ideal_size:
+        emb_tier = f"{ideal_size}B Q4_K_M (fully in VRAM)"
+        emb_quality = "excellent"
+    elif vram_gb >= min_size:
+        emb_tier = f"{min_size}–{ideal_size}B Q4/Q5 (partial GPU offload)"
+        emb_quality = "good"
+    elif ram_gb >= ideal_size * 2:
+        emb_tier = f"{min_size}B Q4 (CPU inference — slower)"
+        emb_quality = "acceptable"
+    else:
+        emb_tier = "very small model only (Q2/Q3 quantisation)"
+        emb_quality = "limited"
+
+    recommendations.append({
+        "backend":     "embedded",
+        "quality":     emb_quality,
+        "model_tier":  emb_tier,
+        "description": "In-process GGUF via llama-cpp-python. No external server. Fully offline.",
+        "setup":       "POST /ai/embedded/load with auto_configure=true",
+    })
+
+    # ── Ollama ────────────────────────────────────────────────────────────────
+    if vram_gb >= ideal_size:
+        oll_tier = f"ollama pull llama3:{ideal_size}b or codellama:{ideal_size}b"
+        oll_quality = "excellent"
+    elif vram_gb >= min_size:
+        oll_tier = f"ollama pull llama3:{min_size}b"
+        oll_quality = "good"
+    else:
+        oll_tier = "ollama pull phi3:mini (CPU only)"
+        oll_quality = "limited"
+
+    recommendations.append({
+        "backend":     "ollama",
+        "quality":     oll_quality,
+        "model_tier":  oll_tier,
+        "description": "Ollama local server. Easy model management. Requires Ollama installed.",
+        "setup":       "Install Ollama, run model, set llm.backend=ollama in config.toml",
+    })
+
+    # ── OpenAI / cloud API ────────────────────────────────────────────────────
+    recommendations.append({
+        "backend":     "openai",
+        "quality":     "excellent",
+        "model_tier":  "gpt-4o / gpt-4-turbo (cloud — requires API key)",
+        "description": "OpenAI cloud API. Best quality for complex tasks. Requires internet + API key.",
+        "setup":       "Set llm.backend=openai and llm.openai.api_key in config.toml",
+    })
+
+    # Build hardware context string
+    if hw:
+        hw_summary = (
+            f"{ram_gb:.0f} GiB RAM, "
+            f"{vram_gb:.1f} GiB VRAM ({gpu_name or 'no GPU'}), "
+            f"{hw.cpu_cores_physical} CPU cores"
+        )
+    else:
+        hw_summary = "Hardware profile unavailable"
+
+    # Determine top recommendation
+    top = recommendations[0]   # embedded is usually best for local-first
+
+    return {
+        "task":             task_key,
+        "task_note":        note_override or profile_info["note"],
+        "hardware_summary": hw_summary,
+        "hardware":         hw.to_dict() if hw else None,
+        "min_model_size_gb":   min_size,
+        "ideal_model_size_gb": ideal_size,
+        "top_recommendation":  top["backend"],
+        "recommendations":     recommendations,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     host = _config.get("server.host", "127.0.0.1")
     port = int(_config.get("server.port", 8001))

@@ -2485,6 +2485,30 @@ async def _phase11_project_stub(project_id: str, _req: _Request):
     }
 
 
+# Phase 12 — parameterised bridge stubs
+
+@app.post("/projects/{project_id}/generate")
+async def _phase12_project_stub(project_id: str, _req: _Request):
+    """Bridge stub for Phase 12 project-scoped endpoints (PA12-4)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase12",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
+@app.get("/ai/workflow/{run_id}")
+async def _phase12_workflow_stub(run_id: str, _req: _Request):
+    """Bridge stub for Phase 12 workflow retrieval (PA12-2)."""
+    return {
+        "status": "not_implemented",
+        "feature": "phase12",
+        "detail": "This endpoint requires ArbiterEngine (port 8001). "
+                  "Run AIEngine/ArbiterEngine/server.py.",
+    }
+
+
 def _stub_handler(feature: str):
     async def _h(_req: _Request):
         return {
@@ -2547,6 +2571,11 @@ for _stub_path, _stub_tag in [
     ("/ai/rename-symbol", "phase11"),
     ("/workspace/ai-stats", "phase11"),
     ("/ai/hardware", "phase11"),
+    # Phase 12 — AI Agent Workflows & Multi-Step Task Pipelines
+    ("/ai/workflow/run", "phase12"),
+    ("/ai/workflow/list", "phase12"),
+    ("/ai/code-review", "phase12"),
+    ("/ai/models/recommend", "phase12"),
 ]:
     app.add_api_route(
         _stub_path, _stub_handler(_stub_tag),
