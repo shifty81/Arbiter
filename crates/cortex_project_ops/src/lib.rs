@@ -5,6 +5,9 @@
 //! rich read-only repository/worktree inspection and cross-process execution
 //! leases that prevent conflicting project operations.
 
+pub mod transaction_flow;
+pub use transaction_flow::*;
+
 use cortex_adapter_git::GitAdapter;
 use cortex_project::ProjectId;
 use serde::{Deserialize, Serialize};

@@ -7,5 +7,6 @@ license.workspace = true
 [dependencies]
 cortex_adapter_git = { path = "../cortex_adapter_git" }
 cortex_project = { path = "../cortex_project" }
+cortex_transactions = { path = "../cortex_transactions" }
 serde.workspace = true
 serde_json.workspace = true
