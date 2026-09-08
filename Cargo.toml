@@ -26,6 +26,7 @@ members = [
     "crates/cortex_plugin",
     "crates/cortex_process",
     "crates/cortex_project",
+    "crates/cortex_project_registry",
     "crates/cortex_protocol",
     "crates/cortex_provider",
     "crates/cortex_provider_comfyui",
