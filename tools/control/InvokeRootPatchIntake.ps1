@@ -249,7 +249,14 @@ foreach ($f in $candidates) {
 
 if (@($patches).Count -eq 0) {
     Emit 'PASS' 'Root patch intake: no pending patch ZIPs detected.'
-    return [pscustomobject]@{ Applied = 0; Ignored = @($candidates).Count; Archives = @(); RestartRequired = $false }
+    return [pscustomobject]@{
+        Applied = 0
+        Pending = 0
+        Invalid = 0
+        Ignored = @($candidates).Count
+        Archives = @()
+        RestartRequired = $false
+    }
 }
 
 $results = @()
@@ -264,4 +271,11 @@ foreach ($patch in $patches) {
 $archives = @($results | ForEach-Object { $_.ArchivePath })
 $restartRequired = @($results | Where-Object { $_.RestartRequired }).Count -gt 0
 Emit 'PASS' ("Root patch intake complete: {0} applied." -f @($archives).Count)
-return [pscustomobject]@{ Applied = @($archives).Count; Ignored = (@($candidates).Count - @($patches).Count); Archives = $archives; RestartRequired = $restartRequired }
+return [pscustomobject]@{
+    Applied = @($archives).Count
+    Pending = $(if ($ScanOnly) { @($patches).Count } else { 0 })
+    Invalid = 0
+    Ignored = (@($candidates).Count - @($patches).Count)
+    Archives = $archives
+    RestartRequired = $restartRequired
+}
