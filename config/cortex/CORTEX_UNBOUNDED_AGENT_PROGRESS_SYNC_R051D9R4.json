@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R4",
+  "feature": "unbounded_agent_progress_optional_duration_sync",
+  "behavior": {
+    "max_elapsed_seconds_zero_means_unbounded": true,
+    "progress_limit_zero_maps_to_none": true,
+    "positive_explicit_watchdog_maps_to_some_duration": true
+  },
+  "runtime_behavior_change": false,
+  "tool_catalog_count": 49
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Artifact Entry v1",
+  "type": "object",
+  "required": [
+    "path",
+    "kind",
+    "bytes"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "image",
+        "screenshot",
+        "evidence",
+        "log",
+        "other"
+      ]
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "workspace_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "producer": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

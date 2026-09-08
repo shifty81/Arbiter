@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cortex.local/schemas/project.control.v1.json",
+  "title": "Universal Project Control Center project contract v1",
+  "type": "object",
+  "required": ["schema_version", "project", "commands", "quality_gates"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "project": {
+      "type": "object",
+      "required": ["id", "name", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 }
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "required"],
+        "additionalProperties": false,
+        "properties": {
+          "tool": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "program", "args"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "label": { "type": "string" },
+          "program": { "type": "string", "minLength": 1 },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "working_directory": { "type": "string" },
+          "environment": { "type": "object", "additionalProperties": { "type": "string" } },
+          "diagnostic_on_exit": { "type": "string" }
+        }
+      }
+    },
+    "quality_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "stages"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "label": { "type": "string" },
+          "stages": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

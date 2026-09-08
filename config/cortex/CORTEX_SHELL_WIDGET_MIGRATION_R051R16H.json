@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16H",
+  "feature": "cortex_shell_widget_migration",
+  "geometry_authority": "retained_shell_layout",
+  "migrated_regions": [
+    "left",
+    "center",
+    "right",
+    "activity",
+    "status"
+  ],
+  "native_controls_still_rendered_by_win32": true,
+  "raw_shell_width_authority_removed": true,
+  "responsive_acceptance_profiles": [
+    "1920x1080",
+    "2560x1440",
+    "3440x1440",
+    "5120x1440"
+  ],
+  "runtime_visual_intent": "geometry_equivalent_with_single_authority",
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

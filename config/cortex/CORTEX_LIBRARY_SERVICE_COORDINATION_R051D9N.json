@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9N",
+  "feature": "cortex_library_authority_and_multi_project_service_coordination",
+  "library": {
+    "configurable_authorized_root": true,
+    "registry_file": "registry/library.json"
+  },
+  "service": {
+    "model": "workspace services coordinated by global registry",
+    "unique_persistent_port_per_workspace": true,
+    "port_range_from_preferred": 192,
+    "stop_service_on_workspace_switch": false
+  },
+  "startup": {
+    "provider_probe_before_window": false
+  },
+  "tool_catalog_count": 49
+}

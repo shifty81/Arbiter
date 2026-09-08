@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9Q",
+  "feature": "cortex_internal_git_and_project_operations",
+  "internal_git": {
+    "location": "<library-root>/.cortex/git/projects/<workspace-id>.git",
+    "modifies_project_git_metadata": false,
+    "shadow_worktree_snapshots": true,
+    "local_recovery_identity": true,
+    "generated_directories_excluded": true,
+    "automatic_network_push": false
+  },
+  "operations": {
+    "cargo": ["validate", "build", "test"],
+    "node": ["validate", "build", "test"],
+    "cmake": ["build"],
+    "dotnet": ["validate", "build", "test"],
+    "arbitrary_shell": false,
+    "desktop_build_button_uses_detected_profile_for_non_rust_projects": true
+  },
+  "chat_commands": {
+    "direct_project_operations": true,
+    "internal_recovery_snapshot": true
+  },
+  "tool_catalog_count": 49
+}

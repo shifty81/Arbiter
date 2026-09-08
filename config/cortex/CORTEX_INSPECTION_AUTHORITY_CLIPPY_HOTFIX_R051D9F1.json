@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9F1",
+  "feature": "cortex_inspection_authority_clippy_hotfix",
+  "runtime_behavior_change": false,
+  "fix": "test_only_ToolDefinition_import",
+  "tool_catalog_count": 49
+}

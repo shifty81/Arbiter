@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V6A",
+  "native_context_menus": true,
+  "context_menu_technology": [
+    "WM_CONTEXTMENU",
+    "TrackPopupMenuEx"
+  ],
+  "right_panel_tabs": [
+    "Files",
+    "Changes",
+    "Memory",
+    "Artifacts",
+    "Tasks",
+    "Settings"
+  ],
+  "chat_actions": [
+    "copy",
+    "upvote",
+    "downvote",
+    "regenerate"
+  ],
+  "vote_visual_style": "reddit_like_arrow",
+  "project_group_spacing_logical_px": {
+    "min": 8,
+    "preferred": 10,
+    "max": 12
+  },
+  "chat_child_spacing_logical_px": {
+    "min": 2,
+    "preferred": 3,
+    "max": 4
+  },
+  "native_keyboard_context_menu": [
+    "Shift+F10",
+    "MenuKey"
+  ]
+}

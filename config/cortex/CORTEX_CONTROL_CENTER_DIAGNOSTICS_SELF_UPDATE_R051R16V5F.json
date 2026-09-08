@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V5F",
+  "title": "Control Center diagnostics and deferred self-update authority",
+  "rules": {
+    "automatic_debug_bundle": true,
+    "automatic_debug_bundle_must_not_launch_gui_tools": true,
+    "vscode_checkpoint_dependency": false,
+    "legacy_vscode_bridge_optional": true,
+    "root_control_utility_live_overwrite": false,
+    "root_control_utility_deferred_update": true,
+    "provider_unit_tests_must_be_offline_deterministic": true,
+    "live_provider_roundtrip_belongs_to_runtime_certification": true
+  },
+  "deferred_self_update": {
+    "pending_root": ".open2d/updates/deferred/pending",
+    "finalizer": "scripts/Finalize-Open2DDeferredSelfUpdate.ps1",
+    "authorized_targets": ["Open2DTools.cmd"],
+    "backup_root": ".open2d/updates/self-backups",
+    "event_kind": "control_center_self_updated"
+  }
+}

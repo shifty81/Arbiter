@@ -1,0 +1,27 @@
+[package]
+name = "cortex_tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_universal = { path = "../cortex_universal" }
+cortex_execution = { path = "../cortex_execution" }
+cortex_permissions = { path = "../cortex_permissions" }
+cortex_transactions = { path = "../cortex_transactions" }
+cortex_context = { path = "../cortex_context" }
+cortex_development = { path = "../cortex_development" }
+cortex_toolchain = { path = "../cortex_toolchain" }
+cortex_jobs = { path = "../cortex_jobs" }
+cortex_vault = { path = "../cortex_vault" }
+cortex_plugin = { path = "../cortex_plugin" }
+cortex_registry = { path = "../cortex_registry" }
+cortex_adapter_git = { path = "../cortex_adapter_git" }
+cortex_capture = { path = "../cortex_capture" }
+cortex_image = { path = "../cortex_image" }
+cortex_process = { path = "../cortex_process" }
+cortex_rpc = { path = "../cortex_rpc" }
+cortex_protocol = { path = "../cortex_protocol" }
+cortex_workspace = { path = "../cortex_workspace" }
+cortex_session = { path = "../cortex_session" }
+serde_json.workspace = true

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R11",
+  "feature": "response_feedback_and_versioning",
+  "feedback_values": [
+    -1,
+    0,
+    1
+  ],
+  "feedback_public_aggregate": false,
+  "redo": {
+    "inline_instruction_box": true,
+    "background_generation": true,
+    "preserve_prior_response": true,
+    "linked_revision_history": true
+  },
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

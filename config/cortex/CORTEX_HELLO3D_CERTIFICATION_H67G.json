@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "fixture_id": "cortex-certification-hello3d-clock",
+  "title": "hello3d autonomous clock completion",
+  "purpose": "First end-to-end real-project certification fixture for Cortex project mutation, bounded repair, quality gates, build, launch, and live operational telemetry.",
+  "canonical_prompt": "finish the clock, repair anything still broken, build it, and launch the finished application",
+  "project_expectations": {
+    "project_name": "hello3d",
+    "project_type": "rust_gui",
+    "must_be_visible_application": true,
+    "manual_source_edits_allowed": false
+  },
+  "required_execution": [
+    "authoritative_project_binding",
+    "source_inspection",
+    "transaction_reuse_or_creation",
+    "successful_project_file_mutation",
+    "adaptive_failed_edit_recovery",
+    "format",
+    "check",
+    "tests",
+    "clippy",
+    "build",
+    "verified_transaction_commit",
+    "launch",
+    "live_activity_telemetry",
+    "runtime_evidence"
+  ],
+  "forbidden_outcomes": [
+    "manual_edit_instructions",
+    "second_approval_prompt_after_explicit_execution_request",
+    "repeated_identical_failed_mutation",
+    "false_success_claim",
+    "project_root_mismatch",
+    "silent_multi_minute_execution_without_operational_activity"
+  ]
+}

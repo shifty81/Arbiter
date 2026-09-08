@@ -1,0 +1,319 @@
+{
+  "schema_version": 2,
+  "program": "CORTEX-R051N",
+  "lock_pass": "O2D-R051N0",
+  "baseline": {
+    "workspace_members": 54,
+    "tool_count": 47,
+    "checkpoint": "PASS",
+    "desktop_certification": "READY",
+    "clippy": "PASS"
+  },
+  "objective": "Normalize the entire standalone Cortex application into a project-agnostic local AI/agent mainframe before deeper indexing, auditing, assimilation and automation work.",
+  "normalization_domains": [
+    {
+      "id": "N1",
+      "name": "Executable and product identity",
+      "priority": "P0",
+      "targets": [
+        "apps/cortex is canonical CLI",
+        "apps/cortex_desktop is canonical desktop",
+        "apps/open2d_cortex remains compatibility-only until callers migrate",
+        "Cortex version/pass identity becomes independent from Open2D handoff identity"
+      ]
+    },
+    {
+      "id": "N2",
+      "name": "Crate authority and dependency direction",
+      "priority": "P0",
+      "targets": [
+        "Create/migrate generic cortex_protocol, cortex_http, cortex_rpc",
+        "Create/migrate generic cortex_process, cortex_image, cortex_capture",
+        "Create/migrate generic cortex_tools and cortex_core",
+        "Create/migrate generic cortex_provider_lmstudio and cortex_provider_comfyui",
+        "Merge open2d_cortex_workspace into cortex_workspace then retire compatibility crate",
+        "Resolve open2d_cortex_memory into cortex_memory/cortex_vault responsibilities",
+        "Generic cortex_* crates must not depend on transitional open2d_cortex_* crates after closure"
+      ]
+    },
+    {
+      "id": "N3",
+      "name": "Workspace identity and state ownership",
+      "priority": "P0",
+      "targets": [
+        "Persistent WorkspaceId independent of current filesystem path",
+        "Global Cortex-owned state under CORTEX_HOME/user-local storage",
+        "Known-path history for moved repositories",
+        "Portable project-local .cortex state only by explicit policy",
+        "Open2D historical .open2d/cortex compatibility retained through adapter/migration"
+      ]
+    },
+    {
+      "id": "N4",
+      "name": "Jobs, scheduling and event stream",
+      "priority": "P0",
+      "targets": [
+        "One cortex_jobs authority for long operations",
+        "Queued/running/succeeded/failed/cancelled lifecycle",
+        "Progress, logs, result and error payloads",
+        "One Cortex event stream for workspace, context, vault, build, tool, artifact and approval events",
+        "Desktop/CLI/tools consume the same job state rather than bespoke blocking operations"
+      ]
+    },
+    {
+      "id": "N5",
+      "name": "Context, Vault and memory separation",
+      "priority": "P0",
+      "targets": [
+        "cortex_workspace owns paths, detection, safe enumeration and workspace profile",
+        "cortex_context owns file fingerprints, incremental index, language/symbol/dependency discovery and change sets",
+        "cortex_vault owns chunks, retrieval, lexical/embedding indexes and provenance",
+        "cortex_memory owns durable user/project memories only if it remains a distinct concept",
+        "No indexing intelligence catch-all inside cortex_workspace"
+      ]
+    },
+    {
+      "id": "N6",
+      "name": "Tool catalog, permissions and execution policy",
+      "priority": "P0",
+      "targets": [
+        "cortex_tools becomes generic canonical ToolBroker/catalog authority",
+        "Tool metadata declares read/write/process/network/destructive/credential/system capabilities",
+        "One cortex_permissions policy engine gates all risky execution",
+        "Human approval and transaction boundaries are shared across desktop/CLI/RPC",
+        "Open2D-specific tools live behind the Open2D adapter"
+      ]
+    },
+    {
+      "id": "N7",
+      "name": "Provider and model routing",
+      "priority": "P1",
+      "targets": [
+        "Generic provider trait/capability registry",
+        "LM Studio and ComfyUI renamed/migrated out of open2d_cortex_*",
+        "Provider discovery, health, model capability and endpoint settings share one contract",
+        "No machine-specific endpoint in source",
+        "Future local providers can plug in without Open2D dependencies"
+      ]
+    },
+    {
+      "id": "N8",
+      "name": "RPC, protocol, service and client",
+      "priority": "P0",
+      "targets": [
+        "Generic cortex_protocol and cortex_rpc are the sole wire authority",
+        "Protocol versioning and capability negotiation",
+        "Local authentication/token lifecycle separated from project state",
+        "cortex_service and cortex_client depend only on generic protocol/RPC",
+        "Open2D integration uses adapter RPC contracts rather than defining Cortex wire primitives"
+      ]
+    },
+    {
+      "id": "N9",
+      "name": "Desktop shell and UX authority",
+      "priority": "P1",
+      "targets": [
+        "One desktop view-model/controller authority",
+        "Workspace manager, conversations, context, changes, terminal/build, logs, tasks, artifacts, Vault and settings share canonical state",
+        "Long operations are non-blocking and event-driven",
+        "No duplicated desktop vs CLI business logic",
+        "Native desktop remains project-agnostic"
+      ]
+    },
+    {
+      "id": "N10",
+      "name": "CLI, VS Code bridge and external clients",
+      "priority": "P1",
+      "targets": [
+        "CLI becomes a thin client/orchestration surface over canonical services",
+        "VS Code bridge consumes generic Cortex protocol/client APIs",
+        "Compatibility command aliases may remain but user-facing wording becomes Cortex-first",
+        "External clients do not depend on Open2D-named protocol crates"
+      ]
+    },
+    {
+      "id": "N11",
+      "name": "Transactions, review, source editing and rollback",
+      "priority": "P0",
+      "targets": [
+        "One transaction authority for source modifications",
+        "Unified diff/review representation",
+        "Checkpoint/rollback and artifact lineage",
+        "Tool writes cannot bypass transaction/permission policy when policy requires review",
+        "Cross-project migration work preserves provenance"
+      ]
+    },
+    {
+      "id": "N12",
+      "name": "Logs, diagnostics, artifacts and crash recovery",
+      "priority": "P1",
+      "targets": [
+        "One session/job logging contract",
+        "Structured diagnostic events plus human-readable logs",
+        "Secret-safe debug bundle policy",
+        "Artifact registry with producer/job/workspace lineage",
+        "Crash recovery for interrupted transactions/jobs"
+      ]
+    },
+    {
+      "id": "N13",
+      "name": "Plugins and adapters",
+      "priority": "P1",
+      "targets": [
+        "Plugin capabilities and permissions declared explicitly",
+        "Adapters are integrations, not core authorities",
+        "Open2D adapter remains first-class but optional",
+        "Git remains generic adapter",
+        "Future PCC integration is an external operational adapter/client, not Cortex core ownership"
+      ]
+    },
+    {
+      "id": "N14",
+      "name": "Configuration, schemas and migrations",
+      "priority": "P0",
+      "targets": [
+        "Schema versions for registry/settings/context/vault/protocol/tool catalog",
+        "Forward migration and rollback policy",
+        "No silent incompatible state rewrites",
+        "Cortex schema/version identity separated from Open2D pass naming"
+      ]
+    },
+    {
+      "id": "N15",
+      "name": "Testing and certification",
+      "priority": "P0",
+      "targets": [
+        "Generic Cortex certification independent of Open2D project availability",
+        "Adapter-specific certification layered on top",
+        "Workspace move/reconnect tests",
+        "Permission denial/approval tests",
+        "Job cancellation/recovery tests",
+        "Protocol compatibility tests",
+        "State migration tests",
+        "Clippy -D warnings remains required"
+      ]
+    },
+    {
+      "id": "N16",
+      "name": "Security and privacy boundaries",
+      "priority": "P0",
+      "targets": [
+        "Local-first by default",
+        "Explicit external-network permission",
+        "Secrets never enter source refresh/debug bundles",
+        "Workspace path safety and symlink/reparse-point policy",
+        "Command/process allowlists and approval policy",
+        "Provider credentials/endpoints remain settings-owned"
+      ]
+    },
+    {
+      "id": "N17",
+      "name": "Build, packaging and standalone distribution",
+      "priority": "P1",
+      "targets": [
+        "Cortex can build/package independently of Open2D Foundry",
+        "Open2D handoff system may continue transporting Cortex development patches during co-development",
+        "Standalone installer/update channel is a later product concern",
+        "Compatibility launcher retirement does not affect standalone Cortex packaging"
+      ]
+    },
+    {
+      "id": "N18",
+      "name": "Cross-project audit and assimilation readiness",
+      "priority": "P1",
+      "targets": [
+        "Capability inventory schema",
+        "Source provenance and lineage",
+        "Compare two or more attached projects",
+        "Classify KEEP/PORT/COMPARE/SUPERSEDED",
+        "Never blindly merge older implementations",
+        "Prepare specifically for advanced older Open2D source comparison after normalization"
+      ]
+    }
+  ],
+  "observed_current_debt": {
+    "generic_to_transitional_dependency_edges": {},
+    "generic_cli_wording_debt": [],
+    "state_compatibility_debt": [
+      "Legacy .cortex and .open2d/cortex remain migration/portable compatibility paths only."
+    ]
+  },
+  "execution_order": [
+    "R051N1 dependency/authority closure map + generic protocol/http/rpc foundation",
+    "R051N2 generic tools/core boundary and Open2D adapter extraction",
+    "R051N3 workspace identity + global state migration framework",
+    "R051N4 cortex_jobs + event stream",
+    "R051N5 cortex_context extraction and Vault/memory responsibility split",
+    "R051N6 permissions/execution/transaction normalization",
+    "R051N7 provider/process/image/capture genericization",
+    "R051N8 desktop/CLI/client/VS Code convergence",
+    "R051N9 logs/artifacts/schemas/security/certification closure",
+    "R051D_REBASED incremental context indexer on normalized jobs/context stack",
+    "R051E capability audit",
+    "R051F cross-project comparison and deliberate assimilation"
+  ],
+  "feature_freeze_policy": "Do not deepen transitional Cortex/Open2D coupling while R051N is active. Bug fixes and certification fixes remain allowed. Feature work resumes on normalized authorities.",
+  "current_pass": "O2D-R051N9",
+  "completed_passes": [
+    {
+      "pass": "O2D-R051N0",
+      "result": "AUTHORITY_LOCK",
+      "summary": "Project-wide Cortex normalization program locked."
+    },
+    {
+      "pass": "O2D-R051N1",
+      "result": "IMPLEMENTED",
+      "summary": "Generic protocol/HTTP/RPC authorities and thin facades."
+    },
+    {
+      "pass": "O2D-R051N2A",
+      "result": "IMPLEMENTED",
+      "summary": "Generic cortex_core/cortex_tools ownership and CLI migration."
+    },
+    {
+      "pass": "O2D-R051N2B",
+      "result": "IMPLEMENTED",
+      "summary": "Open2D runtime tools extracted as adapter ToolExtension."
+    },
+    {
+      "pass": "O2D-R051N3",
+      "result": "IMPLEMENTED",
+      "summary": "Persistent WorkspaceId/global state and legacy migration."
+    },
+    {
+      "pass": "O2D-R051N4",
+      "result": "IMPLEMENTED",
+      "summary": "Unified jobs and event stream authority."
+    },
+    {
+      "pass": "O2D-R051N5",
+      "result": "IMPLEMENTED",
+      "summary": "Context/Vault/memory responsibility split."
+    },
+    {
+      "pass": "O2D-R051N6",
+      "result": "IMPLEMENTED",
+      "summary": "Permissions and reversible transaction authority."
+    },
+    {
+      "pass": "O2D-R051N7",
+      "result": "IMPLEMENTED",
+      "summary": "Generic providers/process/image/capture."
+    },
+    {
+      "pass": "O2D-R051N8",
+      "result": "IMPLEMENTED",
+      "summary": "Desktop/CLI/client/VS Code/session convergence."
+    },
+    {
+      "pass": "O2D-R051N9",
+      "result": "IMPLEMENTED_AWAITING_CHECKPOINT",
+      "summary": "Schemas, security, diagnostics, artifact lineage and final authority certification closure."
+    }
+  ],
+  "next_pass": {
+    "pass": "CHECKPOINT",
+    "scope": "Apply full R051N train, run Cortex checkpoint, debug any compile/test/clippy issues, then certify normalization complete."
+  },
+  "status": "NORMALIZED_AWAITING_CHECKPOINT"
+}

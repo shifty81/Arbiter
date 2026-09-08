@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "format": "jsonl",
+  "record": {
+    "type": "object",
+    "required": ["event", "data"],
+    "properties": {
+      "event": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  },
+  "events": [
+    "request_started",
+    "progress",
+    "agent_finished",
+    "build_started",
+    "build_finished",
+    "certification_stage",
+    "certification_finished"
+  ],
+  "notes": [
+    "JSONL stdout is machine-readable; human diagnostics use stderr.",
+    "Future Foundry GUI and local automation should consume the same event contract rather than bypassing the CLI/RPC authority."
+  ]
+}

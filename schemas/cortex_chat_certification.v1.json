@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Chat Certification v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "stream_events",
+    "user_message_persisted",
+    "assistant_message_persisted",
+    "conversation_reopened",
+    "provider_roundtrip",
+    "ready"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "conversation_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stream_events": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "user_message_persisted": {
+      "type": "boolean"
+    },
+    "assistant_message_persisted": {
+      "type": "boolean"
+    },
+    "conversation_reopened": {
+      "type": "boolean"
+    },
+    "provider_roundtrip": {
+      "type": "boolean"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

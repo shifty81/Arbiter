@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9D",
+  "feature": "cortex_bounded_tool_loop_final_synthesis",
+  "default_tool_iteration_budget": 8,
+  "behavior": {
+    "near_budget_instruction": true,
+    "force_final_no_tools_synthesis": true,
+    "deadline_remains_hard_limit": true,
+    "mutating_permissions_unchanged": true
+  },
+  "tool_catalog_count": 49
+}

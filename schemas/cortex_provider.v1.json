@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Provider Descriptor v1",
+  "type": "object",
+  "required": [
+    "id",
+    "display_name",
+    "local",
+    "capabilities"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "local": {
+      "type": "boolean"
+    },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "text",
+          "tools",
+          "vision",
+          "embeddings",
+          "image_generation"
+        ]
+      }
+    }
+  }
+}

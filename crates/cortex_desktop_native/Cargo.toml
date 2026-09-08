@@ -1,0 +1,9 @@
+[package]
+name = "cortex_desktop_native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_execution = { path = "../cortex_execution" }
+cortex_protocol = { path = "../cortex_protocol" }

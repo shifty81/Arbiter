@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Desktop Certification v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workspace",
+    "conversations",
+    "settings",
+    "permissions",
+    "service_state_readable",
+    "service_executable",
+    "plugins",
+    "artifacts",
+    "ready"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workspace": {
+      "type": "boolean"
+    },
+    "conversations": {
+      "type": "boolean"
+    },
+    "settings": {
+      "type": "boolean"
+    },
+    "permissions": {
+      "type": "boolean"
+    },
+    "service_state_readable": {
+      "type": "boolean"
+    },
+    "plugins": {
+      "type": "boolean"
+    },
+    "artifacts": {
+      "type": "boolean"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "service_executable": {
+      "type": "boolean"
+    }
+  }
+}

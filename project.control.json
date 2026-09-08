@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "project": {
+    "id": "cortex",
+    "name": "Cortex",
+    "kind": "rust-workspace",
+    "authority": "cortex_system"
+  },
+  "requirements": [
+    {
+      "tool": "git",
+      "required": true
+    },
+    {
+      "tool": "cargo",
+      "required": true
+    },
+    {
+      "tool": "rustc",
+      "required": true
+    },
+    {
+      "tool": "pwsh",
+      "required": false
+    }
+  ],
+  "commands": [
+    {
+      "key": "cargo.metadata",
+      "label": "Cargo workspace metadata",
+      "program": "cargo",
+      "args": [
+        "metadata",
+        "--format-version",
+        "1",
+        "--no-deps"
+      ],
+      "risk": "read_only",
+      "side_effects": [],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    },
+    {
+      "key": "fmt.check",
+      "label": "Rust formatting check",
+      "program": "cargo",
+      "args": [
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "risk": "read_only",
+      "side_effects": [],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    },
+    {
+      "key": "check",
+      "label": "Cargo workspace check",
+      "program": "cargo",
+      "args": [
+        "check",
+        "--workspace",
+        "--all-targets"
+      ],
+      "risk": "read_only",
+      "side_effects": [],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    },
+    {
+      "key": "test",
+      "label": "Cargo workspace tests",
+      "program": "cargo",
+      "args": [
+        "test",
+        "--workspace",
+        "--all-targets"
+      ],
+      "risk": "read_only",
+      "side_effects": [],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    },
+    {
+      "key": "clippy",
+      "label": "Clippy warnings-as-errors",
+      "program": "cargo",
+      "args": [
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "risk": "read_only",
+      "side_effects": [],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    },
+    {
+      "key": "build",
+      "label": "Build Cortex workspace",
+      "program": "cargo",
+      "args": [
+        "build",
+        "--workspace"
+      ],
+      "risk": "local_mutation",
+      "side_effects": [
+        "build_outputs"
+      ],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    },
+    {
+      "key": "build.release",
+      "label": "Build Cortex release workspace",
+      "program": "cargo",
+      "args": [
+        "build",
+        "--workspace",
+        "--release"
+      ],
+      "risk": "local_mutation",
+      "side_effects": [
+        "build_outputs"
+      ],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    }
+  ],
+  "quality_gates": [
+    {
+      "key": "fast",
+      "label": "Fast development gate",
+      "stages": [
+        "fmt.check",
+        "check"
+      ]
+    },
+    {
+      "key": "full",
+      "label": "Full Cortex quality gate",
+      "stages": [
+        "cargo.metadata",
+        "fmt.check",
+        "check",
+        "test",
+        "clippy",
+        "build"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "key": "debug",
+      "path": "artifacts/debug"
+    },
+    {
+      "key": "diagnostics",
+      "path": "artifacts/diagnostics"
+    },
+    {
+      "key": "patches",
+      "path": "artifacts/patches"
+    },
+    {
+      "key": "handoffs",
+      "path": "artifacts/handoffs"
+    },
+    {
+      "key": "releases",
+      "path": "artifacts/releases"
+    },
+    {
+      "key": "source-refresh",
+      "path": "artifacts/source-refresh"
+    }
+  ],
+  "root_control_center": {
+    "mode": "cortex-standalone-root-control",
+    "entrypoint": "PROJECT_CONTROL_CENTER.cmd",
+    "runtime": "Cortex standalone project operations (PowerShell bootstrap; native CLI/GUI progressively assume services)",
+    "upstream": "Cortex",
+    "external_runtime_required": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "project_id": "example-project",
+  "cortex": {
+    "plugin_manifest": "config/cortex/integration.plugin.json",
+    "pcc": {
+      "enabled": true,
+      "project_control": "project.control.json"
+    },
+    "capabilities": [
+      "project.context",
+      "project.operations"
+    ],
+    "editor_endpoint": null
+  }
+}

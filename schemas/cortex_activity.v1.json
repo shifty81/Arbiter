@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Activity Event v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_unix_ms",
+    "kind",
+    "title",
+    "detail"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "string"
+    }
+  }
+}

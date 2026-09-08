@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16L",
+  "feature": "provider_recovery_authority",
+  "provider_states": [
+    "offline",
+    "online_no_model",
+    "ready"
+  ],
+  "provider_status_rpc_returns_state_when_unavailable": true,
+  "configured_model_must_be_available": true,
+  "pending_chat_request_persisted": true,
+  "manual_resume_words": [
+    "continue",
+    "retry",
+    "resume",
+    "try again"
+  ],
+  "duplicate_user_message_on_resume": false,
+  "single_recovery_status_message_updated_in_place": true,
+  "runtime_behavior_change": true,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

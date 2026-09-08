@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cortex.local/schemas/cortex_tool_provider.v1.json",
+  "title": "Cortex External Tool Provider Manifest v1 (proposed)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "executable",
+    "capabilities"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "executable": {
+      "type": "string"
+    },
+    "version_args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "input_schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supports_json": {
+            "type": "boolean"
+          },
+          "supports_jsonl": {
+            "type": "boolean"
+          },
+          "supports_dry_run": {
+            "type": "boolean"
+          },
+          "supports_cancel": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

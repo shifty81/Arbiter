@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16Q",
+  "feature": "keyboard_focus_authority",
+  "stable_widget_focus": true,
+  "wrap_navigation": true,
+  "key_intents": [
+    "next_focus",
+    "previous_focus",
+    "activate",
+    "cancel",
+    "command_palette",
+    "find",
+    "page_up",
+    "page_down"
+  ],
+  "workspace_members": 70,
+  "tool_catalog_count": 49
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V5E",
+  "authority": "control_center_root_cleanliness",
+  "policy": {
+    "unknown_root_files": "fail",
+    "recognized_legacy_repair_capsules": "quarantine",
+    "consumed_handoff_checksum_sidecars": "quarantine",
+    "event_ledger_registration": true,
+    "manual_cleanup_required_for_recognized_residue": false
+  },
+  "current_recovery_target": "Open2D_Cortex_R16V1_NamespaceRepair_20260823.zip"
+}

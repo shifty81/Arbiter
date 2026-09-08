@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open2d.local/schemas/cortex_migration_plan.v1.json",
+  "title": "Cortex Storage Migration Plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "project_ids",
+    "status",
+    "actions",
+    "generated_unix_ms",
+    "note"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "project_ids": { "type": "array", "items": { "type": "string" } },
+    "status": {
+      "enum": ["draft", "approved", "applying", "certified", "rolled_back", "failed"]
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "description", "enabled", "destructive", "requires_approval"]
+      }
+    },
+    "estimated_move_bytes": { "type": "integer", "minimum": 0 },
+    "generated_unix_ms": { "type": "integer", "minimum": 0 },
+    "note": { "type": "string" }
+  },
+  "additionalProperties": true
+}

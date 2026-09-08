@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051N9H67D",
+  "authority": "cortex_live_operational_telemetry_and_conversation_time",
+  "conversation_time": {
+    "source": "ConversationMessage.created_unix_ms",
+    "storage": "unix_epoch_milliseconds",
+    "display_timezone": "operating_system_local_timezone",
+    "message_time_precision": "minute",
+    "date_separators": true
+  },
+  "live_run": {
+    "safe_operational_only": true,
+    "hidden_chain_of_thought": false,
+    "fields": [
+      "work label",
+      "phase",
+      "elapsed",
+      "last event age",
+      "queue depth",
+      "context/token metrics when emitted",
+      "repair/build/tool/file metadata when emitted"
+    ],
+    "stop_must_remain_reachable": true,
+    "activity_refresh_ms": 420
+  },
+  "acceptance": [
+    "long local-model requests visibly remain active instead of appearing frozen",
+    "Activity shows elapsed time and last-event age while background work is active",
+    "persisted messages render local timestamps derived from authoritative created_unix_ms",
+    "chat shows date separators when the local calendar date changes",
+    "operational telemetry never exposes hidden chain-of-thought"
+  ]
+}

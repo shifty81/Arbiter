@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R3",
+  "feature": "unbounded_local_inference_and_activity_ui_decoupling",
+  "local_inference": {
+    "default_provider_read_idle_timeout_seconds": null,
+    "default_agent_wall_clock_deadline_seconds": null,
+    "connect_timeout_seconds": 5,
+    "control_endpoint_timeout_seconds": 30,
+    "explicit_provider_watchdog_env": "CORTEX_LMSTUDIO_TIMEOUT_SECONDS",
+    "explicit_agent_watchdog_env": "CORTEX_TOTAL_TIMEOUT_SECONDS",
+    "zero_off_none_disabled_mean_unbounded": true
+  },
+  "completion_ui": {
+    "clear_busy_before_error_dialog": true,
+    "clear_thinking_before_error_dialog": true,
+    "send_button_available_after_completion": true
+  },
+  "lmstudio_activity": {
+    "buffer_continuously": true,
+    "incremental_append": true,
+    "full_text_repaint_per_line": false,
+    "max_visible_ui_refresh_hz": 8,
+    "max_retained_lines": 2000
+  },
+  "tool_catalog_count": 49
+}

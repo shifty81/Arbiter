@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V",
+  "feature": "cortex_workbench_ide_host",
+  "chat_workbench_modes": true,
+  "multi_document_model": true,
+  "project_file_double_click_opens_workbench": true,
+  "initial_editor_surface": "native_read_only_text_preview",
+  "next_editor_backend": "Scintilla",
+  "next_intelligence": [
+    "Tree-sitter",
+    "LSP"
+  ],
+  "max_preview_bytes": 2097152,
+  "workspace_members": 70,
+  "tool_catalog_count": 49
+}

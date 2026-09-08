@@ -1,0 +1,10 @@
+[package]
+name = "cortex_provider_lmstudio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_http = { path = "../cortex_http" }
+cortex_protocol = { path = "../cortex_protocol" }
+serde_json.workspace = true

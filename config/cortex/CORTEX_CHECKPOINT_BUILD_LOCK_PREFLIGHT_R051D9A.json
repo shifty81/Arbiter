@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9A",
+  "feature": "cortex_checkpoint_build_lock_preflight",
+  "process_names": [
+    "cortex.exe",
+    "cortex_desktop.exe",
+    "open2d_cortex.exe"
+  ],
+  "scope": "current_repo_target_tree_only",
+  "stops_lm_studio": false,
+  "windows_access_denied_os_error_5_guard": true
+}

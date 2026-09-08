@@ -1,0 +1,33 @@
+{
+  "schema": "cortex.root_patch.v1",
+  "project": "Cortex",
+  "patchId": "CTX-ROOT-05",
+  "title": "PowerShell 7 native Git bridge dispatch repair",
+  "applyMode": "overwrite",
+  "series": "CTX-ROOT",
+  "sequence": 5,
+  "files": [
+    {
+      "path": "tools/control/ProjectControlCenter.ps1",
+      "sha256": "f3823fcceeae2ef0a506c621090476040564251afadf8651bfea0b4ccd6cb0a4",
+      "bytes": 16590
+    },
+    {
+      "path": "tools/control/GitSourceControl.ps1",
+      "sha256": "c60ba9afb3054c2aefde295d31870e2cacd34ffd5c427bb12c424ef29716664b",
+      "bytes": 3179
+    },
+    {
+      "path": "tools/control/CortexGitAuthority.py",
+      "sha256": "60752d8bea88fac9cdf2e77cdcf80657bb460a8fcef482a735df7ed1dfcedf8b",
+      "bytes": 14524
+    }
+  ],
+  "remove": [],
+  "notes": [
+    "Based on Cortex_DebugBundle_20260908-021422_FULL_GREEN.zip.",
+    "Fixes Git MarkGreen exit -196608 by invoking GitSourceControl.ps1 directly in the current PowerShell 7 process.",
+    "No Rust source changes.",
+    "ROOT-03 staged AST parsing validates the PowerShell before live overwrite."
+  ]
+}

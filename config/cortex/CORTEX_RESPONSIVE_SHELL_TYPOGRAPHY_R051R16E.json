@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16E",
+  "feature": "responsive_shell_and_typography_normalization",
+  "chat": {
+    "body_px": 21,
+    "speaker_label_px": 23,
+    "speaker_label_bold": true,
+    "code_px": 19,
+    "resize_reflow_repaints": true,
+    "scroll_position_clamped_after_reflow": true
+  },
+  "shell": {
+    "ui_font": "Segoe UI",
+    "ui_font_px": 19,
+    "clip_children": true,
+    "clip_siblings": true,
+    "full_repaint_after_panel_toggle_or_resize": true,
+    "collapsed_right_rail_stays_within_reserved_width": true
+  },
+  "runtime_behavior_change": true,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

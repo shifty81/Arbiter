@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V6C3C7",
+  "default_provider": "native",
+  "native_model_host": {
+    "port": 12400,
+    "desktop_owned": true,
+    "persistent_daemon": false,
+    "models_max_default": 2,
+    "models_max_range": [
+      1,
+      8
+    ],
+    "auto_bootstrap": true,
+    "runtime": {
+      "backend": "llama.cpp",
+      "release": "b10516",
+      "windows_asset": "llama-b10516-bin-win-vulkan-x64.zip",
+      "sha256": "530f57d2a874ce017827c1e5a926812b9d5de4667248575d1372b1c0acf94d83"
+    }
+  },
+  "model_roots": [
+    "<Cortex Library>/Models",
+    "%USERPROFILE%/.lmstudio/models",
+    "%USERPROFILE%/.cache/lm-studio/models",
+    "LM Studio downloadsFolder",
+    "CORTEX_GGUF_ROOTS"
+  ],
+  "roles": [
+    "chat",
+    "tool/coding",
+    "reasoning",
+    "vision",
+    "embedding"
+  ],
+  "lmstudio": {
+    "mode": "optional_compatibility",
+    "auto_start_when_selected": true,
+    "bind": "127.0.0.1"
+  },
+  "certification": {
+    "provider": "native",
+    "chat_roundtrip": true,
+    "stream": true,
+    "persistence": true,
+    "reopen": true,
+    "desktop_owned_shutdown": true
+  }
+}

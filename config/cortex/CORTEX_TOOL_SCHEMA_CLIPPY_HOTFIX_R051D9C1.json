@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9C1",
+  "feature": "cortex_tool_schema_clippy_hotfix",
+  "runtime_behavior_change": false,
+  "tool_catalog_count": 49,
+  "fix": "clippy_field_reassign_with_default"
+}

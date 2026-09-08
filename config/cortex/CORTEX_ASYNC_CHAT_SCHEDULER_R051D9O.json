@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9O",
+  "feature": "cortex_async_chat_scheduler",
+  "model_lane": {
+    "max_concurrent_local_model_jobs": 1,
+    "queued_requests": true,
+    "captures_project_and_conversation_at_enqueue": true,
+    "project_switching_while_busy": true,
+    "composer_remains_enabled": true
+  },
+  "background_worker": {
+    "detached_desktop_controller": true,
+    "shared_native_host_mutex_held_during_model_call": false,
+    "pending_approval_state_persisted": true
+  },
+  "chat_progress": {
+    "thinking_bubble": true,
+    "dot_animation_frames": 4,
+    "queue_count": true,
+    "cross_project_token_append_disabled": true
+  },
+  "cancellation": {
+    "request_active_cancel": true,
+    "queued_work_preserved_until_explicit_close": true,
+    "hard_provider_socket_abort": false
+  },
+  "tool_catalog_count": 49
+}

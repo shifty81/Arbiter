@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cortex.local/schemas/cortex_cli_event.v2.json",
+  "title": "Cortex CLI Event v2 (proposed)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event",
+    "event_id",
+    "timestamp",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "event": {
+      "type": "string"
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "request_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "action_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "project_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "plugin_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "preparing",
+        "running",
+        "awaiting_approval",
+        "cancelling",
+        "cancelled",
+        "succeeded",
+        "failed",
+        "interrupted",
+        "degraded",
+        "info"
+      ]
+    },
+    "stage": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "progress": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "trace_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "span_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data": {}
+  },
+  "additionalProperties": false
+}

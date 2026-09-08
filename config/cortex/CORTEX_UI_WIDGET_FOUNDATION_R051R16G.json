@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16G",
+  "feature": "cortex_retained_widget_foundation",
+  "ownership": "cortex_desktop_native",
+  "new_workspace_member": false,
+  "platform_backend": "win32_host_future_direct2d_directwrite",
+  "logical_units": true,
+  "stable_widget_ids": true,
+  "retained_widget_state": true,
+  "layout_primitives": [
+    "row",
+    "column",
+    "stack",
+    "split_view",
+    "scroll_view",
+    "drawer"
+  ],
+  "semantic_widgets": [
+    "sidebar",
+    "panel",
+    "tab_bar",
+    "tree_view",
+    "breadcrumb",
+    "button",
+    "card",
+    "chat_message",
+    "code_card",
+    "file_card",
+    "project_card",
+    "roadmap_card",
+    "job_card",
+    "artifact_card",
+    "approval_card"
+  ],
+  "dpi_scale_range": [
+    0.75,
+    2.0
+  ],
+  "density_modes": [
+    "compact",
+    "comfortable",
+    "spacious"
+  ],
+  "runtime_visual_change": false,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

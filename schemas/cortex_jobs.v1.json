@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Job v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "kind",
+    "title",
+    "status",
+    "created_unix_ms",
+    "updated_unix_ms",
+    "progress",
+    "detail",
+    "cancellation_requested"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "created_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "progress": {
+      "type": "object"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "result": {},
+    "cancellation_requested": {
+      "type": "boolean"
+    }
+  }
+}

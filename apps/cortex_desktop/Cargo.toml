@@ -1,0 +1,11 @@
+[package]
+name = "cortex_desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_desktop_core = { path = "../../crates/cortex_desktop_core" }
+cortex_desktop_native = { path = "../../crates/cortex_desktop_native" }
+cortex_registry = { path = "../../crates/cortex_registry" }
+serde_json.workspace = true

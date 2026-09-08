@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9L2A",
+  "feature": "cargo_workspace_manifest_recovery_and_audit_hardening",
+  "restored_workspace_members": 70,
+  "source_of_truth": "clean O2D-R051D9I4 Cargo.toml",
+  "reason": "earlier failed Cortex Code attempt corrupted root Cargo.toml; D9L1/D9L2 do not own root Cargo membership",
+  "audit_hardening": {
+    "reject_malformed_member_before_Test_Path": true,
+    "member_pattern": "^(?:apps|crates)/[A-Za-z0-9_.-]+$"
+  },
+  "tool_catalog_count": 49
+}

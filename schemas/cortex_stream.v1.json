@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex_stream.v1",
+  "title": "Cortex Stream Event",
+  "type": "object",
+  "required": ["request_id", "kind", "phase", "message", "text_delta", "elapsed_ms"],
+  "properties": {
+    "request_id": {"type": "string"},
+    "kind": {
+      "type": "string",
+      "enum": ["started", "status", "text_delta", "tool_started", "tool_finished", "completed", "failed", "cancelled"]
+    },
+    "phase": {"type": "string"},
+    "message": {"type": "string"},
+    "text_delta": {"type": "string"},
+    "elapsed_ms": {"type": "integer", "minimum": 0},
+    "data": {}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9E1",
+  "feature": "conversation_native_agents_target_grounding_recovery",
+  "recovery_mode": "overwrite_four_current_cortex_authorities",
+  "carries_forward": [
+    "R051D9D1 AtomicUsize test fix",
+    "R051D9D bounded final synthesis",
+    "R051D9E conversation-native agents",
+    "R051D9E target-grounding guidance"
+  ],
+  "tool_catalog_count": 49,
+  "exact_replacements": 0
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V6A",
+  "preferred_windows_root": "D:\\Cortex",
+  "folders": [
+    "Projects",
+    "Intake",
+    "Shared",
+    "Artifacts",
+    "Backups",
+    "Exports",
+    ".cortex"
+  ],
+  "intake": {
+    "watcher": "ReadDirectoryChangesW",
+    "stability_required": true,
+    "project_tag_priority": [
+      "explicit_sidecar",
+      "project_subfolder",
+      "embedded_handoff_manifest",
+      "embedded_project_metadata",
+      "heuristic_suggestion_only"
+    ],
+    "patches_remain_unextracted": true,
+    "route_through_project_control_center": true
+  },
+  "desktop_shortcut": {
+    "name": "Cortex Intake",
+    "target_relative": "Intake"
+  }
+}

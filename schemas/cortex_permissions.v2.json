@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Permission Policy v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "granted"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "granted": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "workspace_read",
+          "workspace_write",
+          "process_execute",
+          "git_read",
+          "git_write",
+          "network_local",
+          "network_internet",
+          "vision",
+          "image_generation",
+          "external_path",
+          "delete",
+          "credentials",
+          "system_change"
+        ]
+      }
+    }
+  }
+}

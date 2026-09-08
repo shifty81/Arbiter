@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16P",
+  "feature": "command_palette_model",
+  "searches": [
+    "command_title",
+    "category",
+    "keywords"
+  ],
+  "stable_command_ids": true,
+  "ui_binding": "next_interaction_pass",
+  "workspace_members": 70,
+  "tool_catalog_count": 49
+}

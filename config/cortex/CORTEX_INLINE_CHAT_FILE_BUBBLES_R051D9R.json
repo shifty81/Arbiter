@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R",
+  "feature": "cortex_inline_chat_file_bubbles",
+  "conversation_is_ide": true,
+  "right_panel_ide": false,
+  "file_bubbles": {
+    "persist_with_conversation": true,
+    "one_bubble_per_real_file": true,
+    "actual_disk_content": true,
+    "max_inline_preview_bytes": 24576,
+    "large_file_preview_truncated": true,
+    "path": true,
+    "language": true,
+    "status": true
+  },
+  "code_apply": {
+    "append_created_and_touched_files": true,
+    "status_after_green_cargo_check": "Build Verified",
+    "unverified_model_text_never_labeled_saved": true
+  },
+  "file_open": {
+    "direct_file_open_creates_chat_bubble": true
+  },
+  "future_interaction_lane": {
+    "inline_edit_controls": "after N-R checkpoint",
+    "token_level_draft_streaming": "after N-R checkpoint",
+    "language_server_features": "after N-R checkpoint"
+  },
+  "tool_catalog_count": 49
+}

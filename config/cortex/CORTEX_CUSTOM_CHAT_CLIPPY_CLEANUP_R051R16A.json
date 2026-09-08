@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16A",
+  "feature": "custom_chat_clippy_cleanup",
+  "removed_legacy_rich_edit_transcript_code": true,
+  "fixed_needless_redo_borrows": true,
+  "runtime_behavior_change": false,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

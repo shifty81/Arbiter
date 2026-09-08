@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9D1",
+  "feature": "cortex_final_synthesis_test_sync_hotfix",
+  "runtime_behavior_change": false,
+  "fix": "Cell<usize> -> AtomicUsize in BudgetProvider regression test",
+  "tool_catalog_count": 49
+}

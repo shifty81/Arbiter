@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9I3",
+  "feature": "cortex_lmstudio_long_inference_timeout",
+  "lmstudio": {
+    "control_timeout_seconds": 30,
+    "inference_idle_timeout_seconds": 600,
+    "stream_timeout_semantics": "socket read idle timeout",
+    "reason": "local GPT-OSS generation can exceed 120 seconds before first response byte"
+  },
+  "tool_catalog_count": 49
+}

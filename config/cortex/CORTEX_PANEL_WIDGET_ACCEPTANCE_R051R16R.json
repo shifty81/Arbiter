@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16R",
+  "feature": "panel_widget_regression_acceptance",
+  "profiles": [
+    "1920x1080@100",
+    "2560x1440@125",
+    "3440x1440",
+    "5120x1440"
+  ],
+  "panel_states": [
+    "expanded_expanded",
+    "collapsed_expanded",
+    "expanded_collapsed",
+    "collapsed_collapsed"
+  ],
+  "build_gate_after_pass": true,
+  "workspace_members": 70,
+  "tool_catalog_count": 49
+}

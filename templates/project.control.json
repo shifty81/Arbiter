@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "project": {
+    "id": "cortex",
+    "name": "Cortex",
+    "kind": "rust-workspace"
+  },
+  "commands": [
+    {
+      "key": "fmt.check",
+      "program": "cargo",
+      "args": [
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ]
+    },
+    {
+      "key": "check",
+      "program": "cargo",
+      "args": [
+        "check",
+        "--workspace"
+      ]
+    },
+    {
+      "key": "test",
+      "program": "cargo",
+      "args": [
+        "test",
+        "--workspace"
+      ]
+    },
+    {
+      "key": "clippy",
+      "program": "cargo",
+      "args": [
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    {
+      "key": "build",
+      "program": "cargo",
+      "args": [
+        "build",
+        "--workspace"
+      ]
+    }
+  ],
+  "quality_gates": [
+    {
+      "key": "full",
+      "stages": [
+        "fmt.check",
+        "check",
+        "test",
+        "clippy",
+        "build"
+      ]
+    }
+  ]
+}

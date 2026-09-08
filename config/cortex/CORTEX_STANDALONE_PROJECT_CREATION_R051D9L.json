@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9L",
+  "feature": "cortex_safe_standalone_project_creation_and_compile_verification",
+  "new_project": {
+    "routing": "deterministic_before_model",
+    "location_policy": "sibling_of_active_workspace_only",
+    "approval_required_before_filesystem_creation": true,
+    "scaffold": "cargo new --bin --vcs none",
+    "registry_attach": true,
+    "conversation_transfer": true,
+    "auto_switch_to_new_project": true,
+    "auto_launch_after_verified_build": true
+  },
+  "code_success_contract": {
+    "requires_transaction_file_changes": true,
+    "requires_cargo_check_green": true,
+    "automatic_repair_attempts": 1,
+    "repair_reuses_active_transaction": true,
+    "claim_success_when_build_red": false
+  },
+  "tool_catalog_count": 49
+}

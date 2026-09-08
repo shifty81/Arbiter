@@ -1,0 +1,10 @@
+[package]
+name = "cortex_context"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_workspace = { path = "../cortex_workspace" }
+serde.workspace = true
+serde_json.workspace = true

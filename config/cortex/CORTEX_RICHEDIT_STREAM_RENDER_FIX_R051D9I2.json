@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9I2",
+  "feature": "cortex_richedit_stream_render_fix",
+  "fixes": [
+    "live chat streaming preserves structured RichEdit message rendering",
+    "manual Inspect/Plan/Code/Repair previews use structured message rendering",
+    "temporary assistant block is replaced by persisted final response on completion"
+  ],
+  "runtime_behavior_change": true,
+  "permissions_changed": false,
+  "tool_catalog_count": 49
+}

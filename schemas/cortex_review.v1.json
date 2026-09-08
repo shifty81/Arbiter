@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Review Snapshot v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "git_active",
+    "git_status",
+    "diff",
+    "transaction",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "git_active": {
+      "type": "boolean"
+    },
+    "diff": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    }
+  }
+}

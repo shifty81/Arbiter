@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16",
+  "feature": "machine_resource_process_ui_automation_foundation",
+  "execution_isolation": [
+    "trusted",
+    "restricted",
+    "sandboxed",
+    "privileged_broker"
+  ],
+  "resource_workloads": [
+    "model_inference",
+    "image_generation",
+    "build",
+    "indexing",
+    "interactive_game",
+    "utility"
+  ],
+  "resource_policy": {
+    "serialize_gpu_heavy_work": true,
+    "pause_indexing_for_interactive_work": true
+  },
+  "process_ownership": {
+    "only_cortex_owned_can_be_stopped": true
+  },
+  "ui_automation": {
+    "permission": "ui_automation",
+    "default_granted": false,
+    "actions": [
+      "inspect_tree",
+      "focus",
+      "invoke",
+      "set_value",
+      "toggle",
+      "select"
+    ]
+  },
+  "privileged_broker": {
+    "separate_process_required": true,
+    "arbitrary_shell": false
+  },
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

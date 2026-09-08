@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9",
+  "name": "Cortex Desktop Project Tree + Live Provider Recovery",
+  "navigation": {
+    "project_first_tree": true,
+    "active_project_expands_chats": true,
+    "project_click_toggles": true,
+    "left_edge_collapsible": true,
+    "right_edge_collapsible": true,
+    "right_panel_default_collapsed": true,
+    "activity_drawer_default_collapsed": true
+  },
+  "provider_state": {
+    "successful_chat_promotes_online": true,
+    "offline_focus_reprobe": true,
+    "offline_idle_reprobe_seconds": 5,
+    "quiet_probe_does_not_block_ui": true,
+    "relaunch_not_required": true
+  },
+  "renderer_scope": {
+    "win32_shell_retained": true,
+    "direct2d_directwrite_visual_rewrite_deferred_to": "O2D-R051D10"
+  }
+}

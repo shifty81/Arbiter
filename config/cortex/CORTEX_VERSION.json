@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "product": "Cortex",
+  "architecture_series": "CORTEX-R051N",
+  "normalization_pass": "O2D-R051N9",
+  "authority_status": "NORMALIZED_CERTIFIED",
+  "feature_pass": "O2D-R051D5",
+  "feature_status": "NATIVE_WORKSPACE_CONVERSATION_SHELL",
+  "transport_context": "Open2D handoffs are a development transport, not Cortex product identity"
+}

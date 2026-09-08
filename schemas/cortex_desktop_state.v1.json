@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Desktop Bootstrap v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workspace",
+    "state_root",
+    "conversations",
+    "layout"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workspace": {
+      "type": "object"
+    },
+    "state_root": {
+      "type": "string"
+    },
+    "service": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "conversations": {
+      "type": "array"
+    },
+    "layout": {
+      "type": "object"
+    }
+  }
+}

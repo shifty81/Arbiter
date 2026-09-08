@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Settings v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "service_port",
+    "auto_start_service",
+    "lmstudio_url",
+    "comfyui_url",
+    "theme"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "service_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "auto_start_service": {
+      "type": "boolean"
+    },
+    "lmstudio_url": {
+      "type": "string"
+    },
+    "comfyui_url": {
+      "type": "string"
+    },
+    "chat_model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tool_model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "vision_model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "embedding_model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "theme": {
+      "enum": [
+        "dark",
+        "light",
+        "system"
+      ]
+    },
+    "compact_tool_cards": {
+      "type": "boolean"
+    }
+  }
+}

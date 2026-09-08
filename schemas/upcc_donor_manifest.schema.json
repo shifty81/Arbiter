@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cortex.local/schemas/upcc_donor_manifest.schema.json",
+  "title": "Cortex UPCC Donor Manifest",
+  "type": "object",
+  "required": ["schema_version", "donor_id", "source", "imported_utc", "file_count", "files"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "donor_id": {"const": "upcc-0.6.3-B003R3"},
+    "source": {"type": "string", "minLength": 1},
+    "imported_utc": {"type": "string", "format": "date-time"},
+    "file_count": {"type": "integer", "minimum": 1},
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "bytes", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "bytes": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

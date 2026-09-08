@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R13",
+  "feature": "library_file_explorer",
+  "scopes": [
+    "project",
+    "library"
+  ],
+  "library_home": "configured_library_root",
+  "windows_default_expected": "D:\\",
+  "breadcrumb_navigation": true,
+  "hide_cortex_system_metadata": true,
+  "directory_entries_limit": 500,
+  "library_external_file_selection_grants_mutation": false,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

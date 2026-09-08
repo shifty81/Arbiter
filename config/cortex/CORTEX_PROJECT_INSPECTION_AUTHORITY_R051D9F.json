@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9F",
+  "feature": "cortex_project_inspection_authority_evidence_quality",
+  "automatic_workspace_preflight": true,
+  "preflight_tool": "workspace.status",
+  "tool_choice_after_preflight": "auto",
+  "cargo_membership_is_build_authority": true,
+  "distinguishes_non_workspace_app_manifests": true,
+  "source_manifest_summary": true,
+  "checkpoint_health_summary": true,
+  "tool_catalog_count": 49
+}

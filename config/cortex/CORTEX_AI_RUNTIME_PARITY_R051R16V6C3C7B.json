@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V6C3C7B",
+  "native_default": true,
+  "lmstudio_optional": true,
+  "comfyui_optional": true,
+  "text_models_root": "D:\\Cortex\\Models",
+  "image_models_root": "D:\\Cortex\\Models\\ImageGeneration",
+  "web": {
+    "tools": [
+      "web.search",
+      "web.fetch"
+    ],
+    "search_provider": "searxng",
+    "permission": "network_internet"
+  },
+  "image_generation": {
+    "native_backend_target": "stable-diffusion.cpp",
+    "compatibility_backend": "comfyui",
+    "tool_contract": [
+      "image.generate",
+      "image.promote",
+      "image.reject",
+      "image.archive"
+    ]
+  },
+  "lmstudio_parity": {
+    "model_library": "implemented",
+    "local_gguf_discovery": "implemented",
+    "import_existing_models": "implemented",
+    "multi_model_router": "implemented",
+    "embeddings": "implemented",
+    "vision": "implemented",
+    "tool_calling": "implemented",
+    "streaming": "implemented",
+    "stateful_conversations": "implemented",
+    "structured_output": "planned_provider_layer",
+    "model_download_search": "planned_models_browser",
+    "ttl_auto_evict": "planned_profile_policy",
+    "gpu_context_profiles": "planned_profile_policy",
+    "memory_estimate": "planned_resource_estimator",
+    "mcp": "planned_plugin_bridge",
+    "openai_compat_server": "planned_local_api_facade",
+    "anthropic_compat_server": "planned_local_api_facade",
+    "api_auth": "planned_local_api_policy"
+  }
+}

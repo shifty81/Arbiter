@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Context Index v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "root",
+    "scanned_unix_ms",
+    "max_files",
+    "max_hash_bytes",
+    "total_bytes",
+    "language_counts",
+    "manifests",
+    "files",
+    "truncated"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "root": {
+      "type": "string"
+    },
+    "scanned_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_files": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_hash_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "total_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "language_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "manifests": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "files": {
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16M",
+  "feature": "provider_auto_resume",
+  "poll_interval_approx_seconds": 5,
+  "network_on_ui_thread": false,
+  "only_poll_when_pending_request_exists": true,
+  "only_poll_when_worker_queue_idle": true,
+  "provider_status_preflight_before_inference": true,
+  "automatic_resume": true,
+  "status_card_reused_from_r16l": true,
+  "runtime_behavior_change": true,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

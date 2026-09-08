@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16J",
+  "feature": "responsive_dpi_acceptance",
+  "profiles": [
+    {
+      "name": "1080p-100",
+      "width": 1920,
+      "height": 1080,
+      "scale": 1.0
+    },
+    {
+      "name": "1440p-125",
+      "width": 2560,
+      "height": 1440,
+      "scale": 1.25
+    },
+    {
+      "name": "ultrawide-3440",
+      "width": 3440,
+      "height": 1440,
+      "scale": 1.0
+    },
+    {
+      "name": "super-ultrawide-5120",
+      "width": 5120,
+      "height": 1440,
+      "scale": 1.0
+    }
+  ],
+  "states_checked": [
+    "both_expanded",
+    "left_collapsed",
+    "right_collapsed",
+    "both_collapsed",
+    "activity_expanded"
+  ],
+  "assertions": [
+    "left_does_not_overlap_center",
+    "center_does_not_overlap_right",
+    "activity_does_not_overlap_status",
+    "minimum_center_width_320",
+    "root_stays_in_viewport"
+  ],
+  "future_golden_screenshot_backend": true,
+  "runtime_visual_change": false,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

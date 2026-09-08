@@ -1,0 +1,243 @@
+{
+  "schema_version": 2,
+  "pass": "O2D-R051N9",
+  "purpose": "Certified standalone Cortex authority after project-wide R051N normalization; Open2D-named Cortex crates are compatibility or integration surfaces only.",
+  "applications": {
+    "canonical_cli": "apps/cortex",
+    "canonical_desktop": "apps/cortex_desktop",
+    "compatibility_launcher": "apps/open2d_cortex"
+  },
+  "authoritative_generic_crates": [
+    "cortex_workspace",
+    "cortex_registry",
+    "cortex_service",
+    "cortex_adapter_git",
+    "cortex_conversation",
+    "cortex_vault",
+    "cortex_cli",
+    "cortex_plugin",
+    "cortex_desktop_core",
+    "cortex_client",
+    "cortex_activity",
+    "cortex_review",
+    "cortex_task",
+    "cortex_settings",
+    "cortex_artifacts",
+    "cortex_desktop_native",
+    "cortex_protocol",
+    "cortex_http",
+    "cortex_rpc",
+    "cortex_core",
+    "cortex_tools",
+    "cortex_jobs",
+    "cortex_context",
+    "cortex_permissions",
+    "cortex_transactions",
+    "cortex_provider",
+    "cortex_process",
+    "cortex_image",
+    "cortex_capture",
+    "cortex_provider_lmstudio",
+    "cortex_provider_comfyui",
+    "cortex_session"
+  ],
+  "integration_boundary_crates": [
+    "cortex_adapter_open2d",
+    "open2d_runtime_bridge"
+  ],
+  "transitional_compatibility_crates": [
+    {
+      "crate": "open2d_cortex_http",
+      "target": "cortex_http",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_protocol",
+      "target": "cortex_protocol",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_core",
+      "target": "cortex_core",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_tools",
+      "target": "cortex_tools",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_workspace",
+      "target": "cortex_workspace",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_process",
+      "target": "cortex_process",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_memory",
+      "target": "cortex_vault",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_rpc",
+      "target": "cortex_rpc",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_provider_lmstudio",
+      "target": "cortex_provider_lmstudio",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_image",
+      "target": "cortex_image",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_provider_comfyui",
+      "target": "cortex_provider_comfyui",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_cortex_capture",
+      "target": "cortex_capture",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N9"
+    },
+    {
+      "crate": "open2d_dev_session",
+      "target": "cortex_session",
+      "policy": "THIN_COMPATIBILITY_FACADE",
+      "status": "GENERIC_AUTHORITY_MIGRATED_R051N8"
+    }
+  ],
+  "rules": [
+    "Cortex remains standalone and local-first.",
+    "Open2D-specific behavior enters Cortex only through explicit adapters/bridges.",
+    "apps/cortex and apps/open2d_cortex remain thin cortex_cli entrypoints until the compatibility launcher is retired.",
+    "Do not add business logic to compatibility launchers.",
+    "Do not hard-code machine-specific LM Studio endpoints into source; endpoint selection belongs to settings/user configuration.",
+    "Clippy -D warnings is a required certification gate.",
+    "Cortex global workspace registration is project-agnostic and stored outside individual repositories under CORTEX_HOME/user-local data.",
+    "Compatibility facades carry no business logic and may be retired only after external callers migrate.",
+    "Generic cortex_* Cargo manifests may not depend on open2d_cortex_* or open2d_dev_session after R051N9."
+  ],
+  "desktop_workspace_manager": {
+    "registry": "cortex_registry",
+    "surface": "apps/cortex_desktop",
+    "capabilities": [
+      "list_registered_workspaces",
+      "switch_active_workspace",
+      "drag_drop_folder_attach",
+      "project_agnostic_workspace_open"
+    ],
+    "policy": "Cortex desktop consumes the global registry; project-specific logic remains behind adapters."
+  },
+  "project_wide_normalization": {
+    "program": "CORTEX-R051N",
+    "lock_pass": "O2D-R051N0",
+    "scope": "Entire standalone Cortex product, not a single feature",
+    "policy_file": "config/cortex/CORTEX_PROJECT_NORMALIZATION_R051N0.json",
+    "rules": [
+      "Feature work that deepens a transitional authority boundary must wait until that boundary is normalized.",
+      "Generic Cortex core must not acquire new Open2D-specific dependencies.",
+      "Open2D integration must enter through cortex_adapter_open2d, open2d_runtime_bridge, or open2d_dev_session.",
+      "Long-running work must converge on one cancellable job/event authority.",
+      "Workspace identity and Cortex state ownership must be project-agnostic and portable.",
+      "Tools, permissions, execution, providers, RPC, memory, context, logging, artifacts, desktop and CLI must each have one canonical authority.",
+      "Compatibility crates and launchers are retired only after all active call sites migrate and a green checkpoint certifies the replacement."
+    ]
+  },
+  "normalization_progress": {
+    "current_pass": "O2D-R051N9",
+    "status": "NORMALIZED_AWAITING_CHECKPOINT",
+    "completed_domains": [
+      "generic wire authorities",
+      "generic core/tools and Open2D extension boundary",
+      "persistent WorkspaceId/global state",
+      "jobs/event authority",
+      "context/Vault/memory responsibility split",
+      "permissions/transactions authority",
+      "generic providers/process/image/capture",
+      "desktop/CLI/client/VS Code/session convergence",
+      "schemas/security/diagnostics/artifact/certification closure"
+    ],
+    "next_action": "Apply normalization train then run full Cortex checkpoint/debug/build certification."
+  },
+  "workspace_state_authority": {
+    "schema_version": 2,
+    "registry": "cortex_registry",
+    "workspace": "cortex_workspace",
+    "default": "CORTEX_HOME/workspaces/<WorkspaceId>",
+    "portable_mode": "CORTEX_STATE_MODE=portable",
+    "legacy_paths": [
+      ".cortex",
+      ".open2d/cortex"
+    ],
+    "move_policy": "WorkspaceId persists; known_paths records relocated repositories and manifest fingerprints assist reattachment."
+  },
+  "jobs_and_events": {
+    "authority": "cortex_jobs",
+    "job_states": [
+      "queued",
+      "running",
+      "succeeded",
+      "failed",
+      "cancelled"
+    ],
+    "supports": [
+      "progress",
+      "cancellation_request",
+      "result",
+      "durable_event_stream"
+    ]
+  },
+  "context_vault_memory": {
+    "context_authority": "cortex_context",
+    "workspace_authority": "cortex_workspace",
+    "vault_authority": "cortex_vault",
+    "memory_compatibility": "memory.* aliases remain Vault compatibility; open2d_cortex_memory is a thin facade",
+    "rule": "workspace owns safe filesystem access; context owns inventory/fingerprints/change sets; Vault owns lexical/embedding retrieval."
+  },
+  "permissions_and_transactions": {
+    "permission_authority": "cortex_permissions",
+    "transaction_authority": "cortex_transactions",
+    "plugin_role": "manifest/discovery only",
+    "workspace_role": "safe filesystem only"
+  },
+  "provider_execution_media": {
+    "provider_registry": "cortex_provider",
+    "process": "cortex_process",
+    "image_catalog": "cortex_image",
+    "capture": "cortex_capture",
+    "providers": [
+      "cortex_provider_lmstudio",
+      "cortex_provider_comfyui"
+    ]
+  },
+  "surface_convergence": {
+    "session": "cortex_session",
+    "cli": "apps/cortex + cortex_cli",
+    "desktop": "apps/cortex_desktop",
+    "vscode": "extensions/cortex-vscode",
+    "compatibility": [
+      "apps/open2d_cortex",
+      "extensions/open2d-cortex-vscode",
+      "open2d_dev_session"
+    ]
+  }
+}

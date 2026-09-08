@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9P",
+  "feature": "cortex_library_intake_scanner",
+  "library": {
+    "authorized_root": true,
+    "recursive_project_discovery": true,
+    "persistent_catalog": "<cortex-home>/catalog/library_scan.json",
+    "project_boundaries": ["Cargo.toml", "CMakeLists.txt", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "project.godot", "*.sln", "*.csproj", "*.vcxproj", "*.uproject"],
+    "generated_directories_ignored": true,
+    "individual_registration_review": true,
+    "bulk_high_confidence_registration": true
+  },
+  "chat_intake": {
+    "windows_file_and_folder_drop": true,
+    "max_items_per_drop": 32,
+    "managed_attachment_copy": true,
+    "bounded_text_read": 12000,
+    "blind_execute": false,
+    "blind_archive_extract": false
+  },
+  "vision": {
+    "automatic_for_image_attachments": true,
+    "formats": ["png", "jpeg", "webp"],
+    "tool": "vision.inspect",
+    "attachment_uri": "attachment://<managed-name>"
+  },
+  "tool_catalog_count": 49
+}

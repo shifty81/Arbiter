@@ -1,0 +1,63 @@
+{
+  "name": "cortex-vscode",
+  "displayName": "Cortex",
+  "description": "Trusted VS Code bridge for the Cortex development agent.",
+  "version": "0.1.0",
+  "publisher": "cortex-local",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:cortex.startBridge",
+    "onCommand:cortex.stopBridge",
+    "onCommand:cortex.askAboutSelection"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cortex.startBridge",
+        "title": "Cortex: Start VS Code Bridge"
+      },
+      {
+        "command": "cortex.stopBridge",
+        "title": "Cortex: Stop VS Code Bridge"
+      },
+      {
+        "command": "cortex.askAboutSelection",
+        "title": "Cortex: Ask About Selection"
+      }
+    ],
+    "configuration": {
+      "title": "Cortex",
+      "properties": {
+        "cortex.bridgePort": {
+          "type": "number",
+          "default": 7338,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Loopback TCP port used by the trusted Cortex VS Code bridge."
+        },
+        "cortex.cortexPort": {
+          "type": "number",
+          "default": 7337,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Loopback TCP port used by the Cortex agent service."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.7.2"
+  }
+}

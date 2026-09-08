@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9C",
+  "feature": "cortex_lmstudio_tool_schema_compatibility",
+  "fixes": [
+    "vscode.apply_workspace_edit now publishes array items schema",
+    "Observe/Guided modes advertise read-only tools only",
+    "LM Studio provider validates array schemas before dispatch"
+  ],
+  "tool_catalog_count": 49
+}

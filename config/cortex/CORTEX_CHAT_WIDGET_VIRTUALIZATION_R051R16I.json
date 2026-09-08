@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16I",
+  "feature": "chat_widget_virtualization_foundation",
+  "virtualization": {
+    "visible_window": true,
+    "overscan": true,
+    "shared_with_files_roadmap_logs": true
+  },
+  "scrolling": {
+    "stable_item_anchor": true,
+    "preserve_reader_position": true,
+    "stick_to_end_only_when_already_near_end": true
+  },
+  "message_identity": "stable_widget_id",
+  "native_chat_painter_migration": "next_renderer_stage",
+  "runtime_visual_change": false,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

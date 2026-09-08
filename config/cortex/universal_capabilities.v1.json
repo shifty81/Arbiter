@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "pass_group": "O2D-R051N9M11A-T",
+  "status": "source_staged_awaiting_checkpoint",
+  "principles": {
+    "execution_authority": "M10 ExecutionSession remains authoritative",
+    "project_dispatch": "profile and capability based, never Rust by default",
+    "evidence_order": "local/project/compiler/versioned evidence before model memory",
+    "api_sensitive_write_policy": "hard-block while required dependency grounding is missing",
+    "default_local_model_tool_limit": 12,
+    "editing": "architect -> isolated editor -> deterministic verifier",
+    "image_generation": "typed recipe -> certified workflow -> artifact -> vision/output contract",
+    "resource_management": "execution-owned CPU/RAM/GPU/VRAM leases",
+    "success_authority": "only deterministic quality/runtime/artifact evidence may claim completion"
+  },
+  "passes": [
+    {"id":"M11A","name":"Universal ProjectProfile","marker":"M11A_PROJECT_PROFILE"},
+    {"id":"M11B","name":"Toolchain Discovery","marker":"M11B_TOOLCHAIN_DISCOVERY"},
+    {"id":"M11C","name":"Capability QualityGatePlan","marker":"M11C_QUALITY_GATE_PLAN"},
+    {"id":"M11D","name":"RuntimeArtifact Resolution","marker":"M11D_RUNTIME_ARTIFACT"},
+    {"id":"M11E","name":"Generic Command Profile","marker":"M11E_GENERIC_COMMAND_PROFILE"},
+    {"id":"M11F","name":"Evidence Broker","marker":"M11F_EVIDENCE_BROKER"},
+    {"id":"M11G","name":"Dynamic Capability Views","marker":"M11G_CAPABILITY_VIEW"},
+    {"id":"M11H","name":"Model Capability Profiles","marker":"M11H_MODEL_CAPABILITY_PROFILE"},
+    {"id":"M11I","name":"Task Capsule Context Compiler","marker":"M11I_TASK_CAPSULE"},
+    {"id":"M11J","name":"Repair/Reconstruction Strategy","marker":"M11J_REPAIR_STRATEGY"},
+    {"id":"M11K","name":"Code Intelligence Plane","marker":"M11K_CODE_INTELLIGENCE"},
+    {"id":"M11L","name":"Architect Editor Verifier","marker":"M11L_ARCHITECT_EDITOR_VERIFIER"},
+    {"id":"M11M","name":"Skill Contract","marker":"M11M_SKILL_CONTRACT"},
+    {"id":"M11N","name":"MCP/A2A Protocol Contract","marker":"M11N_MCP_A2A_CONTRACT"},
+    {"id":"M11O","name":"Image Generation Recipe","marker":"M11O_IMAGE_RECIPE"},
+    {"id":"M11P","name":"Typed Workflow Profile","marker":"M11P_WORKFLOW_PROFILE"},
+    {"id":"M11Q","name":"Image Compatibility and Provenance","marker":"M11Q_IMAGE_COMPATIBILITY"},
+    {"id":"M11R","name":"Vision Critic and Output Contract","marker":"M11R_VISION_OUTPUT_CONTRACT"},
+    {"id":"M11S","name":"Resource and VRAM Lease","marker":"M11S_RESOURCE_LEASE"},
+    {"id":"M11T","name":"Eval Lab and Telemetry","marker":"M11T_EVAL_TELEMETRY"}
+  ]
+}

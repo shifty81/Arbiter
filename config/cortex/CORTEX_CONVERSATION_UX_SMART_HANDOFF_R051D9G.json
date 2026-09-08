@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9G",
+  "feature": "cortex_conversation_ux_smart_handoff",
+  "smart_handoff": {
+    "enabled": true,
+    "modes": [
+      "inspect",
+      "plan",
+      "apply",
+      "repair"
+    ],
+    "requires_user_confirmation": true,
+    "general_chat_escape": "chat:"
+  },
+  "conversation_rendering": {
+    "message_blocks": true,
+    "markdown_cleanup": true,
+    "html_br_cleanup": true,
+    "markdown_table_cleanup": true
+  },
+  "composer": {
+    "multiline": true,
+    "enter_sends": true,
+    "shift_enter_newline": true,
+    "cue_banner": true
+  },
+  "tool_catalog_count": 49
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V5H",
+  "authority": "control_center_deferred_self_update_root_hygiene",
+  "rules": {
+    "deferred_staging_root": ".open2d/updates/deferred/work",
+    "repository_root_temp_files_forbidden": true,
+    "legacy_root_temp_pattern_quarantined": "Open2DTools.cmd.cortex-update-*.tmp",
+    "swap_retries": 20,
+    "swap_retry_delay_ms": 250,
+    "rollback_required": true,
+    "automatic_debug_bundle_on_failure": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R7",
+  "feature": "chat_bubbles_markdown_code_and_approval_recovery",
+  "chat": {
+    "normal_font_pt": 13.0,
+    "code_font_pt": 11.5,
+    "assistant_bubble": true,
+    "user_bubble": true,
+    "fenced_code_separate_card": true,
+    "file_bubble_preserved": true
+  },
+  "approval": {
+    "agent_failures_stay_in_chat": true,
+    "new_project_remains_attached_on_first_code_failure": true
+  },
+  "service": {
+    "startup_ready_seconds": 45
+  },
+  "tool_catalog_count": 49
+}

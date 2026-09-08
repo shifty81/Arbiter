@@ -1,0 +1,10 @@
+[package]
+name="cortex_plugin"
+version.workspace=true
+edition.workspace=true
+license.workspace=true
+
+[dependencies]
+cortex_permissions = { path = "../cortex_permissions" }
+serde.workspace=true
+serde_json.workspace=true

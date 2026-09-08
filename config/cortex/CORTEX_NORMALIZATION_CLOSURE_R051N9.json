@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "program": "CORTEX-R051N",
+  "pass": "O2D-R051N9",
+  "status": "NORMALIZED_AWAITING_CHECKPOINT",
+  "expected_workspace_members": 70,
+  "expected_tool_count": 47,
+  "canonical_apps": {
+    "cli": "apps/cortex",
+    "desktop": "apps/cortex_desktop"
+  },
+  "canonical_authorities": [
+    "cortex_protocol",
+    "cortex_http",
+    "cortex_rpc",
+    "cortex_core",
+    "cortex_tools",
+    "cortex_workspace",
+    "cortex_context",
+    "cortex_registry",
+    "cortex_jobs",
+    "cortex_permissions",
+    "cortex_transactions",
+    "cortex_vault",
+    "cortex_provider",
+    "cortex_provider_lmstudio",
+    "cortex_provider_comfyui",
+    "cortex_process",
+    "cortex_image",
+    "cortex_capture",
+    "cortex_session",
+    "cortex_service",
+    "cortex_client",
+    "cortex_cli",
+    "cortex_desktop_core",
+    "cortex_desktop_native"
+  ],
+  "open2d_integration": [
+    "cortex_adapter_open2d",
+    "open2d_runtime_bridge"
+  ],
+  "compatibility_facades": [
+    "apps/open2d_cortex",
+    "extensions/open2d-cortex-vscode",
+    "open2d_cortex_capture",
+    "open2d_cortex_core",
+    "open2d_cortex_http",
+    "open2d_cortex_image",
+    "open2d_cortex_memory",
+    "open2d_cortex_process",
+    "open2d_cortex_protocol",
+    "open2d_cortex_provider_comfyui",
+    "open2d_cortex_provider_lmstudio",
+    "open2d_cortex_rpc",
+    "open2d_cortex_tools",
+    "open2d_cortex_workspace",
+    "open2d_dev_session"
+  ],
+  "closure_rules": [
+    "No generic cortex_* Cargo manifest depends on open2d_cortex_* or open2d_dev_session.",
+    "All source writes pass through cortex_transactions when transaction policy requires writes.",
+    "Workspace resolution and transaction writes reject lexical and link/reparse-point escapes.",
+    "Debug bundles remove token/secret/password/credential/private-key files before publication.",
+    "Cortex product/version identity is separate from Open2D handoff transport identity."
+  ],
+  "certification_required": [
+    "workspace member closure",
+    "Cortex static certification",
+    "Cortex authority normalization audit",
+    "architecture audit",
+    "root cleanliness",
+    "cargo fmt --check",
+    "cargo build",
+    "VS Code bridge compile",
+    "cargo test workspace",
+    "Cortex Desktop certification",
+    "clippy -D warnings"
+  ]
+}

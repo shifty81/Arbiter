@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open2d.local/schemas/cortex_drive_catalog.v1.json",
+  "title": "Cortex Drive Catalog",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scan_root",
+    "catalog_file",
+    "scanned_directories",
+    "scanned_files",
+    "scanned_bytes",
+    "project_nodes",
+    "project_edges",
+    "lineage_candidates",
+    "duplicate_groups",
+    "class_summary",
+    "truncated",
+    "cancelled",
+    "generated_unix_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "scan_root": {
+      "type": [
+        "string",
+        "object"
+      ]
+    },
+    "catalog_file": {
+      "type": [
+        "string",
+        "object"
+      ]
+    },
+    "scanned_directories": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "scanned_files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "scanned_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_cycles_or_external_links": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "project_nodes": {
+      "type": "array"
+    },
+    "project_edges": {
+      "type": "array"
+    },
+    "lineage_candidates": {
+      "type": "array"
+    },
+    "duplicate_groups": {
+      "type": "array"
+    },
+    "class_summary": {
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "generated_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cancelled": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true
+}

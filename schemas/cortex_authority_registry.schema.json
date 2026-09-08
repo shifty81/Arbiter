@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "open2d://schemas/cortex_authority_registry.v1",
+  "title": "Cortex Authority Registry",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "registry_id",
+    "principles",
+    "domains"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "registry_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "principles": {
+      "type": "object"
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "domain",
+          "owner",
+          "owns"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "owns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

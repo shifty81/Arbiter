@@ -1,0 +1,11 @@
+[package]
+name = "cortex_provider_router"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_protocol = { path = "../cortex_protocol" }
+cortex_provider_native = { path = "../cortex_provider_native" }
+cortex_provider_lmstudio = { path = "../cortex_provider_lmstudio" }
+serde_json.workspace = true

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V5K",
+  "authority": "lmstudio_openai_responses_reasoning_translation",
+  "endpoint": "/v1/responses",
+  "policy": {
+    "qwen3_qwen35_default_cortex_intent": "off",
+    "qwen3_qwen35_serialized_effort": "none",
+    "gpt_oss_default_effort": "low",
+    "unknown_models": "omit reasoning field",
+    "environment_override": "CORTEX_LMSTUDIO_REASONING",
+    "override_values": [
+      "auto",
+      "off",
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "provider",
+      "default"
+    ],
+    "native_off_alias": "none"
+  },
+  "cleanup": {
+    "recognized_residue": "crates/cortex_provider_lmstudio/src/test.tmp",
+    "action": "quarantine to artifacts/maintenance/patch-residue/<timestamp>"
+  }
+}

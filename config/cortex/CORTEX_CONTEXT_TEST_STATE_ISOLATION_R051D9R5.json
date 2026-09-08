@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R5",
+  "feature": "cortex_context_test_state_isolation",
+  "failure": {
+    "test": "index_delta_detects_changes",
+    "observed_first_new_files": 0,
+    "expected_first_new_files": 2,
+    "cause": "test used Workspace::open with a process-id-only temp path, allowing stale durable global Cortex context state to be reused when the path recurred"
+  },
+  "fix": {
+    "unique_test_base": "pid + unix_ms",
+    "explicit_test_state_root": true,
+    "uses_open_with_state_root": true,
+    "touches_user_global_cortex_cache": false
+  },
+  "runtime_behavior_change": false,
+  "tool_catalog_count": 49
+}

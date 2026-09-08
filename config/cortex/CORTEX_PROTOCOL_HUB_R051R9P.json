@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R9P",
+  "feature": "cortex_protocol_hub",
+  "supported_contracts": [
+    "mcp_stdio",
+    "lsp_stdio",
+    "dap_stdio",
+    "bsp_stdio"
+  ],
+  "default_transport_policy": "local_stdio_only",
+  "remote_protocol_endpoints_default_allowed": false,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

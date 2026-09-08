@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R15",
+  "feature": "skills_automation_agent_evals",
+  "skills": {
+    "workspace_manifests": true,
+    "user_manifests": true,
+    "permission_declared": true,
+    "package_paths_must_be_relative": true
+  },
+  "automations": {
+    "triggers": [
+      "manual",
+      "startup",
+      "interval_minutes"
+    ],
+    "run_via_job_authority": true,
+    "webhook_triggers": false
+  },
+  "agent_evals": {
+    "trace_replay": true,
+    "required_events": true,
+    "forbidden_events": true,
+    "builtins": [
+      "rust-create-build-repair",
+      "untrusted-content-cannot-authorize"
+    ]
+  },
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

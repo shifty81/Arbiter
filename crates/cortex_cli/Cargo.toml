@@ -1,0 +1,34 @@
+[package]
+name = "cortex_cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_provider = { path = "../cortex_provider" }
+cortex_permissions = { path = "../cortex_permissions" }
+cortex_context = { path = "../cortex_context" }
+cortex_jobs = { path = "../cortex_jobs" }
+cortex_observability = { path = "../cortex_observability" }
+cortex_settings = { path = "../cortex_settings" }
+cortex_review = { path = "../cortex_review" }
+cortex_vault = { path = "../cortex_vault" }
+cortex_service = { path = "../cortex_service" }
+cortex_plugin = { path = "../cortex_plugin" }
+cortex_desktop_core = { path = "../cortex_desktop_core" }
+cortex_adapter_git = { path = "../cortex_adapter_git" }
+cortex_conversation = { path = "../cortex_conversation" }
+cortex_registry = { path = "../cortex_registry" }
+cortex_project = { path = "../cortex_project" }
+cortex_process = { path = "../cortex_process" }
+cortex_workspace = { path = "../cortex_workspace" }
+cortex_core = { path = "../cortex_core" }
+cortex_provider_comfyui = { path = "../cortex_provider_comfyui" }
+cortex_provider_lmstudio = { path = "../cortex_provider_lmstudio" }
+cortex_provider_router = { path = "../cortex_provider_router" }
+cortex_protocol = { path = "../cortex_protocol" }
+cortex_rpc = { path = "../cortex_rpc" }
+cortex_tools = { path = "../cortex_tools" }
+cortex_web = { path = "../cortex_web" }
+cortex_model_host = { path = "../cortex_model_host" }
+serde_json.workspace = true

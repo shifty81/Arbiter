@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R1",
+  "feature": "sync_static_certification_to_async_queue_architecture",
+  "removed_legacy_marker": "invoke_async_stream",
+  "required_async_markers": [
+    "WORK_QUEUE",
+    "queue_chat_work",
+    "queue_agent_work",
+    "start_queued_work",
+    "update_thinking_bubble"
+  ],
+  "reason": "D9O replaced the single foreground async stream function with detached queued work and per-chat/project scheduling.",
+  "tool_catalog_count": 49
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16N",
+  "feature": "sidebar_widget_migration",
+  "retained_geometry_authority": true,
+  "semantic_header": "Projects",
+  "collapsed_rail_geometry_authoritative": true,
+  "workspace_members": 70,
+  "tool_catalog_count": 49
+}

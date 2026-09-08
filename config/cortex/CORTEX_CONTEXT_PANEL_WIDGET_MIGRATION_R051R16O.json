@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16O",
+  "feature": "context_panel_widget_migration",
+  "retained_geometry_authority": true,
+  "semantic_header": "Project",
+  "tab_grid_authoritative": true,
+  "content_bounds_authoritative": true,
+  "workspace_members": 70,
+  "tool_catalog_count": 49
+}

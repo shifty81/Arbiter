@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16K",
+  "feature": "cortex_ui_widget_clippy_cleanup",
+  "fixes": [
+    "remove_obsolete_layout_height_local",
+    "derive_ui_density_default",
+    "reexport_chat_scroll_policy",
+    "reexport_validate_shell_profiles"
+  ],
+  "runtime_behavior_change": false,
+  "widget_behavior_change": false,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

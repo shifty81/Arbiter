@@ -1,1 +1,0 @@
-"""SteamServerAdmin — src package."""

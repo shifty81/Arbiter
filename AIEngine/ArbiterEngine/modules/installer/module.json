@@ -1,6 +1,0 @@
-{
-  "name": "installer",
-  "version": "0.1.0",
-  "description": "Application and dependency installer",
-  "dependencies": []
-}

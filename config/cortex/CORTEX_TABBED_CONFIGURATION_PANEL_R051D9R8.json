@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R8",
+  "feature": "tabbed_configuration_panel",
+  "left_navigation": {
+    "library_controls_removed": true,
+    "individual_project_action": "Add Project"
+  },
+  "config_panel": {
+    "button": "Config",
+    "tabs": [
+      "General",
+      "Library",
+      "Providers",
+      "Models",
+      "UI"
+    ],
+    "library_root_editable": true,
+    "library_scan": true,
+    "settings_persisted": true
+  },
+  "tool_catalog_count": 49
+}

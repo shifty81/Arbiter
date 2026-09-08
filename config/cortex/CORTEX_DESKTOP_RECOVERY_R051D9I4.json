@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9I4",
+  "feature": "cortex_desktop_clippy_and_stream_recovery",
+  "purpose": "restore certified D9I2 Desktop sources after provider-only D9I3",
+  "preserves_d9i3_lmstudio_provider": true,
+  "restores": [
+    "RichEdit structured live-stream rendering",
+    "manual agent structured preview rendering",
+    "WS_HSCROLL cleanup",
+    "duplicate RichEdit branch cleanup",
+    "mutation-only pending HandoffMode",
+    "unused PendingHandoff.prompt cleanup"
+  ],
+  "tool_catalog_count": 49
+}

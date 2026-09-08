@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9B",
+  "feature": "cortex_tool_model_routing_guard",
+  "project_agent_modes": [
+    "inspect",
+    "plan",
+    "apply",
+    "repair"
+  ],
+  "requires_native_tool_model": true,
+  "selection_policy": [
+    "explicit_tool_model_if_trained_for_tool_use",
+    "loaded_tool_capable_model",
+    "available_tool_capable_model",
+    "actionable_failure"
+  ],
+  "chat_model_may_remain_non_tool_capable": true,
+  "known_trigger": "LM Studio/Qwen3.5 prompt-template HTTP 500 when structured tools are supplied"
+}

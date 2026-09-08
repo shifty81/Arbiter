@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9I1",
+  "feature": "cortex_chatgpt_surface_clippy_hotfix",
+  "runtime_behavior_change": false,
+  "fixes": [
+    "remove obsolete WS_HSCROLL constant",
+    "merge identical RichEdit text branches",
+    "remove obsolete Inspect/Plan pending-handoff variants",
+    "remove unused PendingHandoff prompt field"
+  ],
+  "tool_catalog_count": 49
+}

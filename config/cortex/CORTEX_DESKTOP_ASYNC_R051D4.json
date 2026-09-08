@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D4",
+  "name": "Cortex Asynchronous Desktop Operations",
+  "baseline": "O2D-R051D3A:CORTEX_CHECKPOINT_PASSED",
+  "workspace_members": 70,
+  "tool_count": 49,
+  "async_operations": [
+    "chat.send",
+    "agent.inspect",
+    "agent.plan",
+    "agent.apply",
+    "agent.repair",
+    "build.check",
+    "workspace.index_rebuild",
+    "provider.status"
+  ],
+  "ui_thread_blocking": "removed for long desktop operations",
+  "cancel_semantics": "cooperative request; in-flight provider/process calls are allowed to return safely",
+  "completion_transport": "private Win32 WM_ASYNC_COMPLETE message",
+  "conflicting_controls_disabled_while_busy": true
+}

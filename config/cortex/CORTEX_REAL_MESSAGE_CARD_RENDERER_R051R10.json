@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R10",
+  "feature": "real_message_card_renderer",
+  "transcript_control": "custom_win32_painted_surface",
+  "single_rich_edit_transcript": false,
+  "user_cards_align": "right",
+  "assistant_cards_align": "left",
+  "nested_markdown_code_cards": true,
+  "real_file_cards": true,
+  "message_ids_preserved_for_actions": true,
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

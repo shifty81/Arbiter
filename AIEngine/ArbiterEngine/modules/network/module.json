@@ -1,6 +1,0 @@
-{
-  "name": "network",
-  "version": "0.1.0",
-  "description": "Network requests and API interactions",
-  "dependencies": []
-}

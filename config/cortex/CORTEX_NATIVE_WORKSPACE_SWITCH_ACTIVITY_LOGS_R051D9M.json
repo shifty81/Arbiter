@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9M",
+  "feature": "cortex_native_workspace_switch_stability_and_lmstudio_activity_logs",
+  "workspace_switch": {
+    "automatic_provider_probe_on_focus": false,
+    "automatic_provider_probe_timer": false,
+    "automatic_provider_probe_after_async_operation": false,
+    "reason": "provider probes held the DesktopHost mutex during network timeout windows and could freeze UI interaction"
+  },
+  "chat_render": {
+    "plain_setwindowtext_fallback_into_richedit": false,
+    "dark_structured_fallback": true
+  },
+  "activity": {
+    "tabs": [
+      "Cortex Activity",
+      "LM Studio Logs"
+    ],
+    "lmstudio_command": "lms log stream --source server",
+    "lazy_start_when_tab_selected": true,
+    "max_buffer_lines": 2000,
+    "auto_follow": true,
+    "captures_existing_history_before_tab_open": false
+  },
+  "tool_catalog_count": 49
+}

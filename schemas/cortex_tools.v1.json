@@ -1,0 +1,172 @@
+{
+  "schema_version": 13,
+  "authority": "crates/cortex_tools::definitions + cortex_adapter_open2d::definitions",
+  "tool_groups": {
+    "project": [
+      "workspace.status",
+      "project.status",
+      "workspace.context_status",
+      "workspace.context_rebuild",
+      "workspace.index_status",
+      "workspace.index_rebuild",
+      "workspace.registry_list",
+      "project.profile",
+      "toolchain.status"
+    ],
+    "source_read": [
+      "source.list",
+      "source.read",
+      "source.search",
+      "dependency.ground",
+      "source.transaction_status",
+      "source.transaction_files"
+    ],
+    "source_write": [
+      "source.checkpoint",
+      "source.begin_transaction",
+      "source.write_text",
+      "source.replace_text",
+      "source.commit",
+      "source.rollback",
+      "dependency.ensure"
+    ],
+    "build": [
+      "build.cargo_fmt_check",
+      "build.cargo_check",
+      "build.cargo_test",
+      "build.cargo_test_run",
+      "build.clippy",
+      "build.certify"
+    ],
+    "runtime": [
+      "runtime.launch_foundry",
+      "runtime.launch_ember",
+      "runtime.status",
+      "runtime.stop",
+      "runtime.launch_project",
+      "runtime.process_status",
+      "runtime.window_info",
+      "runtime.process_stop",
+      "runtime.verify_project"
+    ],
+    "capture": [
+      "capture.window",
+      "vision.inspect"
+    ],
+    "image": [
+      "image.generate",
+      "image.promote",
+      "image.reject",
+      "image.archive"
+    ],
+    "memory": [
+      "memory.rebuild",
+      "memory.search"
+    ],
+    "vscode": [
+      "vscode.workspace_info",
+      "vscode.open_file",
+      "vscode.get_diagnostics",
+      "vscode.apply_workspace_edit",
+      "vscode.save_all"
+    ],
+    "git": [
+      "git.status",
+      "git.diff",
+      "git.log"
+    ],
+    "repository_git": [
+      "git.branch.create",
+      "git.branch.switch",
+      "git.changes.snapshot",
+      "git.commit",
+      "git.fetch.local",
+      "git.host.backup",
+      "git.host.bootstrap",
+      "git.host.ensure_identity",
+      "git.host.ensure_ssh_key",
+      "git.host.status",
+      "git.issue.create",
+      "git.project.attach_local",
+      "git.provider.refresh",
+      "git.push.local",
+      "git.release.snapshot",
+      "git.repository.overview",
+      "git.safety.create",
+      "git.safety.list",
+      "git.stage",
+      "git.sync.status",
+      "git.unstage",
+      "git.vault.audit",
+      "git.vault.ingest",
+      "git.vault.materialize"
+    ],
+    "vault": [
+      "vault.status",
+      "vault.rebuild",
+      "vault.search",
+      "vault.metrics",
+      "vault.policy_get",
+      "vault.policy_set",
+      "vault.knowledge_status"
+    ],
+    "extensions_permissions": [
+      "plugins.list",
+      "permissions.status"
+    ],
+    "development": [
+      "development.roadmap",
+      "development.run_status",
+      "development.run_begin",
+      "development.run_advance",
+      "development.milestone_complete",
+      "development.certification_plan"
+    ],
+    "build_generic": [
+      "build.project_format",
+      "build.project_validate",
+      "build.project_test",
+      "build.project_lint",
+      "build.project_build",
+      "build.project_checkpoint"
+    ],
+    "storage_authority": [
+      "workspace.storage_status",
+      "workspace.storage_volumes",
+      "workspace.storage_set",
+      "workspace.offsite_backup_set",
+      "workspace.scan_storage",
+      "workspace.scan_machine",
+      "workspace.migration_plan",
+      "workspace.migration_apply"
+    ]
+  },
+  "default_policy": {
+    "workspace_escape": "deny",
+    "network": "deny_except_configured_loopback_providers",
+    "system_modification": "deny",
+    "software_installation": "deny",
+    "process_control": "owned_processes_only",
+    "writes": "durable_transaction_required",
+    "agent_read_only_modes": [
+      "inspect",
+      "plan"
+    ],
+    "agent_mutating_modes": [
+      "apply",
+      "repair"
+    ],
+    "mutating_agent_commit": "human_review_required",
+    "grounded_first_project_turn": "required"
+  },
+  "desktop_milestone": "O2D-R050",
+  "normalization_milestone": "O2D-R051N2B",
+  "context_index_milestone": "O2D-R051D2",
+  "milestone_development": "O2D-R051N9H11-H20",
+  "library_vault_milestone": "O2D-R051N9H21-H27",
+  "ember_convergence_milestone": "O2D-R051N9H28-H30",
+  "checkpoint_authority_milestone": "O2D-R051N9H68C3C3J",
+  "completion_authority_milestone": "O2D-R051N9H68C3C3J2",
+  "vault_knowledge_milestone": "O2D-R051N9H68C3C3K",
+  "execution_ux_milestone": "O2D-R051N9H68C3C3L"
+}

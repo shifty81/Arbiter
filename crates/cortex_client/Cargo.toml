@@ -1,0 +1,13 @@
+[package]
+name = "cortex_client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_service = { path = "../cortex_service" }
+cortex_workspace = { path = "../cortex_workspace" }
+cortex_registry = { path = "../cortex_registry" }
+cortex_protocol = { path = "../cortex_protocol" }
+cortex_rpc = { path = "../cortex_rpc" }
+serde_json.workspace = true

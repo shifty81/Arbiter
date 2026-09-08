@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/cortex",
+    "apps/cortex_desktop",
+    "apps/cortex_model_host",
+    "crates/cortex_activity",
+    "crates/cortex_adapter_git",
+    "crates/cortex_artifacts",
+    "crates/cortex_capture",
+    "crates/cortex_cli",
+    "crates/cortex_client",
+    "crates/cortex_context",
+    "crates/cortex_conversation",
+    "crates/cortex_core",
+    "crates/cortex_desktop_core",
+    "crates/cortex_desktop_native",
+    "crates/cortex_development",
+    "crates/cortex_execution",
+    "crates/cortex_http",
+    "crates/cortex_image",
+    "crates/cortex_jobs",
+    "crates/cortex_model_host",
+    "crates/cortex_observability",
+    "crates/cortex_permissions",
+    "crates/cortex_plugin",
+    "crates/cortex_process",
+    "crates/cortex_project",
+    "crates/cortex_protocol",
+    "crates/cortex_provider",
+    "crates/cortex_provider_comfyui",
+    "crates/cortex_provider_lmstudio",
+    "crates/cortex_provider_native",
+    "crates/cortex_provider_router",
+    "crates/cortex_registry",
+    "crates/cortex_review",
+    "crates/cortex_rpc",
+    "crates/cortex_service",
+    "crates/cortex_session",
+    "crates/cortex_settings",
+    "crates/cortex_task",
+    "crates/cortex_toolchain",
+    "crates/cortex_tools",
+    "crates/cortex_transactions",
+    "crates/cortex_universal",
+    "crates/cortex_vault",
+    "crates/cortex_web",
+    "crates/cortex_workspace",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Shifty"]
+license = "Proprietary"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

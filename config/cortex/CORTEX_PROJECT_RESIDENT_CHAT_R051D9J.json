@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9J",
+  "feature": "cortex_project_resident_chat_and_intent_continuity",
+  "primary_identity": "persistent_project_developer",
+  "normal_chat_receives": [
+    "active project name",
+    "active project root",
+    "bounded recent conversation context"
+  ],
+  "natural_project_phrases_route_to_developer_workflow": true,
+  "mode_selection_language_removed_from_chat_prompt": true,
+  "source_mutation_approval_boundary_unchanged": true,
+  "tool_catalog_count": 49
+}

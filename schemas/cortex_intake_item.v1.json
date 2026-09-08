@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Intake Item",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "item_id",
+    "received_path",
+    "sha256",
+    "classification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "item_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "received_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{64}$"
+    },
+    "classification": {
+      "enum": [
+        "handoff_patch",
+        "source_refresh",
+        "debug_bundle",
+        "log",
+        "image",
+        "document",
+        "asset_pack",
+        "reference",
+        "unknown"
+      ]
+    },
+    "project_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "transaction_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "disposition": {
+      "enum": [
+        "pending",
+        "assigned",
+        "routed",
+        "indexed",
+        "archived",
+        "quarantined",
+        "rejected"
+      ]
+    },
+    "provenance": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

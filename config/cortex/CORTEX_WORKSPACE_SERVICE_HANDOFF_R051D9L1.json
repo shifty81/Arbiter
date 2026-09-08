@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9L1",
+  "feature": "cortex_workspace_service_ownership_handoff",
+  "observed_failure": {
+    "port": 7337,
+    "windows_error": 10048,
+    "stage": "after standalone project creation / during target workspace service startup"
+  },
+  "recovery": {
+    "preserve_existing_created_project": true,
+    "do_not_recreate_hello3d": true,
+    "select_existing_registered_project_and_continue": true
+  },
+  "behavior": {
+    "stop_current_service_before_workspace_switch": true,
+    "stop_current_service_before_workspace_attach": true,
+    "stop_current_service_before_standalone_project_transition": true,
+    "scan_registered_workspaces_for_same_executable_port_owner_before_spawn": true,
+    "never_kill_unknown_different_executable": true
+  },
+  "tool_catalog_count": 49
+}

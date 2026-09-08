@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D5",
+  "name": "Cortex Native Workspace + Conversation Shell",
+  "baseline": "O2D-R051D4",
+  "workspace_members": 70,
+  "tool_count": 49,
+  "workspace_shell": {
+    "registered_workspace_list": true,
+    "switching": true,
+    "attach_path": true,
+    "provider_reprobe_after_switch": true
+  },
+  "conversation_shell": {
+    "new_chat": true,
+    "auto_title_from_first_prompt": true,
+    "archive_chat": true,
+    "persistent_history": true
+  },
+  "task_surface": {
+    "button": true,
+    "recent_limit": 24,
+    "authority": "cortex_jobs::TaskStore"
+  },
+  "async_scheduler": "R051D4 preserved"
+}

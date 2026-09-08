@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9H",
+  "feature": "cortex_conversational_developer_orchestrator",
+  "primary_surface": "normal_chat",
+  "read_only_project_work": "automatic_inspect_then_plan",
+  "source_mutation": "one_confirmation_then_code_or_repair",
+  "natural_continuation": true,
+  "context_recovery": {
+    "recent_conversation_chars": 6000,
+    "uses_authoritative_project_preflight": true,
+    "uses_checkpoint_roadmap_handoff_source_evidence": true
+  },
+  "code_is_user_facing_alias_for_apply": true,
+  "clock_acceptance_canary": true,
+  "tool_catalog_count": 49
+}

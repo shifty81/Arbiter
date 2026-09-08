@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D3",
+  "name": "Cortex Desktop Runtime + Provider Readiness",
+  "baseline": "O2D-R051D2",
+  "workspace_members": 70,
+  "tool_count": 49,
+  "desktop": {
+    "service_auto_start": "best_effort_on_normal_desktop_launch",
+    "provider_probe": "LM Studio models.list through authenticated Cortex RPC",
+    "offline_behavior": "window remains usable",
+    "status_bar_provider_state": true,
+    "provider_button": true
+  },
+  "rpc_added": [
+    "provider.status"
+  ],
+  "certification_provider_dependency": "none; desktop certification remains provider-offline safe"
+}

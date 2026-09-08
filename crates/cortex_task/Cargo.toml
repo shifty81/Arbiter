@@ -1,0 +1,8 @@
+[package]
+name = "cortex_task"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_jobs = { path = "../cortex_jobs" }

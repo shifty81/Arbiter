@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D8",
+  "desktop_api_revision": 2,
+  "service_pairing": {
+    "require_health_capabilities": true,
+    "restart_mismatched_executable": true,
+    "restart_legacy_service": true,
+    "required_rpc_features": ["provider.status", "agent.chat.stream"]
+  },
+  "streaming_compatibility": {
+    "accept_legacy_unframed_final_rpc_response": true,
+    "opaque_missing_frame_error_removed": true
+  },
+  "native_theme": {
+    "default": "dark",
+    "dark_title_bar": true,
+    "dark_window_background": true,
+    "dark_edit_controls": true,
+    "dark_list_controls": true,
+    "owner_draw_dark_buttons": true
+  },
+  "tool_count": 49
+}

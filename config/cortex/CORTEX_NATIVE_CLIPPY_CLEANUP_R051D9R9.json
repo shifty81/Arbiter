@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R9",
+  "feature": "cortex_native_clippy_cleanup",
+  "fixes": [
+    "remove unused DesktopConfigSnapshot import from Windows module",
+    "fold Library Scan condition into guarded match arm"
+  ],
+  "runtime_behavior_change": false,
+  "tool_catalog_count": 49
+}

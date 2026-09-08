@@ -1,49 +1,51 @@
-# Node / legacy webhook integration (archived)
-node_modules/
-dist/
+# Rust
+/target/
+**/target/
+
+# Node/editor bridge
+**/node_modules/
+**/dist/
+**/.parcel-cache/
+
+# Local Cortex runtime/state
+/.cortex/
+/.open2d/
+*.local.json
 .env
-*.js.map
-coverage/
-.nyc_output/
+.env.*
+!.env.example
 
-# C# / .NET build artifacts
-bin/
-obj/
-*.user
-.vs/
-*.suo
-*.ncrunchproject
-*.DotSettings.user
-TestResults/
+# PCC/runtime evidence generated locally
+/artifacts/debug-bundles/
+/artifacts/source-refresh/
+/artifacts/handoffs/
+/artifacts/diagnostics/
+/artifacts/migration/pre-import-*/
+/logs/
+/state/
 
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.venv/
-venv/
-env/
-*.egg-info/
-dist/
-build/
-.pytest_cache/
+# Update packages are governed artifacts, not source.
+# Keep the inbox marker but do not commit transient ZIPs.
+/updates/inbox/*.zip
+!/updates/inbox/.gitkeep
 
-# LLM model files (large binary files — download separately)
-AIEngine/LLaMA2-13B/*.gguf
-AIEngine/LLaMA2-13B/*.bin
-AIEngine/LLaMA2-13B/*.pt
-AIEngine/LLaMA2-13B/*.safetensors
+# Secrets / credentials
+*.pem
+*.pfx
+*.p12
+*.key
+*credential*
+*secret*
+*token*
 
-# Arbiter runtime data
-Memory/ConversationLogs/**/*.db
-Temp/
-
-# OS
+# OS/editor
 .DS_Store
 Thumbs.db
+.vs/
+.idea/
+.vscode/*.log
 
-# Log files — keep directory structure (.gitkeep) but not the log files themselves
-logs/**/*.log
-logs/**/*.log.*
-AIEngine/ArbiterEngine/logs/*.log
-AIEngine/ArbiterEngine/logs/*.log.*
+# Build/package residue
+*.tmp
+*.bak
+*.orig

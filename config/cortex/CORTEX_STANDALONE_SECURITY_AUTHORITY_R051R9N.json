@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R9N",
+  "product_authority": "standalone_cortex",
+  "default_library_root_windows": "D:\\",
+  "open2d_dependency_direction": "adapter_only",
+  "library_registration_moves_source": false,
+  "untrusted_content_may_authorize_capabilities": false,
+  "approval_levels": [
+    "automatic",
+    "user_approval",
+    "strong_approval",
+    "privileged_broker"
+  ],
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

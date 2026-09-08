@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cortex Transaction Summary v1",
+  "type": "object",
+  "required": [
+    "id",
+    "touched",
+    "created"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "touched": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "created": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

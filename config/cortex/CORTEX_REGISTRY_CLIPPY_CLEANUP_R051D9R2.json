@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R2",
+  "feature": "cortex_registry_clippy_cleanup",
+  "lint": "clippy::filter-map-bool-then",
+  "behavior_change": false,
+  "tool_catalog_count": 49
+}

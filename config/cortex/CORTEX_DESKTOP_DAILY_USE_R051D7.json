@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D7",
+  "name": "Cortex Native Desktop Daily-Use UX and Certification",
+  "baseline": "O2D-R051D6",
+  "workspace_members": 70,
+  "tool_count": 49,
+  "ux_contracts": [
+    "enter_to_send",
+    "prompt_focus_recovery",
+    "streaming_transcript_auto_follow",
+    "workspace_and_conversation_window_identity",
+    "readable_recent_task_progress",
+    "safe_close_after_active_operation_returns",
+    "busy_conflict_controls_remain_disabled",
+    "cooperative_cancel_remains_visible"
+  ],
+  "daily_use_candidate": true,
+  "runtime_acceptance": [
+    "launch cortex_desktop.exe",
+    "LM Studio provider online",
+    "streaming chat response",
+    "workspace switch and conversation reload",
+    "Inspect Plan Apply workflow",
+    "Build Check live progress",
+    "cancel request",
+    "close while busy"
+  ]
+}

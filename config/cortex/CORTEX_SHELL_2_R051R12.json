@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R12",
+  "feature": "cortex_shell_2",
+  "left_collapsed_mode": "icon_rail",
+  "bottom_status_bar": true,
+  "activity_drawer": {
+    "opens": "up",
+    "tabs": [
+      "Cortex",
+      "LM Studio",
+      "Jobs",
+      "Build",
+      "Git",
+      "Notifications"
+    ]
+  },
+  "panel_borders": "explicit",
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

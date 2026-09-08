@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex_project_event.v1",
+  "type": "object",
+  "required": ["schema", "event_id", "timestamp_unix_ms", "severity", "kind", "source", "summary", "trace"],
+  "properties": {
+    "schema": {"const": "cortex.project_event.v1"},
+    "event_id": {"type": "string", "minLength": 1},
+    "timestamp_unix_ms": {"type": "integer", "minimum": 0},
+    "severity": {"enum": ["trace", "debug", "info", "warning", "error", "critical"]},
+    "kind": {"type": "string", "minLength": 1},
+    "source": {"type": "string", "minLength": 1},
+    "summary": {"type": "string"},
+    "trace": {
+      "type": "object",
+      "required": ["trace_id"],
+      "properties": {
+        "project_id": {"type": ["string", "null"]},
+        "session_id": {"type": ["string", "null"]},
+        "conversation_id": {"type": ["string", "null"]},
+        "message_id": {"type": ["string", "null"]},
+        "trace_id": {"type": "string", "minLength": 1},
+        "span_id": {"type": ["string", "null"]},
+        "parent_span_id": {"type": ["string", "null"]},
+        "build_id": {"type": ["string", "null"]},
+        "job_id": {"type": ["string", "null"]},
+        "transaction_id": {"type": ["string", "null"]},
+        "patch_id": {"type": ["string", "null"]},
+        "debug_bundle_id": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "attributes": {"type": "object"},
+    "evidence_paths": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

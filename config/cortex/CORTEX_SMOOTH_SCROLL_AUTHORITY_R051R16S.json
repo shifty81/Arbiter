@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16S",
+  "feature": "unified_smooth_scroll_and_flicker_free_chat",
+  "shared_scroll_controller": true,
+  "first_runtime_consumer": "chat_transcript",
+  "precision_wheel_delta": true,
+  "wheel_pixels_per_notch": 72,
+  "animation_tick_ms": 16,
+  "history_reading_preserved": true,
+  "follow_end_threshold_logical_px": 24,
+  "scrollbar_thumb_is_immediate": true,
+  "double_buffered_chat_paint": true,
+  "erase_background_on_scroll": false,
+  "future_consumers": [
+    "projects",
+    "conversations",
+    "files",
+    "roadmap",
+    "activity",
+    "artifacts",
+    "logs",
+    "terminal"
+  ],
+  "workspace_members": 70,
+  "tool_catalog_count": 49
+}

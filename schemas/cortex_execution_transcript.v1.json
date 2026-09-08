@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "open2d://schemas/cortex_execution_transcript.v1.json",
+  "title": "Cortex Execution Transcript Entry",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_unix_ms",
+    "phase",
+    "title",
+    "detail",
+    "visibility"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "intake",
+        "inspect",
+        "context",
+        "provider",
+        "tool",
+        "mutation",
+        "format",
+        "check",
+        "test",
+        "lint",
+        "build",
+        "launch",
+        "verify",
+        "compact",
+        "complete",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "chat_and_activity",
+        "activity_only"
+      ]
+    },
+    "success": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "elapsed_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "attempt": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "provider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tool": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "command": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cwd": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "snippet": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

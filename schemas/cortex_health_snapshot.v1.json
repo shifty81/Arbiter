@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex_health_snapshot.v1",
+  "type": "object",
+  "required": ["schema", "snapshot_id", "timestamp_unix_ms", "components"],
+  "properties": {
+    "schema": {"const": "cortex.health_snapshot.v1"},
+    "snapshot_id": {"type": "string"},
+    "timestamp_unix_ms": {"type": "integer", "minimum": 0},
+    "project_id": {"type": ["string", "null"]},
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "checked_unix_ms"],
+        "properties": {
+          "name": {"type": "string"},
+          "status": {"enum": ["healthy", "degraded", "offline", "unknown"]},
+          "message": {"type": ["string", "null"]},
+          "checked_unix_ms": {"type": "integer", "minimum": 0},
+          "metadata": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

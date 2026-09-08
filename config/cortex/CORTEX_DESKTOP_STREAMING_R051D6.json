@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D6",
+  "name": "Cortex Streaming Responses and Live Progress",
+  "baseline": "O2D-R051D5A:CORTEX_CHECKPOINT_PASSED",
+  "workspace_members": 70,
+  "tool_count": 49,
+  "stream_transport": "LM Studio SSE -> cortex_protocol -> framed loopback RPC -> Cortex client -> DesktopController -> Win32 progress queue",
+  "chat_persistence": "assistant response commits only after final successful stream completion",
+  "progress_operations": [
+    "chat.send",
+    "agent.inspect",
+    "agent.plan",
+    "agent.apply",
+    "agent.repair",
+    "build.check",
+    "workspace.index_rebuild",
+    "provider.status"
+  ],
+  "cancellation": "cooperative; visible cancellation state remains explicit while in-flight provider/process work returns safely",
+  "ui_progress_message": "WM_ASYNC_PROGRESS",
+  "ui_completion_message": "WM_ASYNC_COMPLETE"
+}

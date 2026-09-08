@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16B",
+  "feature": "gui_conversation_authority_normalization",
+  "chat": {
+    "rounded_cards": true,
+    "rounded_nested_code": true,
+    "scroll_focus_normalized": true,
+    "actions_clickable": true
+  },
+  "shell": {
+    "legacy_command_strip_hidden": true,
+    "single_vertical_layout_authority": true,
+    "panel_separators": true
+  },
+  "routing": {
+    "brainstorming": "chat_first",
+    "project_index": "deterministic",
+    "async_errors": "conversation_not_modal"
+  },
+  "registry": {
+    "prune_generated_workspace_records": true,
+    "preserve_legitimate_debug_named_project": true
+  },
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

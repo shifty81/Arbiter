@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R14",
+  "feature": "cortex_library_memory",
+  "root": "<Library>/.cortex/memory",
+  "scopes": [
+    "global",
+    "project"
+  ],
+  "catalog_and_semantic_memory_separated": true,
+  "organization_review_persistent": true,
+  "scan_cursor_supports": [
+    "usn_change_journal",
+    "fallback_metadata_scan"
+  ],
+  "backend": "schema_neutral_local_store_v1",
+  "future_backend": "sqlite_fts_semantic",
+  "tool_catalog_count": 49,
+  "workspace_members": 70
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V5I",
+  "authority": "cortex_live_chat_certification_watchdog",
+  "certification": {
+    "live_progress": true,
+    "rpc_idle_timeout_seconds": 75,
+    "rpc_total_timeout_seconds": 180,
+    "default_runtime_rpc_idle_timeout_seconds": 180,
+    "default_runtime_rpc_total_timeout_seconds": 600,
+    "provider_timeout_seconds": 60,
+    "deferred_control_center_update_scheduled_before_long_running_work": true
+  }
+}

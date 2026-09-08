@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "pass": "O2D-R051R16V5D",
+  "authority": "cortex_observability",
+  "status": "INTEGRATED_AWAITING_CHECKPOINT",
+  "project_control_center": {
+    "handoff_preflight_before_write": true,
+    "transactional_rollback": true,
+    "automatic_debug_bundle_on_failure": true,
+    "project_event_ledger": "logs/events/cortex-project-events.jsonl",
+    "vector_candidate_queue": "logs/events/cortex-vector-candidates.jsonl",
+    "incident_ledger": "logs/events/cortex-incidents.jsonl"
+  },
+  "chat_runtime": {
+    "trace_chain": [
+      "chat_request_started",
+      "chat_provider_request",
+      "chat_stream_started",
+      "chat_completed|chat_failed"
+    ],
+    "certification_command": "cortex desktop certify-chat",
+    "compile_green_is_not_runtime_certification": true,
+    "checkpoint_certification": "required by default after compile/test; set CORTEX_SKIP_CHAT_RUNTIME_CERTIFICATION=1 only for explicit offline build-only work"
+  },
+  "semantic_memory": {
+    "raw_logs_authoritative": true,
+    "selective_vectorization": true,
+    "database": "<cortex_state>/observability/vector_memory.json",
+    "sync_command": "cortex observability sync",
+    "search_command": "cortex observability search <query>",
+    "automatic_checkpoint_sync": "best-effort with 30 second provider watchdog after live chat certification",
+    "deduplicate_by_content_hash": true,
+    "redact_before_embedding": true,
+    "failure_candidates_include": "redacted high-signal excerpts from text/log/json evidence files; capped before embedding"
+  },
+  "trace_dimensions": [
+    "project_id",
+    "session_id",
+    "conversation_id",
+    "message_id",
+    "trace_id",
+    "span_id",
+    "build_id",
+    "job_id",
+    "transaction_id",
+    "patch_id",
+    "debug_bundle_id"
+  ],
+  "next_after_green": [
+    "R16W Scintilla CodeDocumentSurface",
+    "R16X Tree-sitter syntax/outline",
+    "R16Y LSP/rust-analyzer",
+    "image generation",
+    "installer/release certification"
+  ]
+}

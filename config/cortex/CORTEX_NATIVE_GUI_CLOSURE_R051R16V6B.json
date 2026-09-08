@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V6B",
+  "authority": "cortex_native_desktop_gui_completion",
+  "windows_native": {
+    "context_menu": ["WM_CONTEXTMENU", "TrackPopupMenuEx"],
+    "clipboard": "CF_UNICODETEXT",
+    "keyboard_context_menu": ["MenuKey", "Shift+F10"],
+    "command_palette": ["Ctrl+K", "Ctrl+Shift+P"]
+  },
+  "right_panel": {
+    "single_tab_strip": true,
+    "tabs": ["Files", "Changes", "Memory", "Artifacts", "Tasks", "Settings"],
+    "active_underline": true,
+    "compact_icon_mode": true
+  },
+  "chat": {
+    "assistant_actions": ["copy", "upvote", "downvote", "regenerate"],
+    "code_block_copy": true,
+    "vote_style": "reddit_arrow",
+    "identity_icons": ["cortex", "user", "tool", "system", "error"],
+    "empty_state": true,
+    "cohesive_composer_surface": true
+  },
+  "navigation": {
+    "project_groups": true,
+    "project_spacing_px": 10,
+    "conversation_indent": true,
+    "owner_drawn": true
+  },
+  "acceptance_profiles": [
+    "1366x768@100%",
+    "1920x1080@100%",
+    "2560x1440@125%",
+    "3840x2160@200%",
+    "3440x1440@100%",
+    "5120x1440@100%"
+  ]
+}

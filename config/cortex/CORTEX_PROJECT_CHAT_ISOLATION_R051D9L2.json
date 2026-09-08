@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9L2",
+  "feature": "cortex_project_chat_isolation_and_bottom_anchor",
+  "conversation_authority": {
+    "filter_by_recorded_workspace_root": true,
+    "reject_cross_workspace_load": true,
+    "shared_state_directory_leak_prevented": true
+  },
+  "workspace_registry": {
+    "fingerprint_auto_merge_of_live_folders": false,
+    "known_path_recovery_only_when_current_root_missing": true,
+    "identical_live_clones_get_distinct_state_roots": true
+  },
+  "new_project": {
+    "copy_entire_source_conversation": false,
+    "target_gets_fresh_task_conversation": true
+  },
+  "chat_view": {
+    "rerender_unchanged_chat_on_status_refresh": false,
+    "force_bottom_on_chat_or_content_change": true,
+    "preserve_manual_scroll_during_unrelated_refresh": true
+  },
+  "tool_catalog_count": 49
+}

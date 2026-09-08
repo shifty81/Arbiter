@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051R16V5J",
+  "authority": "cortex_lmstudio_reasoning_policy",
+  "default_policy": "auto",
+  "model_rules": [
+    {
+      "match": "native Qwen 3 / 3.5 family",
+      "reasoning_effort": "off",
+      "rationale": "LM Studio exposes reasoning for these models as on/off; sending low falls back to on."
+    },
+    {
+      "match": "GPT-OSS family",
+      "reasoning_effort": "low",
+      "rationale": "GPT-OSS accepts graded OpenAI-compatible reasoning effort."
+    },
+    {
+      "match": "unknown model",
+      "reasoning_effort": null,
+      "rationale": "Do not send an unsupported reasoning value; use provider/model default."
+    }
+  ],
+  "override_environment": "CORTEX_LMSTUDIO_REASONING",
+  "override_values": ["auto", "on", "off", "low"],
+  "stream_activity_heartbeat_seconds": 5,
+  "certification_reply": "CORTEX_OK"
+}

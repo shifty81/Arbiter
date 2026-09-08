@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9L2B",
+  "feature": "cortex_conversation_id_durability",
+  "observed_failure": {
+    "test": "conversations_are_isolated_by_workspace_root_even_when_state_storage_is_shared",
+    "cause": "two creates in the same millisecond and process reused <unix_ms>-<pid>-chat and the second JSON overwrote the first"
+  },
+  "fix": {
+    "id_shape": "<unix_ms>-<pid>-<monotonic_sequence>-chat",
+    "existing_filename_guard": true,
+    "allocation_attempt_limit": 1024,
+    "workspace_root_isolation_preserved": true
+  },
+  "tool_catalog_count": 49
+}

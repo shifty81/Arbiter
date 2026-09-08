@@ -1,0 +1,12 @@
+[package]
+name = "cortex_model_host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_execution = { path = "../cortex_execution" }
+cortex_http = { path = "../cortex_http" }
+cortex_service = { path = "../cortex_service" }
+serde.workspace = true
+serde_json.workspace = true

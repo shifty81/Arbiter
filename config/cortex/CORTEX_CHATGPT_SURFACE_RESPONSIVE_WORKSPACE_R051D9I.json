@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9I",
+  "feature": "cortex_chatgpt_surface_responsive_workspace",
+  "supersedes": [
+    "O2D-R051D9G",
+    "O2D-R051D9H"
+  ],
+  "workspace_switch": {
+    "ui_thread_blocking": false,
+    "provider_reconnect_after_switch": true,
+    "immediate_runtime_reinit_removed_from_host_switch": true
+  },
+  "chat": {
+    "renderer": "RichEdit50W_with_edit_fallback",
+    "user_alignment": "right",
+    "assistant_alignment": "left",
+    "user_background": "dark_message_bubble",
+    "word_wrap": true,
+    "horizontal_scroll": false
+  },
+  "right_panel": {
+    "active_tab_feedback": true,
+    "tabs": [
+      "Files",
+      "Changes",
+      "Vault",
+      "Artifacts",
+      "Tasks",
+      "Settings"
+    ],
+    "word_wrap": true,
+    "contextual_query_cue": true
+  },
+  "git": {
+    "detection": "git rev-parse --is-inside-work-tree",
+    "missing_repo_is_nonfatal": true
+  },
+  "tool_catalog_count": 49
+}

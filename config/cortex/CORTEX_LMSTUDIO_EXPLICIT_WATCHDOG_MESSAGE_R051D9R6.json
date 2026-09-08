@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "pass": "O2D-R051D9R6",
+  "feature": "lmstudio_explicit_watchdog_error_message_sync",
+  "runtime_timeout_behavior_change": false,
+  "message_contract": {
+    "mentions_explicit_watchdog": true,
+    "states_local_inference_unbounded_by_default": true,
+    "documents_disable_value_zero": true,
+    "preserves_model_and_provider_detail": true
+  },
+  "tool_catalog_count": 49
+}
