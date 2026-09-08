@@ -1,0 +1,11 @@
+[package]
+name = "cortex_project_ops"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_adapter_git = { path = "../cortex_adapter_git" }
+cortex_project = { path = "../cortex_project" }
+serde.workspace = true
+serde_json.workspace = true
