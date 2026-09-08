@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$ControllerVersion = 'CTX-ROOT-05'
+$ControllerVersion = 'CTX-ROOT-06'
 $CortexGitRemoteUrl = 'https://github.com/shifty81/Cortex.git'
 . (Join-Path $PSScriptRoot 'Cortex.Console.ps1')
 Set-CortexConsoleDefaults
@@ -83,9 +83,6 @@ function Invoke-CortexGitAction {
         return $false
     }
 
-    # Run the compatibility-tolerant bridge directly in the current PowerShell 7
-    # process. The previous nested Windows PowerShell launch was the source of the
-    # -196608 MarkGreen failure seen in the FULL_GREEN handoff.
     $arguments = @(
         '-Root',$ProjectRoot,
         '-Action',$Action,
@@ -96,10 +93,19 @@ function Invoke-CortexGitAction {
     }
 
     Event 'INFO' "START Git: $Action"
-    $global:LASTEXITCODE = 0
-    & $helper @arguments
-    $code = $LASTEXITCODE
-    if ($null -eq $code) { $code = 0 }
+    $global:CortexGitBridgeExitCode = 0
+
+    try {
+        # Force native Git/Python stdout to the host so callers may safely capture
+        # the boolean result without hiding the actual status/audit report.
+        & $helper @arguments | ForEach-Object { Write-Host $_ }
+        $code = [int]$global:CortexGitBridgeExitCode
+    } catch {
+        Event 'FAIL' "Git action $Action crashed: $($_.Exception.Message)"
+        Set-CortexConsoleDefaults
+        return $false
+    }
+
     Set-CortexConsoleDefaults
 
     if ($code -ne 0) {
@@ -123,11 +129,11 @@ function Show-GitMenu {
     while ($true) {
         Show-Banner
         Write-CortexRule 'GIT / SOURCE CONTROL'
-        Write-CortexText '  1. Status / GREEN source state' 'Default'
+        Write-CortexText '  1. Detailed Git status / branch / remote / GREEN eligibility' 'Default'
         Write-CortexText '  2. Initialize / connect / repair against origin/main' 'Accent'
         Write-CortexText '  3. Review working changes' 'Default'
-        Write-CortexText '  4. Commit last GREEN Full Quality gate' 'Pass'
-        Write-CortexText '  5. Commit + push last GREEN Full Quality gate' 'Pass'
+        Write-CortexText '  4. Commit current source only if it still matches last FULL GREEN' 'Pass'
+        Write-CortexText '  5. Commit + push current source only if it still matches FULL GREEN' 'Pass'
         Write-CortexText '  6. Push main to origin' 'Default'
         Write-CortexText '  7. Pull origin/main (fast-forward only)' 'Default'
         Write-CortexText '  8. Open Cortex GitHub repository' 'Default'
@@ -138,37 +144,37 @@ function Show-GitMenu {
 
         switch ($gitChoice) {
             '1' {
-                Invoke-CortexGitAction -Action 'Status' | Out-Null
+                [void](Invoke-CortexGitAction -Action 'Status')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '2' {
-                Invoke-CortexGitAction -Action 'Setup' | Out-Null
+                [void](Invoke-CortexGitAction -Action 'Setup')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '3' {
-                Invoke-CortexGitAction -Action 'Review' | Out-Null
+                [void](Invoke-CortexGitAction -Action 'Review')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '4' {
                 $default = "Cortex GREEN checkpoint - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
                 $message = Read-Host "Commit message [$default]"
                 if ([string]::IsNullOrWhiteSpace($message)) { $message = $default }
-                Invoke-CortexGitAction -Action 'CommitGreen' -Message $message | Out-Null
+                [void](Invoke-CortexGitAction -Action 'CommitGreen' -Message $message)
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '5' {
                 $default = "Cortex GREEN checkpoint - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
                 $message = Read-Host "Commit message [$default]"
                 if ([string]::IsNullOrWhiteSpace($message)) { $message = $default }
-                Invoke-CortexGitAction -Action 'CommitPushGreen' -Message $message | Out-Null
+                [void](Invoke-CortexGitAction -Action 'CommitPushGreen' -Message $message)
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '6' {
-                Invoke-CortexGitAction -Action 'Push' | Out-Null
+                [void](Invoke-CortexGitAction -Action 'Push')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '7' {
-                Invoke-CortexGitAction -Action 'Pull' | Out-Null
+                [void](Invoke-CortexGitAction -Action 'Pull')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '8' {
@@ -179,7 +185,7 @@ function Show-GitMenu {
                 if ([string]::IsNullOrWhiteSpace($message)) {
                     Event 'WARN' 'Manual commit cancelled: no commit message supplied.'
                 } else {
-                    Invoke-CortexGitAction -Action 'ManualCommit' -Message $message | Out-Null
+                    [void](Invoke-CortexGitAction -Action 'ManualCommit' -Message $message)
                 }
                 Read-Host 'Press Enter to continue' | Out-Null
             }

@@ -1,33 +1,35 @@
 {
   "schema": "cortex.root_patch.v1",
   "project": "Cortex",
-  "patchId": "CTX-ROOT-05",
-  "title": "PowerShell 7 native Git bridge dispatch repair",
+  "patchId": "CTX-ROOT-06",
+  "title": "Visible Git status and GREEN commit audit output",
   "applyMode": "overwrite",
   "series": "CTX-ROOT",
-  "sequence": 5,
+  "sequence": 6,
   "files": [
     {
       "path": "tools/control/ProjectControlCenter.ps1",
-      "sha256": "f3823fcceeae2ef0a506c621090476040564251afadf8651bfea0b4ccd6cb0a4",
-      "bytes": 16590
+      "sha256": "8c7acbdcebe5350bc68fd33277c9781fc66a4f609be5c06de231b8d38ca0491e",
+      "bytes": 16783
     },
     {
       "path": "tools/control/GitSourceControl.ps1",
-      "sha256": "c60ba9afb3054c2aefde295d31870e2cacd34ffd5c427bb12c424ef29716664b",
-      "bytes": 3179
+      "sha256": "75736372dc70805ec856461f5ba46450c943ac09cf65cfaa1efde9897e700502",
+      "bytes": 3251
     },
     {
       "path": "tools/control/CortexGitAuthority.py",
-      "sha256": "60752d8bea88fac9cdf2e77cdcf80657bb460a8fcef482a735df7ed1dfcedf8b",
-      "bytes": 14524
+      "sha256": "75a41d68827b83ccf9132dba6e5391860e14d148ecff049848ba5541fe08c876",
+      "bytes": 18146
     }
   ],
   "remove": [],
   "notes": [
-    "Based on Cortex_DebugBundle_20260908-021422_FULL_GREEN.zip.",
-    "Fixes Git MarkGreen exit -196608 by invoking GitSourceControl.ps1 directly in the current PowerShell 7 process.",
-    "No Rust source changes.",
-    "ROOT-03 staged AST parsing validates the PowerShell before live overwrite."
+    "Based on Cortex_DebugBundle_20260908-021756_STARTUP_GREEN.zip.",
+    "Forces Git/Python stdout to remain visible even when the caller captures the boolean result.",
+    "Prevents the Git bridge from exiting the parent Project Control Center.",
+    "Adds detailed branch/remote/ahead-behind/change-count/GREEN eligibility output.",
+    "Adds GREEN commit precheck, staged-change review, and post-commit status.",
+    "No Rust source changes."
   ]
 }

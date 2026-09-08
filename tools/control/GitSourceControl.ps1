@@ -97,5 +97,7 @@ if (-not [string]::IsNullOrWhiteSpace($message)) {
     $callArgs += @('--message',$message)
 }
 
+$global:CortexGitBridgeExitCode = 0
 & $python.Source @pythonArgsPrefix @callArgs
-exit $LASTEXITCODE
+$global:CortexGitBridgeExitCode = $LASTEXITCODE
+return

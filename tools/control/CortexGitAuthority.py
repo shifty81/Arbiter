@@ -294,19 +294,83 @@ def setup_or_repair(root: Path, remote: str) -> int:
 
 
 def show_status(root: Path) -> int:
+    print("CORTEX GIT STATUS")
+    print("=================")
+    print(f" Repository  : {root}")
+
     if not git_repo(root):
-        print("Git: Not a repository")
+        print(" Git         : NOT INITIALIZED")
+        print(" Next action : Git / Source Control -> Initialize / connect / repair")
         return 0
-    print(git(root, "status", "--short", "--branch", check=False).stdout.rstrip())
-    print("\nRemotes:")
-    print(git(root, "remote", "-v", check=False).stdout.rstrip() or "<none>")
+
+    branch = current_branch(root) or "<detached>"
+    head_full = current_head(root)
+    head_short = head_full[:12] if head_full else "<unborn>"
+    origin = git_text(root, "remote", "get-url", "origin") or "<none>"
+    upstream = git_text(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") or "<none>"
+
+    porcelain = git(root, "status", "--porcelain=v1", "-uall", check=False).stdout.splitlines()
+    staged = 0
+    unstaged = 0
+    untracked = 0
+
+    for line in porcelain:
+        if line.startswith("??"):
+            untracked += 1
+            continue
+        if len(line) >= 2:
+            if line[0] not in (" ", "?"):
+                staged += 1
+            if line[1] != " ":
+                unstaged += 1
+
+    clean = staged == 0 and unstaged == 0 and untracked == 0
+
+    ahead = None
+    behind = None
+    if upstream != "<none>":
+        counts = git_text(root, "rev-list", "--left-right", "--count", f"HEAD...{upstream}")
+        parts = counts.split()
+        if len(parts) == 2 and all(part.isdigit() for part in parts):
+            ahead = int(parts[0])
+            behind = int(parts[1])
+
+    print(f" Branch      : {branch}")
+    print(f" HEAD        : {head_short}")
+    print(f" Origin      : {origin}")
+    print(f" Upstream    : {upstream}")
+    print(f" Ahead/Behind: {ahead} / {behind}" if ahead is not None else " Ahead/Behind: unavailable")
+    print(f" Working tree: {'CLEAN' if clean else 'MODIFIED'}")
+    print(f" Staged      : {staged}")
+    print(f" Unstaged    : {unstaged}")
+    print(f" Untracked   : {untracked}")
+
+    print("")
+    print("FULL GREEN SOURCE")
+    print("-----------------")
     try:
-        ok, snap, reason = certify_matches(root)
-        print(f"\nGREEN source: {'MATCH' if ok else 'MISMATCH'}")
-        print(f" {reason}")
-        print(f" Fingerprint: {snap['fingerprint']}")
+        marker = load_marker(root)
+        ok, snap, reason = certify_matches(root, marker)
+        print(f" Marker      : {marker_path(root)}")
+        print(f" Created UTC : {marker.get('createdUtc') or '<unknown>'}")
+        print(f" Match       : {'YES' if ok else 'NO'}")
+        print(f" Paths       : {snap['pathCount']}")
+        print(f" Fingerprint : {snap['fingerprint']}")
+        print(f" Detail      : {reason}")
+        print(f" Commit GREEN: {'ELIGIBLE' if ok else 'BLOCKED'}")
     except Exception as exc:
-        print(f"\nGREEN source: unavailable ({exc})")
+        print(" Match       : UNAVAILABLE")
+        print(f" Detail      : {exc}")
+        print(" Commit GREEN: BLOCKED")
+
+    print("")
+    print("PORCELAIN STATUS")
+    print("----------------")
+    if porcelain:
+        for line in porcelain:
+            print(line)
+    else:
+        print("<clean>")
     return 0
 
 
@@ -348,28 +412,66 @@ def commit_green(root: Path, message: str) -> int:
     if not git_repo(root):
         raise GitError("Cortex is not a Git repository yet.")
 
-    ok, _, reason = certify_matches(root)
+    marker = load_marker(root)
+    ok, snap, reason = certify_matches(root, marker)
+
+    print("GREEN COMMIT PRECHECK")
+    print("=====================")
+    print(f" Branch      : {current_branch(root) or '<detached>'}")
+    print(f" HEAD        : {(current_head(root) or '<unborn>')[:12]}")
+    print(f" GREEN match : {'YES' if ok else 'NO'}")
+    print(f" Paths       : {snap['pathCount']}")
+    print(f" Fingerprint : {snap['fingerprint']}")
+    print(f" Detail      : {reason}")
+
     if not ok:
         raise GitError(reason)
 
     stage_governed(root)
 
-    staged = git(root, "diff", "--cached", "--quiet", check=False)
-    if staged.returncode == 0:
-        print("Nothing governed is staged; no commit needed.")
+    staged_stat = git(root, "diff", "--cached", "--stat", check=False).stdout.strip()
+    staged_names = git(root, "diff", "--cached", "--name-status", check=False).stdout.strip()
+
+    print("")
+    print("STAGED GOVERNED CHANGES")
+    print("-----------------------")
+    print(staged_stat or "<none>")
+    if staged_names:
+        print("")
+        print(staged_names)
+
+    if git(root, "diff", "--cached", "--quiet", check=False).returncode == 0:
+        print("")
+        print("Nothing governed is staged; no commit was created.")
+        print(git(root, "status", "--short", "--branch", check=False).stdout.strip() or "<clean>")
         return 0
 
     git(root, "commit", "-m", message, timeout=180)
-    print("GREEN commit created.")
-    print(git(root, "log", "-1", "--oneline", check=False).stdout.strip())
+    commit_line = git(root, "log", "-1", "--oneline", check=False).stdout.strip()
+
+    print("")
+    print("GREEN COMMIT: PASS")
+    print(f" Commit      : {commit_line}")
+    print("")
+    print("STATUS AFTER COMMIT")
+    print("-------------------")
+    print(git(root, "status", "--short", "--branch", check=False).stdout.strip() or "<clean>")
     return 0
 
 
 def push_main(root: Path) -> int:
     if not git_repo(root):
         raise GitError("Cortex is not a Git repository yet.")
+
+    print("PUSH PRECHECK")
+    print("=============")
+    print(git(root, "status", "--short", "--branch", check=False).stdout.strip() or "<clean>")
+
     git(root, "push", "-u", "origin", "main", timeout=300)
-    print("Push to origin/main: PASS")
+
+    print("")
+    print("PUSH TO origin/main: PASS")
+    print(git(root, "status", "--short", "--branch", check=False).stdout.strip() or "<clean>")
     return 0
 
 
