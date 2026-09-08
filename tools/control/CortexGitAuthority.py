@@ -293,6 +293,116 @@ def setup_or_repair(root: Path, remote: str) -> int:
     return 0
 
 
+
+def status_summary(root: Path) -> dict[str, object]:
+    result: dict[str, object] = {
+        "repository": str(root),
+        "gitReady": git_repo(root),
+        "branch": None,
+        "head": None,
+        "headShort": None,
+        "origin": None,
+        "upstream": None,
+        "ahead": None,
+        "behind": None,
+        "clean": False,
+        "staged": 0,
+        "unstaged": 0,
+        "untracked": 0,
+        "greenMarker": False,
+        "greenMatch": False,
+        "greenEligible": False,
+        "greenCreatedUtc": None,
+        "greenFingerprint": None,
+        "greenPaths": None,
+        "greenDetail": None,
+    }
+
+    if not result["gitReady"]:
+        result["greenDetail"] = "Git is not initialized."
+        return result
+
+    branch = current_branch(root) or "<detached>"
+    head = current_head(root)
+    origin = git_text(root, "remote", "get-url", "origin") or "<none>"
+    upstream = git_text(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") or "<none>"
+
+    porcelain = git(root, "status", "--porcelain=v1", "-uall", check=False).stdout.splitlines()
+    staged = 0
+    unstaged = 0
+    untracked = 0
+    for line in porcelain:
+        if line.startswith("??"):
+            untracked += 1
+            continue
+        if len(line) >= 2:
+            if line[0] not in (" ", "?"):
+                staged += 1
+            if line[1] != " ":
+                unstaged += 1
+
+    ahead = None
+    behind = None
+    if upstream != "<none>":
+        counts = git_text(root, "rev-list", "--left-right", "--count", f"HEAD...{upstream}")
+        parts = counts.split()
+        if len(parts) == 2 and all(part.isdigit() for part in parts):
+            ahead = int(parts[0])
+            behind = int(parts[1])
+
+    result.update({
+        "branch": branch,
+        "head": head or None,
+        "headShort": head[:8] if head else None,
+        "origin": origin,
+        "upstream": upstream,
+        "ahead": ahead,
+        "behind": behind,
+        "clean": staged == 0 and unstaged == 0 and untracked == 0,
+        "staged": staged,
+        "unstaged": unstaged,
+        "untracked": untracked,
+    })
+
+    try:
+        marker = load_marker(root)
+        ok, snap, reason = certify_matches(root, marker)
+        result.update({
+            "greenMarker": True,
+            "greenMatch": ok,
+            "greenEligible": ok,
+            "greenCreatedUtc": marker.get("createdUtc"),
+            "greenFingerprint": snap["fingerprint"],
+            "greenPaths": snap["pathCount"],
+            "greenDetail": reason,
+        })
+    except Exception as exc:
+        result["greenDetail"] = str(exc)
+
+    return result
+
+
+def show_summary_json(root: Path) -> int:
+    print(json.dumps(status_summary(root), separators=(",", ":")))
+    return 0
+
+
+def refresh_marker_git_identity(root: Path) -> None:
+    try:
+        marker = load_marker(root)
+        ok, snap, _ = certify_matches(root, marker)
+        if not ok:
+            return
+        marker["gitReady"] = git_repo(root)
+        marker["gitHead"] = current_head(root) or None
+        marker["gitBranch"] = current_branch(root) or None
+        marker["fingerprint"] = snap["fingerprint"]
+        marker["pathCount"] = snap["pathCount"]
+        marker_path(root).write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
 def show_status(root: Path) -> int:
     print("CORTEX GIT STATUS")
     print("=================")
@@ -450,6 +560,8 @@ def commit_green(root: Path, message: str) -> int:
     commit_line = git(root, "log", "-1", "--oneline", check=False).stdout.strip()
 
     print("")
+    refresh_marker_git_identity(root)
+
     print("GREEN COMMIT: PASS")
     print(f" Commit      : {commit_line}")
     print("")
@@ -505,6 +617,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Cortex canonical local Git/source-control authority.")
     parser.add_argument("action", choices=[
         "status",
+        "summary-json",
         "setup",
         "repair",
         "review",
@@ -530,6 +643,8 @@ def main() -> int:
         return setup_or_repair(root, args.remote)
     if args.action == "status":
         return show_status(root)
+    if args.action == "summary-json":
+        return show_summary_json(root)
     if args.action == "review":
         return review(root)
     if args.action == "commit-green":

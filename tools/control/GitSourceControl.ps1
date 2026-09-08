@@ -40,6 +40,7 @@ if ($positionals.Count -gt 0 -and (Test-Path -LiteralPath $positionals[0])) {
 
 $known = @(
     'Status',
+    'SummaryJson',
     'Setup',
     'Repair',
     'Review',
@@ -79,6 +80,7 @@ if (-not (Test-Path -LiteralPath $authority -PathType Leaf)) {
 $normalized = $action.Trim().ToLowerInvariant().Replace('-','').Replace('_','')
 $authorityAction = switch ($normalized) {
     'status'          { 'status' }
+    'summaryjson'     { 'summary-json' }
     'setup'           { 'setup' }
     'repair'          { 'repair' }
     'review'          { 'review' }
