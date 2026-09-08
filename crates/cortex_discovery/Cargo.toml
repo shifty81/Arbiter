@@ -1,0 +1,14 @@
+[package]
+name = "cortex_discovery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cortex_project = { path = "../cortex_project" }
+cortex_project_registry = { path = "../cortex_project_registry" }
+cortex_registry = { path = "../cortex_registry" }
+globset = "0.4"
+ignore = "0.4"
+serde.workspace = true
+serde_json.workspace = true
