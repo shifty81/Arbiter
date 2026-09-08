@@ -4,14 +4,29 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$ControllerVersion = 'CTX-ROOT-09A1'
+$ControllerVersion = 'CTX-ROOT-09A2R2'
 $CortexGitRemoteUrl = 'https://github.com/shifty81/Cortex.git'
 . (Join-Path $PSScriptRoot 'Cortex.Console.ps1')
 Set-CortexConsoleDefaults
 
+$ArtifactsRoot = Join-Path $ProjectRoot 'artifacts'
+$ArtifactLogsRoot = Join-Path $ArtifactsRoot 'logs'
+$logsDir = Join-Path $ArtifactLogsRoot 'sessions'
+$debugDir = Join-Path $ArtifactsRoot 'debug'
+$patchArtifactsDir = Join-Path $ArtifactsRoot 'patches'
+$recoveryArtifactsDir = Join-Path $ArtifactsRoot 'recovery'
+$certificationArtifactsDir = Join-Path $ArtifactsRoot 'certification'
+New-Item -ItemType Directory -Force -Path @(
+    $ArtifactsRoot,
+    $ArtifactLogsRoot,
+    $logsDir,
+    $debugDir,
+    $patchArtifactsDir,
+    $recoveryArtifactsDir,
+    $certificationArtifactsDir
+) | Out-Null
+
 $sessionStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$logsDir = Join-Path $ProjectRoot 'logs\sessions'
-New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 $ActiveLog = Join-Path $logsDir "cortex-root-$sessionStamp.log"
 $TranscriptLog = Join-Path $logsDir "cortex-root-$sessionStamp.transcript.log"
 $transcriptStarted = $false
@@ -253,7 +268,8 @@ function Get-PatchScanSummary {
             & (Join-Path $PSScriptRoot 'InvokeRootPatchIntake.ps1') `
                 -ProjectRoot $ProjectRoot `
                 -LogPath $ActiveLog `
-                -ScanOnly
+                -ScanOnly `
+                -Quiet
         )
         $summary = @(
             $output |
@@ -358,50 +374,64 @@ function Open-CortexFolder {
     Start-Process explorer.exe -ArgumentList "`"$Path`"" | Out-Null
 }
 
-function Show-SourceProjectControlMenu {
+function Move-CortexLegacyRootSessionLogs {
+    $legacy = Join-Path $ProjectRoot 'logs\sessions'
+    if (-not (Test-Path -LiteralPath $legacy -PathType Container)) { return }
+
+    $destination = Join-Path $ArtifactLogsRoot 'legacy-sessions'
+    New-Item -ItemType Directory -Force -Path $destination | Out-Null
+
+    $moved = 0
+    Get-ChildItem -LiteralPath $legacy -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne '.gitkeep' } |
+        ForEach-Object {
+            $target = Join-Path $destination $_.Name
+            if (Test-Path -LiteralPath $target) {
+                $target = Join-Path $destination ("{0}-{1}{2}" -f
+                    [IO.Path]::GetFileNameWithoutExtension($_.Name),
+                    (Get-Date -Format 'yyyyMMdd-HHmmssfff'),
+                    $_.Extension)
+            }
+            try {
+                Move-Item -LiteralPath $_.FullName -Destination $target -Force
+                $moved++
+            } catch {
+                Event 'WARN' "Could not migrate legacy session log $($_.Name): $($_.Exception.Message)"
+            }
+        }
+
+    if ($moved -gt 0) {
+        Event 'INFO' "Migrated $moved legacy root session log(s) into artifacts\\logs\\legacy-sessions."
+    }
+}
+
+function Show-SourceGitMenu {
     while ($true) {
         Show-Banner
-        Write-CortexRule 'SOURCE / PROJECT CONTROL'
+        Write-CortexRule 'SOURCE CONTROL / GIT'
 
-        Write-CortexText ' STATUS / INSPECTION' 'Label'
-        Write-CortexText '  1. Detailed source status / GREEN eligibility' 'Default'
+        Write-CortexText ' INSPECT' 'Label'
+        Write-CortexText '  1. Detailed Git / branch / remote / GREEN status' 'Default'
         Write-CortexText '  2. Review working changes' 'Default'
-        Write-CortexText '  3. Open Cortex GitHub repository' 'Default'
 
-        Write-CortexText ' UPDATE INTAKE' 'Label'
-        Write-CortexText ' 10. Scan for pending root / inbox patches' 'Accent'
-        Write-CortexText ' 11. Apply pending root / inbox patches' 'Accent'
-        Write-CortexText ' 12. Open applied patch history' 'Default'
+        Write-CortexText ' GREEN CHECKPOINT' 'Label'
+        Write-CortexText ' 10. Commit current source if FULL GREEN matches' 'Pass'
+        Write-CortexText ' 11. Commit + push if FULL GREEN matches' 'Pass'
+        Write-CortexText ' 12. Push already-committed main' 'Default'
 
-        Write-CortexText ' VALIDATION' 'Label'
-        Write-CortexText ' 20. Quick project gate' 'Info'
-        Write-CortexText ' 21. Fast development gate' 'Info'
-        Write-CortexText ' 22. FULL QUALITY GATE' 'Pass'
-        Write-CortexText ' 23. Create certification / debug bundle' 'Accent'
-
-        Write-CortexText ' GREEN SOURCE' 'Label'
-        Write-CortexText ' 30. Commit current source only if FULL GREEN matches' 'Pass'
-        Write-CortexText ' 31. Commit + push only if FULL GREEN matches' 'Pass'
-        Write-CortexText ' 32. Push committed main to origin' 'Default'
-        Write-CortexText ' 33. Verify local / origin / GREEN status' 'Default'
-
-        Write-CortexText ' SYNC / SETUP' 'Label'
-        Write-CortexText ' 40. Initialize / connect / repair against origin/main' 'Accent'
-        Write-CortexText ' 41. Pull origin/main - fast-forward only' 'Default'
-
-        Write-CortexText ' RECOVERY / EVIDENCE' 'Label'
-        Write-CortexText ' 50. Open patch backup history' 'Default'
-        Write-CortexText ' 51. Open debug artifacts' 'Default'
-        Write-CortexText ' 52. Open logs' 'Default'
+        Write-CortexText ' SYNC / REMOTE' 'Label'
+        Write-CortexText ' 20. Pull origin/main - fast-forward only' 'Default'
+        Write-CortexText ' 21. Initialize / connect / repair origin/main' 'Accent'
+        Write-CortexText ' 22. Open Cortex GitHub repository' 'Default'
 
         Write-CortexText ' ADVANCED' 'Label'
-        Write-CortexText ' 60. Advanced manual commit - not GREEN protected' 'Warn'
+        Write-CortexText ' 30. Manual commit - not GREEN protected' 'Warn'
 
         Write-CortexText '  0. Back' 'Default'
         Write-CortexText 'Select an option: ' 'Label' -NoNewline
-        $sourceChoice = Read-Host
+        $choice = Read-Host
 
-        switch ($sourceChoice) {
+        switch ($choice) {
             '1' {
                 [void](Invoke-CortexGitAction -Action 'Status')
                 Read-Host 'Press Enter to continue' | Out-Null
@@ -410,114 +440,36 @@ function Show-SourceProjectControlMenu {
                 [void](Invoke-CortexGitAction -Action 'Review')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
-            '3' {
-                Start-Process $CortexGitRemoteUrl | Out-Null
-            }
             '10' {
-                $scan = Get-PatchScanSummary -Force
-                Write-CortexRule 'PENDING PATCH SCAN'
-                Write-CortexStatusRow 'Pending' ([string]$scan.Pending) ($(if ([int]$scan.Pending -gt 0) {'Warn'} else {'Pass'}))
-                Write-CortexStatusRow 'Invalid' ([string]$scan.Invalid) ($(if ([int]$scan.Invalid -gt 0) {'Fail'} else {'Pass'}))
-                Write-CortexStatusRow 'Ignored ZIPs' ([string]$scan.Ignored) 'Value'
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '11' {
-                $scan = Get-PatchScanSummary -Force
-                if ([int]$scan.Pending -le 0) {
-                    Event 'PASS' 'No pending root/inbox patches are waiting.'
-                } else {
-                    Write-CortexText ("Pending patches: {0}" -f [int]$scan.Pending) 'Warn'
-                    $confirm = Read-Host 'Apply the pending patch queue now? [y/N]'
-                    if ($confirm -match '^(?i)y(?:es)?$') {
-                        [void](Invoke-PendingPatchApply)
-                    } else {
-                        Event 'INFO' 'Patch apply cancelled by operator.'
-                    }
-                }
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '12' {
-                Open-CortexFolder (Join-Path $ProjectRoot 'artifacts\patches\applied')
-            }
-            '20' {
-                $ok = Invoke-QuickGateMenuAction
-                try {
-                    & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
-                        -ProjectRoot $ProjectRoot `
-                        -Reason ($(if ($ok) {'QUICK_GREEN'} else {'QUICK_FAIL'})) `
-                        -LogPath $ActiveLog | Out-Null
-                } catch {}
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '21' {
-                $ok = Invoke-FastGate
-                try {
-                    & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
-                        -ProjectRoot $ProjectRoot `
-                        -Reason ($(if ($ok) {'FAST_GREEN'} else {'FAST_FAIL'})) `
-                        -LogPath $ActiveLog | Out-Null
-                } catch {}
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '22' {
-                $ok = Invoke-FullGate
-                try {
-                    & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
-                        -ProjectRoot $ProjectRoot `
-                        -Reason ($(if ($ok) {'FULL_GREEN'} else {'FULL_FAIL'})) `
-                        -LogPath $ActiveLog `
-                        -OpenFolder | Out-Null
-                } catch {}
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '23' {
-                & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
-                    -ProjectRoot $ProjectRoot `
-                    -Reason 'MANUAL_CERTIFICATION' `
-                    -LogPath $ActiveLog `
-                    -OpenFolder | Out-Null
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '30' {
                 $default = "Cortex GREEN checkpoint - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
                 $message = Read-Host "Commit message [$default]"
                 if ([string]::IsNullOrWhiteSpace($message)) { $message = $default }
                 [void](Invoke-CortexGitAction -Action 'CommitGreen' -Message $message)
                 Read-Host 'Press Enter to continue' | Out-Null
             }
-            '31' {
+            '11' {
                 $default = "Cortex GREEN checkpoint - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
                 $message = Read-Host "Commit message [$default]"
                 if ([string]::IsNullOrWhiteSpace($message)) { $message = $default }
                 [void](Invoke-CortexGitAction -Action 'CommitPushGreen' -Message $message)
                 Read-Host 'Press Enter to continue' | Out-Null
             }
-            '32' {
+            '12' {
                 [void](Invoke-CortexGitAction -Action 'Push')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
-            '33' {
-                [void](Invoke-CortexGitAction -Action 'Status')
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '40' {
-                [void](Invoke-CortexGitAction -Action 'Setup')
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '41' {
+            '20' {
                 [void](Invoke-CortexGitAction -Action 'Pull')
                 Read-Host 'Press Enter to continue' | Out-Null
             }
-            '50' {
-                Open-CortexFolder (Join-Path $ProjectRoot '.project_control\patch-backups')
+            '21' {
+                [void](Invoke-CortexGitAction -Action 'Setup')
+                Read-Host 'Press Enter to continue' | Out-Null
             }
-            '51' {
-                Open-CortexFolder (Join-Path $ProjectRoot 'artifacts\debug')
+            '22' {
+                Start-Process $CortexGitRemoteUrl | Out-Null
             }
-            '52' {
-                Open-CortexFolder $logsDir
-            }
-            '60' {
+            '30' {
                 $message = Read-Host 'Manual commit message'
                 if ([string]::IsNullOrWhiteSpace($message)) {
                     Event 'WARN' 'Manual commit cancelled: no commit message supplied.'
@@ -528,12 +480,206 @@ function Show-SourceProjectControlMenu {
             }
             '0' { break }
             default {
-                Event 'WARN' "Unknown Source / Project Control option: $sourceChoice"
+                Event 'WARN' "Unknown Source Control / Git option: $choice"
                 Start-Sleep -Milliseconds 700
             }
         }
 
-        if ($sourceChoice -eq '0') { break }
+        if ($choice -eq '0') { break }
+    }
+}
+
+function Show-UpdatePatchMenu {
+    while ($true) {
+        Show-Banner
+        Write-CortexRule 'UPDATES / PATCHES'
+
+        Write-CortexText ' INTAKE' 'Label'
+        Write-CortexText '  1. Scan for pending patches' 'Accent'
+        Write-CortexText '  2. Apply pending patches now' 'Accent'
+        Write-CortexText '  3. Open updates inbox' 'Default'
+
+        Write-CortexText ' HISTORY / RECOVERY' 'Label'
+        Write-CortexText ' 10. Open applied patch history' 'Default'
+        Write-CortexText ' 11. Open patch recovery backups' 'Default'
+
+        Write-CortexText '  0. Back' 'Default'
+        Write-CortexText 'Select an option: ' 'Label' -NoNewline
+        $choice = Read-Host
+
+        switch ($choice) {
+            '1' {
+                $scan = Get-PatchScanSummary -Force
+                Write-CortexRule 'PENDING PATCH SCAN'
+                Write-CortexStatusRow 'Pending' ([string]$scan.Pending) ($(if ([int]$scan.Pending -gt 0) {'Warn'} else {'Pass'}))
+                Write-CortexStatusRow 'Invalid' ([string]$scan.Invalid) ($(if ([int]$scan.Invalid -gt 0) {'Fail'} else {'Pass'}))
+                Write-CortexStatusRow 'Ignored ZIPs' ([string]$scan.Ignored) 'Value'
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '2' {
+                [void](Invoke-PendingPatchApply)
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '3' {
+                Open-CortexFolder (Join-Path $ProjectRoot 'updates\inbox')
+            }
+            '10' {
+                Open-CortexFolder (Join-Path $ArtifactsRoot 'patches\applied')
+            }
+            '11' {
+                Open-CortexFolder (Join-Path $ArtifactsRoot 'recovery\patch-backups')
+            }
+            '0' { break }
+            default {
+                Event 'WARN' "Unknown Updates / Patches option: $choice"
+                Start-Sleep -Milliseconds 700
+            }
+        }
+
+        if ($choice -eq '0') { break }
+    }
+}
+
+function Show-ValidationCertificationMenu {
+    while ($true) {
+        Show-Banner
+        Write-CortexRule 'TEST / VALIDATE / CERTIFY'
+
+        Write-CortexText ' INDIVIDUAL CHECKS' 'Label'
+        Write-CortexText '  1. Quick project gate' 'Info'
+        Write-CortexText '  2. cargo fmt --all -- --check' 'Info'
+        Write-CortexText '  3. cargo check --workspace --all-targets' 'Info'
+        Write-CortexText '  4. cargo test --workspace --all-targets' 'Info'
+        Write-CortexText '  5. cargo clippy --workspace --all-targets -D warnings' 'Info'
+
+        Write-CortexText ' COMPOSITE GATES' 'Label'
+        Write-CortexText ' 10. Fast development gate' 'Info'
+        Write-CortexText ' 11. FULL QUALITY GATE' 'Pass'
+
+        Write-CortexText ' CERTIFICATION EVIDENCE' 'Label'
+        Write-CortexText ' 20. Create certification / debug bundle' 'Accent'
+        Write-CortexText ' 21. Show current GREEN eligibility' 'Default'
+
+        Write-CortexText '  0. Back' 'Default'
+        Write-CortexText 'Select an option: ' 'Label' -NoNewline
+        $choice = Read-Host
+
+        switch ($choice) {
+            '1' {
+                $ok = Invoke-QuickGateMenuAction
+                try {
+                    & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
+                        -ProjectRoot $ProjectRoot `
+                        -Reason ($(if ($ok) {'QUICK_GREEN'} else {'QUICK_FAIL'})) `
+                        -LogPath $ActiveLog | Out-Null
+                } catch {}
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '2' {
+                [void](Invoke-CargoStep 'cargo fmt --check' @('fmt','--all','--','--check'))
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '3' {
+                [void](Invoke-CargoStep 'cargo check --workspace --all-targets' @('check','--workspace','--all-targets'))
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '4' {
+                [void](Invoke-CargoStep 'cargo test --workspace --all-targets' @('test','--workspace','--all-targets'))
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '5' {
+                [void](Invoke-CargoStep 'cargo clippy -D warnings' @('clippy','--workspace','--all-targets','--','-D','warnings'))
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '10' {
+                $ok = Invoke-FastGate
+                try {
+                    & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
+                        -ProjectRoot $ProjectRoot `
+                        -Reason ($(if ($ok) {'FAST_GREEN'} else {'FAST_FAIL'})) `
+                        -LogPath $ActiveLog | Out-Null
+                } catch {}
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '11' {
+                $ok = Invoke-FullGate
+                try {
+                    & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
+                        -ProjectRoot $ProjectRoot `
+                        -Reason ($(if ($ok) {'FULL_GREEN'} else {'FULL_FAIL'})) `
+                        -LogPath $ActiveLog `
+                        -OpenFolder | Out-Null
+                } catch {}
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '20' {
+                & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
+                    -ProjectRoot $ProjectRoot `
+                    -Reason 'MANUAL_CERTIFICATION' `
+                    -LogPath $ActiveLog `
+                    -OpenFolder | Out-Null
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '21' {
+                [void](Invoke-CortexGitAction -Action 'Status')
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '0' { break }
+            default {
+                Event 'WARN' "Unknown Test / Validate / Certify option: $choice"
+                Start-Sleep -Milliseconds 700
+            }
+        }
+
+        if ($choice -eq '0') { break }
+    }
+}
+
+function Show-ArtifactRecoveryMenu {
+    while ($true) {
+        Show-Banner
+        Write-CortexRule 'DIAGNOSTICS / ARTIFACTS'
+
+        Write-CortexText ' ARTIFACTS' 'Label'
+        Write-CortexText '  1. Open artifacts root' 'Accent'
+        Write-CortexText '  2. Open debug bundles' 'Default'
+        Write-CortexText '  3. Open current session logs' 'Default'
+        Write-CortexText '  4. Open legacy migrated logs' 'Default'
+
+        Write-CortexText ' EVIDENCE' 'Label'
+        Write-CortexText ' 10. Create manual debug bundle' 'Accent'
+        Write-CortexText ' 11. Open applied patch history' 'Default'
+
+        Write-CortexText ' RECOVERY EVIDENCE' 'Label'
+        Write-CortexText ' 20. Open patch recovery backups' 'Default'
+
+        Write-CortexText '  0. Back' 'Default'
+        Write-CortexText 'Select an option: ' 'Label' -NoNewline
+        $choice = Read-Host
+
+        switch ($choice) {
+            '1' { Open-CortexFolder $ArtifactsRoot }
+            '2' { Open-CortexFolder $debugDir }
+            '3' { Open-CortexFolder $logsDir }
+            '4' { Open-CortexFolder (Join-Path $ArtifactLogsRoot 'legacy-sessions') }
+            '10' {
+                & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') `
+                    -ProjectRoot $ProjectRoot `
+                    -Reason 'MANUAL' `
+                    -LogPath $ActiveLog `
+                    -OpenFolder | Out-Null
+                Read-Host 'Press Enter to continue' | Out-Null
+            }
+            '11' { Open-CortexFolder (Join-Path $ArtifactsRoot 'patches\applied') }
+            '20' { Open-CortexFolder (Join-Path $ArtifactsRoot 'recovery\patch-backups') }
+            '0' { break }
+            default {
+                Event 'WARN' "Unknown Diagnostics / Artifacts option: $choice"
+                Start-Sleep -Milliseconds 700
+            }
+        }
+
+        if ($choice -eq '0') { break }
     }
 }
 
@@ -582,15 +728,45 @@ function Show-Banner {
 }
 
 function Invoke-StartupSequence {
-    Write-CortexRule 'STARTUP SOURCE / HANDOFF CHECK'
+    Write-CortexRule 'STARTUP PATCH INTAKE'
 
-    $scan = Get-PatchScanSummary -Force
-    if ([int]$scan.Pending -gt 0) {
-        Event 'WARN' ("Pending source update patches detected: {0}. Use Source / Project Control to inspect/apply them." -f [int]$scan.Pending)
-    } else {
-        Event 'PASS' 'Startup patch scan: no pending source update patches.'
+    $patchSummary = $null
+    try {
+        $patchOutput = @(
+            & (Join-Path $PSScriptRoot 'InvokeRootPatchIntake.ps1') `
+                -ProjectRoot $ProjectRoot `
+                -LogPath $ActiveLog
+        )
+        $patchResult = @(
+            $patchOutput |
+                Where-Object {
+                    $_ -is [psobject] -and
+                    $_.PSObject.Properties['Applied']
+                } |
+                Select-Object -Last 1
+        )
+        if ($patchResult.Count -gt 0) {
+            $patchSummary = $patchResult[0]
+        }
+    } catch {
+        Event 'FAIL' "Startup root patch intake failed: $($_.Exception.Message)"
+        throw
     }
 
+    Reset-CortexStatusCaches
+
+    if ($patchSummary -and $patchSummary.RestartRequired) {
+        [void](Restart-CortexRootUtility)
+        return
+    }
+
+    if ($patchSummary -and [int]$patchSummary.Applied -gt 0) {
+        Event 'PASS' ("Startup patch intake applied {0} patch(es)." -f [int]$patchSummary.Applied)
+    } else {
+        Event 'PASS' 'Startup patch intake: no pending patches.'
+    }
+
+    Write-CortexRule 'STARTUP QUICK GATE'
     $quickCode = 1
     try {
         & (Join-Path $PSScriptRoot 'Test-CortexQuickGate.ps1') `
@@ -609,6 +785,10 @@ function Invoke-StartupSequence {
             -OpenFolder | Out-Null
     } catch {
         Event 'FAIL' "Debug bundle generation failed: $($_.Exception.Message)"
+    }
+
+    if ($quickCode -ne 0) {
+        Event 'FAIL' 'Startup Quick Gate failed. Repair startup health before running Full Quality.'
     }
 
     Write-CortexRule
@@ -689,41 +869,31 @@ function Invoke-RunCortexCliHelp {
     return $true
 }
 
-function Show-BuildRunValidateMenu {
+function Show-BuildRunMenu {
     while ($true) {
         Show-Banner
-        Write-CortexRule 'BUILD / RUN / VALIDATE'
-        Write-CortexText ' BUILD' 'Label'
-        Write-CortexText '  1. Build entire Cortex workspace' 'Default'
+        Write-CortexRule 'BUILD / RUN'
+
+        Write-CortexText ' BUILD TARGETS' 'Label'
+        Write-CortexText '  1. Build entire workspace - debug' 'Default'
         Write-CortexText '  2. Build Cortex CLI' 'Default'
         Write-CortexText '  3. Build Cortex GUI / Desktop' 'Default'
         Write-CortexText '  4. Build Cortex CLI + GUI' 'Default'
         Write-CortexText '  5. Build entire workspace - release' 'Accent'
 
-        Write-CortexText ' VALIDATE' 'Label'
-        Write-CortexText ' 10. cargo check --workspace --all-targets' 'Info'
-        Write-CortexText ' 11. cargo test --workspace --all-targets' 'Info'
-        Write-CortexText ' 12. cargo clippy --workspace --all-targets -D warnings' 'Info'
-        Write-CortexText ' 13. cargo fmt --all -- --check' 'Info'
-        Write-CortexText ' 14. Fast development gate' 'Info'
-        Write-CortexText ' 15. FULL QUALITY GATE' 'Pass'
+        Write-CortexText ' RUN TARGETS' 'Label'
+        Write-CortexText ' 10. Launch Cortex GUI / Project Control' 'Default'
+        Write-CortexText ' 11. Run Cortex CLI --help' 'Default'
 
-        Write-CortexText ' CLEAN / REBUILD' 'Label'
+        Write-CortexText ' BUILD MAINTENANCE' 'Label'
         Write-CortexText ' 20. cargo clean' 'Warn'
         Write-CortexText ' 21. Clean + rebuild entire workspace' 'Warn'
 
-        Write-CortexText ' RUN' 'Label'
-        Write-CortexText ' 30. Launch Cortex GUI / Project Control' 'Default'
-        Write-CortexText ' 31. Run Cortex CLI --help' 'Default'
-
-        Write-CortexText ' STATUS' 'Label'
-        Write-CortexText ' 40. Native project status / binaries' 'Default'
-
         Write-CortexText '  0. Back' 'Default'
         Write-CortexText 'Select an option: ' 'Label' -NoNewline
-        $buildChoice = Read-Host
+        $choice = Read-Host
 
-        switch ($buildChoice) {
+        switch ($choice) {
             '1' {
                 $ok = Invoke-CargoStep 'Build Cortex workspace' @('build','--workspace')
                 if ($ok) { $script:CargoTargetDirectory = $null; Reset-CortexStatusCaches }
@@ -740,8 +910,12 @@ function Show-BuildRunValidateMenu {
             '4' {
                 $cliOk = Invoke-BuildPackage -Package 'cortex' -Label 'Cortex CLI'
                 $guiOk = $false
-                if ($cliOk) { $guiOk = Invoke-BuildPackage -Package 'cortex_desktop' -Label 'Cortex Desktop' }
-                if ($cliOk -and $guiOk) { Event 'PASS' 'Cortex CLI + GUI build complete.' }
+                if ($cliOk) {
+                    $guiOk = Invoke-BuildPackage -Package 'cortex_desktop' -Label 'Cortex Desktop'
+                }
+                if ($cliOk -and $guiOk) {
+                    Event 'PASS' 'Cortex CLI + GUI build complete.'
+                }
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '5' {
@@ -750,66 +924,42 @@ function Show-BuildRunValidateMenu {
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '10' {
-                [void](Invoke-CargoStep 'cargo check --workspace --all-targets' @('check','--workspace','--all-targets'))
-                Read-Host 'Press Enter to continue' | Out-Null
+                $launched = Start-CortexDesktop
+                if (-not $launched) { Read-Host 'Press Enter to continue' | Out-Null }
             }
             '11' {
-                [void](Invoke-CargoStep 'cargo test --workspace --all-targets' @('test','--workspace','--all-targets'))
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '12' {
-                [void](Invoke-CargoStep 'cargo clippy -D warnings' @('clippy','--workspace','--all-targets','--','-D','warnings'))
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '13' {
-                [void](Invoke-CargoStep 'cargo fmt --check' @('fmt','--all','--','--check'))
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '14' {
-                $ok = Invoke-FastGate
-                try { & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') -ProjectRoot $ProjectRoot -Reason ($(if ($ok) {'FAST_GREEN'} else {'FAST_FAIL'})) -LogPath $ActiveLog | Out-Null } catch {}
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '15' {
-                $ok = Invoke-FullGate
-                try { & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') -ProjectRoot $ProjectRoot -Reason ($(if ($ok) {'FULL_GREEN'} else {'FULL_FAIL'})) -LogPath $ActiveLog -OpenFolder | Out-Null } catch {}
+                [void](Invoke-RunCortexCliHelp)
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '20' {
-                $confirm = Read-Host 'Run cargo clean and remove current build outputs? [y/N]'
-                if ($confirm -match '^(?i)y(?:es)?$') { [void](Invoke-CargoClean) }
-                else { Event 'INFO' 'cargo clean cancelled by operator.' }
+                $confirm = Read-Host 'Run cargo clean and remove build outputs? [y/N]'
+                if ($confirm -match '^(?i)y(?:es)?$') {
+                    [void](Invoke-CargoClean)
+                } else {
+                    Event 'INFO' 'cargo clean cancelled.'
+                }
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '21' {
-                $confirm = Read-Host 'Clean and rebuild the entire Cortex workspace? [y/N]'
+                $confirm = Read-Host 'Clean + rebuild the entire workspace? [y/N]'
                 if ($confirm -match '^(?i)y(?:es)?$') {
                     if (Invoke-CargoClean) {
                         $ok = Invoke-CargoStep 'Rebuild Cortex workspace' @('build','--workspace')
                         if ($ok) { $script:CargoTargetDirectory = $null; Reset-CortexStatusCaches }
                     }
-                } else { Event 'INFO' 'Clean + rebuild cancelled by operator.' }
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '30' {
-                $launched = Start-CortexDesktop
-                if (-not $launched) { Read-Host 'Press Enter to continue' | Out-Null }
-            }
-            '31' {
-                [void](Invoke-RunCortexCliHelp)
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '40' {
-                Show-Status
+                } else {
+                    Event 'INFO' 'Clean + rebuild cancelled.'
+                }
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '0' { break }
             default {
-                Event 'WARN' "Unknown Build / Run / Validate option: $buildChoice"
+                Event 'WARN' "Unknown Build / Run option: $choice"
                 Start-Sleep -Milliseconds 700
             }
         }
-        if ($buildChoice -eq '0') { break }
+
+        if ($choice -eq '0') { break }
     }
 }
 
@@ -843,21 +993,30 @@ function Show-Status {
     }
 }
 
+Move-CortexLegacyRootSessionLogs
 Invoke-StartupSequence
 
 try {
     while ($true) {
         Show-Banner
-        Write-CortexRule 'CORTEX BOOTSTRAP / RECOVERY'
+        Write-CortexRule 'CORTEX ROOT CONTROL'
+
+        Write-CortexText ' APPLICATION' 'Label'
         Write-CortexText '  1. Launch Cortex GUI / Project Control' 'Default'
-        Write-CortexText '  2. FULL QUALITY GATE' 'Pass'
-        Write-CortexText '  3. Fast development gate' 'Info'
-        Write-CortexText '  4. Build / Run / Validate' 'Accent'
-        Write-CortexText '  5. Native project status / health' 'Default'
-        Write-CortexText '  6. Source / Project Control' 'Accent'
-        Write-CortexText '  7. Create debug bundle + open artifacts' 'Accent'
+
+        Write-CortexText ' DEVELOPMENT' 'Label'
+        Write-CortexText '  2. Build / Run' 'Accent'
+        Write-CortexText '  3. Test / Validate / Certify' 'Pass'
+
+        Write-CortexText ' SOURCE' 'Label'
+        Write-CortexText '  4. Source Control / Git' 'Accent'
+        Write-CortexText '  5. Updates / Patches' 'Accent'
+
+        Write-CortexText ' OPERATIONS' 'Label'
+        Write-CortexText '  6. Diagnostics / Artifacts' 'Accent'
+        Write-CortexText '  7. Project Status / Health' 'Default'
         Write-CortexText '  8. Open project folder' 'Default'
-        Write-CortexText '  9. Open logs folder' 'Default'
+
         Write-CortexText '  0. Exit' 'Default'
         Write-CortexText 'Select an option: ' 'Label' -NoNewline
 
@@ -867,28 +1026,23 @@ try {
                 $launched = Start-CortexDesktop
                 if (-not $launched) { Read-Host 'Press Enter to continue' | Out-Null }
             }
-            '2' {
-                $ok = Invoke-FullGate
-                try { & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') -ProjectRoot $ProjectRoot -Reason ($(if ($ok) {'FULL_GREEN'} else {'FULL_FAIL'})) -LogPath $ActiveLog -OpenFolder | Out-Null } catch {}
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '3' {
-                $ok = Invoke-FastGate
-                try { & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') -ProjectRoot $ProjectRoot -Reason ($(if ($ok) {'FAST_GREEN'} else {'FAST_FAIL'})) -LogPath $ActiveLog | Out-Null } catch {}
-                Read-Host 'Press Enter to continue' | Out-Null
-            }
-            '4' { Show-BuildRunValidateMenu }
-            '5' { Show-Status; Read-Host 'Press Enter to continue' | Out-Null }
-            '6' { Show-SourceProjectControlMenu }
+            '2' { Show-BuildRunMenu }
+            '3' { Show-ValidationCertificationMenu }
+            '4' { Show-SourceGitMenu }
+            '5' { Show-UpdatePatchMenu }
+            '6' { Show-ArtifactRecoveryMenu }
             '7' {
-                & (Join-Path $PSScriptRoot 'New-CortexDebugBundle.ps1') -ProjectRoot $ProjectRoot -Reason 'MANUAL' -LogPath $ActiveLog -OpenFolder | Out-Null
+                Show-Status
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '8' { Open-CortexFolder $ProjectRoot }
-            '9' { Open-CortexFolder $logsDir }
             '0' { break }
-            default { Event 'WARN' "Unknown option: $choice"; Start-Sleep -Milliseconds 700 }
+            default {
+                Event 'WARN' "Unknown option: $choice"
+                Start-Sleep -Milliseconds 700
+            }
         }
+
         if ($choice -eq '0') { break }
     }
 } finally {

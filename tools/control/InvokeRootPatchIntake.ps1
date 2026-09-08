@@ -3,7 +3,8 @@ param(
     [string]$ProjectRoot,
     [string]$LogPath,
     [switch]$Apply,
-    [switch]$ScanOnly
+    [switch]$ScanOnly,
+    [switch]$Quiet
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -16,6 +17,7 @@ $console = Join-Path $PSScriptRoot 'Cortex.Console.ps1'
 if (Test-Path -LiteralPath $console) { . $console }
 
 function Emit([string]$kind, [string]$message) {
+    if ($Quiet -and $kind -in @('INFO','PASS','DEBUG','SKIP')) { return }
     if (Get-Command Write-CortexEvent -ErrorAction SilentlyContinue) {
         Write-CortexEvent $kind $message $LogPath
     } else {
@@ -143,7 +145,8 @@ function Apply-Patch([string]$zipPath) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $controlRoot = Join-Path $ProjectRoot '.project_control'
     $stage = Join-Path $controlRoot ("patch-stage\{0}-{1}" -f $stamp, [guid]::NewGuid().ToString('N'))
-    $backup = Join-Path $controlRoot ("patch-backups\{0}-{1}" -f $stamp, ([IO.Path]::GetFileNameWithoutExtension($name)))
+    $backupRoot = Join-Path $ProjectRoot 'artifacts\recovery\patch-backups'
+    $backup = Join-Path $backupRoot ("{0}-{1}" -f $stamp, ([IO.Path]::GetFileNameWithoutExtension($name)))
     $appliedDir = Join-Path $ProjectRoot 'artifacts\patches\applied'
     New-Item -ItemType Directory -Force -Path $stage,$backup,$appliedDir | Out-Null
 

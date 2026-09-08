@@ -21,14 +21,13 @@ if %ERRORLEVEL% EQU 0 (
   set "PCC_PS=powershell.exe"
 )
 
-rem This controller is the exact last-FULL-GREEN version and resolves its own root.
+rem This controller resolves its own project root.
 "%PCC_PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%CORTEX_ROOT%\tools\control\ProjectControlCenter.ps1"
 set "PCC_EXIT=%ERRORLEVEL%"
 if not "%PCC_EXIT%"=="0" (
   echo.
   echo Cortex Root Project Control Center exited with code %PCC_EXIT%.
-  echo The recovery baseline is the exact controller captured in the last FULL_GREEN bundle.
-  echo Check artifacts\debug and logs\sessions for the newest handoff evidence.
+  echo Check artifacts\debug and artifacts\logs\sessions for the newest handoff evidence.
   echo.
   pause
 )

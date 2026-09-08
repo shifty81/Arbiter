@@ -100,12 +100,19 @@ try {
 
     $logsDest = Join-Path $stage 'logs'
     New-Item -ItemType Directory -Force -Path $logsDest | Out-Null
-    $logsRoot = Join-Path $ProjectRoot 'logs\sessions'
-    if (Test-Path -LiteralPath $logsRoot) {
-        Get-ChildItem -LiteralPath $logsRoot -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 12 |
-            Copy-Item -Destination $logsDest -Force -ErrorAction SilentlyContinue
+    $logRoots = @(
+        (Join-Path $ProjectRoot 'artifacts\logs\sessions'),
+        (Join-Path $ProjectRoot 'artifacts\logs\legacy-sessions'),
+        (Join-Path $ProjectRoot 'logs\sessions')
+    )
+    $logFiles = @()
+    foreach ($logsRoot in $logRoots) {
+        if (Test-Path -LiteralPath $logsRoot -PathType Container) {
+            $logFiles += @(Get-ChildItem -LiteralPath $logsRoot -File -ErrorAction SilentlyContinue)
+        }
     }
+    @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 12) |
+        Copy-Item -Destination $logsDest -Force -ErrorAction SilentlyContinue
 
     $latest = Join-Path $outDir 'LATEST_DEBUG_BUNDLE.txt'
     @(
