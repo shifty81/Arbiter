@@ -43,11 +43,39 @@ try {
     $summary.Add("Active log  : $LogPath")
     $summary | Set-Content -LiteralPath (Join-Path $stage 'DEBUG_SUMMARY.txt') -Encoding UTF8
 
+    $gitEvidence = New-Object System.Collections.Generic.List[string]
+    $gitEvidence.Add('========================================================================')
+    $gitEvidence.Add(' CORTEX GIT EVIDENCE')
+    $gitEvidence.Add('========================================================================')
+    if (Test-Path -LiteralPath (Join-Path $ProjectRoot '.git')) {
+        try {
+            $gitEvidence.Add("Branch=$(git -C $ProjectRoot branch --show-current 2>&1)")
+            $gitEvidence.Add("Head=$(git -C $ProjectRoot rev-parse HEAD 2>&1)")
+            $gitEvidence.Add("Origin=$(git -C $ProjectRoot remote get-url origin 2>&1)")
+            $gitEvidence.Add("Upstream=$(git -C $ProjectRoot rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>&1)")
+            $gitEvidence.Add('Status:')
+            foreach ($line in @(git -C $ProjectRoot status --porcelain=v1 -uall 2>&1)) {
+                $gitEvidence.Add($line)
+            }
+            $gitEvidence.Add('Ignored operational examples:')
+            foreach ($line in @(git -C $ProjectRoot status --porcelain=v1 --ignored --untracked-files=all 2>&1 |
+                Where-Object { $_ -like '!! *' } |
+                Select-Object -First 80)) {
+                $gitEvidence.Add($line)
+            }
+        } catch {
+            $gitEvidence.Add("Git evidence collection failed: $($_.Exception.Message)")
+        }
+    } else {
+        $gitEvidence.Add('Git=Not a repository')
+    }
+    $gitEvidence | Set-Content -LiteralPath (Join-Path $stage 'GIT_STATUS.txt') -Encoding UTF8
+
     $sourceDir = Join-Path $stage 'control-source'
     New-Item -ItemType Directory -Force -Path $sourceDir | Out-Null
     $copyFiles = @(
         'Cargo.toml','Cargo.lock','rust-toolchain','rust-toolchain.toml',
-        'project.control.json','cortex.integration.json'
+        'project.control.json','cortex.integration.json','.gitignore','.gitattributes'
     )
     foreach ($name in $copyFiles) {
         $src = Join-Path $ProjectRoot $name

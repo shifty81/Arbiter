@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$ControllerVersion = 'CTX-ROOT-06'
+$ControllerVersion = 'CTX-ROOT-07'
 $CortexGitRemoteUrl = 'https://github.com/shifty81/Cortex.git'
 . (Join-Path $PSScriptRoot 'Cortex.Console.ps1')
 Set-CortexConsoleDefaults

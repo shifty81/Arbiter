@@ -23,6 +23,56 @@ function Emit([string]$kind, [string]$message) {
     }
 }
 
+function Remove-UntrackedTransportResidue {
+    foreach ($name in @('PATCH_MANIFEST.json','.cortex-patch.json')) {
+        $path = Join-Path $ProjectRoot $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+
+        $tracked = $false
+        if (Test-Path -LiteralPath (Join-Path $ProjectRoot '.git')) {
+            & git -C $ProjectRoot ls-files --error-unmatch -- $name *> $null
+            $tracked = ($LASTEXITCODE -eq 0)
+        }
+
+        if (-not $tracked) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            Emit 'WARN' "Removed untracked root patch-transport residue: $name"
+        }
+    }
+}
+
+function Get-PatchSidecarPath {
+    param([Parameter(Mandatory=$true)][string]$ZipPath)
+
+    foreach ($candidate in @("$ZipPath.sha256","$ZipPath.sha256.txt")) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
+function Assert-PatchSidecarHash {
+    param([Parameter(Mandatory=$true)][string]$ZipPath)
+
+    $sidecar = Get-PatchSidecarPath -ZipPath $ZipPath
+    if (-not $sidecar) { return }
+
+    $text = (Get-Content -LiteralPath $sidecar -Raw).Trim()
+    if ($text -notmatch '(?i)^([a-f0-9]{64})(?:\s+\*?.+)?$') {
+        throw "Malformed SHA-256 sidecar: $(Split-Path -Leaf $sidecar)"
+    }
+
+    $expected = $Matches[1].ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    if ($actual -ne $expected) {
+        throw "ZIP SHA-256 mismatch for $(Split-Path -Leaf $ZipPath)."
+    }
+}
+
+
 function Test-PatchName([string]$name) {
     if ($name -match '(?i)(debugbundle|debug[-_ ]?bundle|handoff|source[-_ ]?(rollup|bundle)|rollup|backup|support[-_ ]?bundle|archive)') {
         return $false
@@ -97,6 +147,7 @@ function Apply-Patch([string]$zipPath) {
     $appliedDir = Join-Path $ProjectRoot 'artifacts\patches\applied'
     New-Item -ItemType Directory -Force -Path $stage,$backup,$appliedDir | Out-Null
 
+    Assert-PatchSidecarHash -ZipPath $zipPath
     Assert-SafeZip $zipPath $stage
     Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force
 
@@ -118,6 +169,15 @@ function Apply-Patch([string]$zipPath) {
             Copy-Item -LiteralPath $dest -Destination $bak -Force
         } else {
             $newFiles.Add($dest) | Out-Null
+        }
+    }
+
+    # Patch transport metadata is never project source. Remove it from staging
+    # before Robocopy/Copy-Item so it cannot leak into the repository root.
+    foreach ($transportName in @('PATCH_MANIFEST.json','.cortex-patch.json')) {
+        $transportPath = Join-Path $stage $transportName
+        if (Test-Path -LiteralPath $transportPath -PathType Leaf) {
+            Remove-Item -LiteralPath $transportPath -Force
         }
     }
 
@@ -152,12 +212,20 @@ function Apply-Patch([string]$zipPath) {
 
     $archiveName = "{0}_{1}" -f $stamp,$name
     $archivePath = Join-Path $appliedDir $archiveName
+    $sidecar = Get-PatchSidecarPath -ZipPath $zipPath
+
     Move-Item -LiteralPath $zipPath -Destination $archivePath -Force
+
+    if ($sidecar -and (Test-Path -LiteralPath $sidecar -PathType Leaf)) {
+        Move-Item -LiteralPath $sidecar -Destination "$archivePath.sha256" -Force
+    }
+
     Emit 'PASS' "APPLIED: $name"
     return [pscustomobject]@{ ArchivePath = $archivePath; RestartRequired = $restartRequired; Touched = @($touched) }
 }
 
 Emit 'INFO' 'START Root incremental patch intake'
+Remove-UntrackedTransportResidue
 $roots = @($ProjectRoot)
 $inbox = Join-Path $ProjectRoot 'updates\inbox'
 if (Test-Path -LiteralPath $inbox) { $roots += $inbox }
