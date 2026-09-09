@@ -154,6 +154,7 @@ $contracts = @(
     @{ File='InvokeRootPatchIntake.ps1'; Required=@('ProjectRoot','LogPath','Apply','ScanOnly') },
     @{ File='Test-CortexQuickGate.ps1'; Required=@('ProjectRoot','LogPath') },
     @{ File='New-CortexDebugBundle.ps1'; Required=@('ProjectRoot','Reason','FailedStage','ExitCode','LogPath','OpenFolder') },
+    @{ File='Test-CortexRootSelfAudit.ps1'; Required=@('ProjectRoot','LogPath','ControllerVersion') },
     @{ File='Start-CortexRoot.ps1'; Required=@('ProjectRoot','Command') }
 )
 
@@ -243,15 +244,57 @@ if (-not (Test-Path -LiteralPath $debugBundlePath -PathType Leaf)) {
         'LATEST_CARGO_DIAGNOSTICS.log',
         'diagnostic-source',
         '$diagnosticFileLimit = 12',
-        '$diagnosticTotalLimit = 4194304'
+        '$diagnosticTotalLimit = 4194304',
+        '\x1B\[',
+        'New-ProjectedArtifactStatus',
+        'Post-bundle artifact status refresh failed'
     )) {
-        if ($debugBundleText -notlike "*$requiredToken*") {
+        if (-not $debugBundleText.Contains($requiredToken)) {
             Emit 'FAIL' ("Debug bundle diagnostic-source contract missing token: {0}" -f $requiredToken)
             $failed = $true
         }
     }
     if (-not $failed) {
         Emit 'PASS' 'Bounded Cargo diagnostic-source evidence contract valid.'
+    }
+}
+
+
+# Root certification must never hard-code a stale controller version.
+$selfAuditPath = Join-Path $PSScriptRoot 'Test-CortexRootSelfAudit.ps1'
+if (Test-Path -LiteralPath $selfAuditPath -PathType Leaf) {
+    $selfAuditText = Get-Content -LiteralPath $selfAuditPath -Raw
+    if (-not $selfAuditText.Contains('controller = $resolvedControllerVersion') -or
+        $selfAuditText.Contains("controller = 'CTX-ROOT-")) {
+        Emit 'FAIL' 'Root self-audit controller identity must be dynamically resolved.'
+        $failed = $true
+    } else {
+        Emit 'PASS' 'Root self-audit controller identity is dynamic.'
+    }
+}
+
+# Every source-control mutation/sync path that can change publication state must
+# refresh LATEST_PUBLISHED_STATE.json through Test-CortexPublishedMain.
+$controllerPath = Join-Path $PSScriptRoot 'ProjectControlCenter.ps1'
+if (Test-Path -LiteralPath $controllerPath -PathType Leaf) {
+    $controllerText = Get-Content -LiteralPath $controllerPath -Raw
+    foreach ($token in @(
+        '$committedGreen = Invoke-CortexGitAction',
+        '$pushed = Invoke-CortexGitAction',
+        '$pulled = Invoke-CortexGitAction',
+        '$setup = Invoke-CortexGitAction',
+        '$manualCommitted = Invoke-CortexGitAction'
+    )) {
+        if (-not $controllerText.Contains($token)) {
+            Emit 'FAIL' ("Published-state refresh contract missing Git path token: {0}" -f $token)
+            $failed = $true
+        }
+    }
+    if (-not $controllerText.Contains('Test-CortexPublishedMain')) {
+        Emit 'FAIL' 'Published-state refresh function is missing from controller.'
+        $failed = $true
+    } elseif (-not $failed) {
+        Emit 'PASS' 'Git publication-state refresh contract valid.'
     }
 }
 

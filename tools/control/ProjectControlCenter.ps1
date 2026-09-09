@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$ControllerVersion = 'CTX-ROOT-09KR9'
+$ControllerVersion = 'CTX-ROOT-09KR10R1'
 $CortexGitRemoteUrl = 'https://github.com/shifty81/Cortex.git'
 . (Join-Path $PSScriptRoot 'Cortex.Console.ps1')
 Set-CortexConsoleDefaults
@@ -650,7 +650,10 @@ function Test-CortexPublishedMain {
 function Invoke-RootSelfAudit {
     Write-CortexRule 'ROOT SELF-AUDIT'
     try {
-        & (Join-Path $PSScriptRoot 'Test-CortexRootSelfAudit.ps1') -ProjectRoot $ProjectRoot -LogPath $ActiveLog
+        & (Join-Path $PSScriptRoot 'Test-CortexRootSelfAudit.ps1') `
+            -ProjectRoot $ProjectRoot `
+            -LogPath $ActiveLog `
+            -ControllerVersion $ControllerVersion
         return ($LASTEXITCODE -eq 0)
     } catch {
         Event 'FAIL' "Root self-audit crashed: $($_.Exception.Message)"
@@ -764,7 +767,10 @@ function Show-SourceGitMenu {
                 $default = "Cortex GREEN checkpoint - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
                 $message = Read-Host "Commit message [$default]"
                 if ([string]::IsNullOrWhiteSpace($message)) { $message = $default }
-                [void](Invoke-CortexGitAction -Action 'CommitGreen' -Message $message)
+                $committedGreen = Invoke-CortexGitAction -Action 'CommitGreen' -Message $message
+                if ($committedGreen) {
+                    [void](Test-CortexPublishedMain)
+                }
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '11' {
@@ -778,15 +784,24 @@ function Show-SourceGitMenu {
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '12' {
-                [void](Invoke-CortexGitAction -Action 'Push')
+                $pushed = Invoke-CortexGitAction -Action 'Push'
+                if ($pushed) {
+                    [void](Test-CortexPublishedMain)
+                }
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '20' {
-                [void](Invoke-CortexGitAction -Action 'Pull')
+                $pulled = Invoke-CortexGitAction -Action 'Pull'
+                if ($pulled) {
+                    [void](Test-CortexPublishedMain)
+                }
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '21' {
-                [void](Invoke-CortexGitAction -Action 'Setup')
+                $setup = Invoke-CortexGitAction -Action 'Setup'
+                if ($setup) {
+                    [void](Test-CortexPublishedMain)
+                }
                 Read-Host 'Press Enter to continue' | Out-Null
             }
             '22' {
@@ -797,7 +812,10 @@ function Show-SourceGitMenu {
                 if ([string]::IsNullOrWhiteSpace($message)) {
                     Event 'WARN' 'Manual commit cancelled: no commit message supplied.'
                 } else {
-                    [void](Invoke-CortexGitAction -Action 'ManualCommit' -Message $message)
+                    $manualCommitted = Invoke-CortexGitAction -Action 'ManualCommit' -Message $message
+                    if ($manualCommitted) {
+                        [void](Test-CortexPublishedMain)
+                    }
                 }
                 Read-Host 'Press Enter to continue' | Out-Null
             }

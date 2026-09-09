@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot,
-    [string]$LogPath
+    [string]$LogPath,
+    [string]$ControllerVersion
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -54,6 +55,25 @@ foreach ($file in @(Get-ChildItem -LiteralPath $controlRoot -Recurse -File -Erro
 Add-Check 'powershell-parse' ($parseFailures.Count -eq 0) ($(if ($parseFailures.Count -eq 0) {'all control PowerShell parses'} else {$parseFailures -join '; '}))
 
 $controller = Join-Path $controlRoot 'ProjectControlCenter.ps1'
+$resolvedControllerVersion = $ControllerVersion
+if ([string]::IsNullOrWhiteSpace($resolvedControllerVersion) -and (Test-Path -LiteralPath $controller -PathType Leaf)) {
+    try {
+        $controllerIdentityText = Get-Content -LiteralPath $controller -Raw
+        $controllerIdentityPattern = [regex]::Escape('$ControllerVersion') + "\s*=\s*'(?<version>CTX-ROOT-[^']+)'"
+        $controllerIdentityMatch = [regex]::Match(
+            $controllerIdentityText,
+            $controllerIdentityPattern
+        )
+        if ($controllerIdentityMatch.Success) {
+            $resolvedControllerVersion = [string]$controllerIdentityMatch.Groups['version'].Value
+        }
+    } catch {}
+}
+if ([string]::IsNullOrWhiteSpace($resolvedControllerVersion)) {
+    $resolvedControllerVersion = 'UNKNOWN'
+}
+Add-Check 'controller-version' ($resolvedControllerVersion -ne 'UNKNOWN') $resolvedControllerVersion
+
 if (Test-Path -LiteralPath $controller) {
     $text = Get-Content -LiteralPath $controller -Raw
     foreach ($token in @(
@@ -112,7 +132,7 @@ $result = [ordered]@{
     schema = 'cortex.root_self_audit.v1'
     createdUtc = (Get-Date).ToUniversalTime().ToString('o')
     status = $status
-    controller = 'CTX-ROOT-09KR6'
+    controller = $resolvedControllerVersion
     checks = $checks
 }
 $outPath = Join-Path $outDir 'LATEST_ROOT_SELF_AUDIT.json'

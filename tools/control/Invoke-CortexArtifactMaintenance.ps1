@@ -46,7 +46,7 @@ $summary = [ordered]@{
 }
 
 $sessionFiles = @(Get-ChildItem -LiteralPath $logs -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'LATEST_ROOT_SESSION.txt' } | Sort-Object LastWriteTime -Descending)
-$debugFiles = @(Get-ChildItem -LiteralPath $debug -Filter 'Cortex_DebugBundle_*.zip' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+$debugFiles = @(Get-ChildItem -LiteralPath $debug -Filter 'Cortex_*.zip' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
 
 $summary.sessionLogCount = $sessionFiles.Count
 $summary.debugBundleCount = $debugFiles.Count

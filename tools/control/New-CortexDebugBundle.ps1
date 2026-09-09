@@ -14,6 +14,38 @@ $console = Join-Path $PSScriptRoot 'Cortex.Console.ps1'
 if (Test-Path -LiteralPath $console) { . $console }
 function Emit([string]$kind,[string]$msg) { Write-CortexEvent $kind $msg $LogPath }
 
+function New-ProjectedArtifactStatus {
+    param([Parameter(Mandatory=$true)][string]$BundlePath)
+
+    $artifactRoot = Join-Path $ProjectRoot 'artifacts'
+    $sessionRoot = Join-Path $artifactRoot 'logs\sessions'
+    $debugRoot = Join-Path $artifactRoot 'debug'
+
+    $sessionFiles = @(
+        Get-ChildItem -LiteralPath $sessionRoot -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'LATEST_ROOT_SESSION.txt' } |
+            Sort-Object LastWriteTime -Descending
+    )
+    $debugFiles = @(
+        Get-ChildItem -LiteralPath $debugRoot -Filter 'Cortex_*.zip' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending
+    )
+
+    $bundleAlreadyExists = Test-Path -LiteralPath $BundlePath -PathType Leaf
+    return [ordered]@{
+        schema = 'cortex.artifact_maintenance.v1'
+        createdUtc = (Get-Date).ToUniversalTime().ToString('o')
+        projectRoot = $ProjectRoot
+        pruneRequested = $false
+        removedSessionLogs = 0
+        removedDebugBundles = 0
+        sessionLogCount = $sessionFiles.Count
+        debugBundleCount = $debugFiles.Count + $(if ($bundleAlreadyExists) { 0 } else { 1 })
+        latestSessionLog = $(if ($sessionFiles.Count -gt 0) { $sessionFiles[0].FullName } else { $null })
+        latestDebugBundle = $BundlePath
+    }
+}
+
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outDir = Join-Path $ProjectRoot 'artifacts\debug'
 $stage = Join-Path $ProjectRoot (".project_control\debug-stage\{0}-{1}" -f $stamp,[guid]::NewGuid().ToString('N'))
@@ -162,6 +194,14 @@ try {
         }
     }
 
+    try {
+        $projectedArtifactStatus = New-ProjectedArtifactStatus -BundlePath $zipPath
+        ($projectedArtifactStatus | ConvertTo-Json -Depth 6) |
+            Set-Content -LiteralPath (Join-Path $evidenceDest 'LATEST_ARTIFACT_STATUS.json') -Encoding UTF8
+    } catch {
+        Emit 'WARN' "Projected artifact status could not be staged: $($_.Exception.Message)"
+    }
+
     # Capture only the source files explicitly referenced by the latest Cargo
     # diagnostics. This keeps debug bundles bounded while giving repair tooling
     # the exact working-tree preimages that produced the compiler error.
@@ -169,6 +209,11 @@ try {
     if (Test-Path -LiteralPath $cargoDiagnosticsPath -PathType Leaf) {
         try {
             $diagnosticText = Get-Content -LiteralPath $cargoDiagnosticsPath -Raw
+            $diagnosticText = [regex]::Replace(
+                $diagnosticText,
+                '\x1B\[[0-?]*[ -/]*[@-~]',
+                ''
+            )
             $sourceMatches = [regex]::Matches(
                 $diagnosticText,
                 '(?m)^\s*-->\s+(?<path>.+?\.rs):\d+:\d+\s*$'
@@ -277,6 +322,16 @@ try {
 
     if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
     Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zipPath -CompressionLevel Optimal
+
+    try {
+        $maintenanceScript = Join-Path $PSScriptRoot 'Invoke-CortexArtifactMaintenance.ps1'
+        if (Test-Path -LiteralPath $maintenanceScript -PathType Leaf) {
+            & $maintenanceScript -ProjectRoot $ProjectRoot -LogPath $LogPath | Out-Null
+        }
+    } catch {
+        Emit 'WARN' "Post-bundle artifact status refresh failed: $($_.Exception.Message)"
+    }
+
     if ($patchStartupEvidence -and (Test-Path -LiteralPath $startupEvidencePath -PathType Leaf)) {
         Remove-Item -LiteralPath $startupEvidencePath -Force -ErrorAction SilentlyContinue
     }
