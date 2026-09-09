@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import hashlib
+from datetime import datetime, timezone
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -89,6 +91,125 @@ class ProjectContract:
         return {item.key for item in self.commands}
 
 
+@dataclass(frozen=True)
+class RegisteredProject:
+    registry_id: str
+    project_id: str
+    name: str
+    kind: str
+    root: Path
+    last_opened_utc: str = ""
+
+
+class ProjectRegistry:
+    SCHEMA = "pcc.project_registry.v1"
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or self.default_path()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def default_path() -> Path:
+        env = os.environ.get("PCC_PROJECT_REGISTRY")
+        if env:
+            return Path(env).expanduser().resolve()
+        if os.name == "nt":
+            base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+            return base / "ProjectControlCenter" / "project_registry.json"
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        return base / "project-control-center" / "project_registry.json"
+
+    @staticmethod
+    def _registry_id(root: Path) -> str:
+        key = os.path.normcase(str(root.resolve()))
+        return hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+    def _read(self) -> dict[str, Any]:
+        if not self.path.is_file():
+            return {"schema": self.SCHEMA, "projects": [], "activeProject": ""}
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8-sig"))
+        except Exception as exc:
+            raise SurfaceError(f"Project registry is unreadable: {self.path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise SurfaceError(f"Project registry root must be an object: {self.path}")
+        data.setdefault("schema", self.SCHEMA)
+        data.setdefault("projects", [])
+        data.setdefault("activeProject", "")
+        return data
+
+    def _write(self, data: dict[str, Any]) -> None:
+        temp = self.path.with_suffix(self.path.suffix + ".tmp")
+        temp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, self.path)
+
+    def entries(self) -> list[RegisteredProject]:
+        data = self._read()
+        rows: list[RegisteredProject] = []
+        for item in data.get("projects", []) or []:
+            if not isinstance(item, dict):
+                continue
+            raw_root = str(item.get("root") or "").strip()
+            if not raw_root:
+                continue
+            root = Path(raw_root).expanduser()
+            rows.append(RegisteredProject(
+                registry_id=str(item.get("registryId") or self._registry_id(root)),
+                project_id=str(item.get("projectId") or root.name),
+                name=str(item.get("name") or root.name),
+                kind=str(item.get("kind") or "project"),
+                root=root,
+                last_opened_utc=str(item.get("lastOpenedUtc") or ""),
+            ))
+        rows.sort(key=lambda x: (x.name.lower(), str(x.root).lower()))
+        return rows
+
+    def active_registry_id(self) -> str:
+        return str(self._read().get("activeProject") or "")
+
+    def register(self, root: Path, *, make_active: bool = False) -> RegisteredProject:
+        root = root.expanduser().resolve()
+        contract = ProjectContract.load(root)
+        rid = self._registry_id(root)
+        now = datetime.now(timezone.utc).isoformat()
+        data = self._read()
+        projects = [x for x in (data.get("projects") or []) if isinstance(x, dict)]
+        record = {
+            "registryId": rid,
+            "projectId": contract.project_id,
+            "name": contract.name,
+            "kind": contract.kind,
+            "root": str(root),
+            "lastOpenedUtc": now if make_active else "",
+        }
+        found = False
+        for i, item in enumerate(projects):
+            if str(item.get("registryId") or "") == rid or os.path.normcase(str(item.get("root") or "")) == os.path.normcase(str(root)):
+                previous = str(item.get("lastOpenedUtc") or "")
+                if not make_active:
+                    record["lastOpenedUtc"] = previous
+                projects[i] = record
+                found = True
+                break
+        if not found:
+            projects.append(record)
+        data["projects"] = projects
+        if make_active:
+            data["activeProject"] = rid
+        self._write(data)
+        return RegisteredProject(rid, contract.project_id, contract.name, contract.kind, root, str(record["lastOpenedUtc"]))
+
+    def touch(self, root: Path) -> RegisteredProject:
+        return self.register(root, make_active=True)
+
+    def remove(self, registry_id: str) -> None:
+        data = self._read()
+        data["projects"] = [x for x in (data.get("projects") or []) if not (isinstance(x, dict) and str(x.get("registryId") or "") == registry_id)]
+        if str(data.get("activeProject") or "") == registry_id:
+            data["activeProject"] = ""
+        self._write(data)
+
+
 class BackendClient:
     """Thin client for the authoritative project-side PCC provider.
 
@@ -97,26 +218,48 @@ class BackendClient:
     Cortex and automation on one execution path.
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, contract: ProjectContract | None = None) -> None:
         self.root = root
+        self.contract = contract or ProjectContract.load(root)
         self.script = self._resolve_provider_script()
 
     def _resolve_provider_script(self) -> Path:
-        # Current Cortex authority. A future universal PCC contract can declare this path;
-        # keeping provider discovery isolated here avoids hard-wiring it throughout the UI.
-        candidates = [
+        control = self.contract.raw.get("root_control_center") or {}
+        declared = str(control.get("machine_provider") or control.get("python_entrypoint") or "").strip()
+        candidates: list[Path] = []
+        if declared:
+            candidates.append((self.root / declared).resolve())
+        candidates.extend([
+            self.root / "tools" / "control" / "ProjectControlCenter.py",
             self.root / "tools" / "control" / "CortexPCC.py",
-        ]
+            self.root / "tools" / "pcc" / "ProjectControlCenter.py",
+        ])
         for path in candidates:
             if path.is_file():
                 return path
         raise SurfaceError(
-            "No supported machine-facing PCC provider was found. Expected "
-            "tools/control/CortexPCC.py for this Cortex transition build."
+            "This project is registered but does not yet expose a standardized Python PCC machine provider. "
+            "Standardize its project adapter before running project operations from the universal GUI."
         )
 
     def argv(self, command: str, extra: Sequence[str] = ()) -> list[str]:
         return [sys.executable, str(self.script), command, "--root", str(self.root), *map(str, extra)]
+
+    @staticmethod
+    def _embedded_creationflags(*, process_group: bool = False) -> int:
+        """Keep project commands embedded in the GUI on Windows.
+
+        The universal PCC captures stdout/stderr itself, so child console programs must not
+        allocate transient Windows console windows when the operator launched the GUI through
+        pythonw.exe.  CREATE_NO_WINDOW preserves the captured pipes while preventing the
+        distracting flash of cargo/git/python command consoles.
+        """
+        if os.name != "nt":
+            return 0
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if process_group:
+            flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        return flags
 
     def run(self, command: str, extra: Sequence[str] = (), *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -129,6 +272,7 @@ class BackendClient:
             errors="replace",
             timeout=timeout,
             check=False,
+            creationflags=self._embedded_creationflags(),
         )
 
     def status(self) -> dict[str, Any]:
@@ -145,9 +289,6 @@ class BackendClient:
             raise SurfaceError(f"PCC status returned invalid JSON: {exc}") from exc
 
     def popen(self, command: str, extra: Sequence[str] = ()) -> subprocess.Popen[str]:
-        creationflags = 0
-        if os.name == "nt":
-            creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         return subprocess.Popen(
             self.argv(command, extra),
             cwd=str(self.root),
@@ -158,7 +299,7 @@ class BackendClient:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
-            creationflags=creationflags,
+            creationflags=self._embedded_creationflags(process_group=True),
         )
 
 
@@ -173,6 +314,7 @@ def terminate_process_tree(proc: subprocess.Popen[Any]) -> None:
                 stderr=subprocess.DEVNULL,
                 timeout=15,
                 check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         else:
             proc.terminate()
