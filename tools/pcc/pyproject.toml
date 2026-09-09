@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "universal-project-control-center"
+version = "0.1.0"
+description = "Universal project operations spine used by Cortex and registered projects"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+ui = ["typer>=0.17", "rich>=14", "pydantic>=2.11"]
+watch = ["watchfiles>=1.1", "psutil>=7.0"]
+
+[project.scripts]
+pcc = "pcc.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pcc"]

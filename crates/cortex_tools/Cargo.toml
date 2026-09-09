@@ -24,4 +24,5 @@ cortex_rpc = { path = "../cortex_rpc" }
 cortex_protocol = { path = "../cortex_protocol" }
 cortex_workspace = { path = "../cortex_workspace" }
 cortex_session = { path = "../cortex_session" }
+cortex_pcc = { path = "../cortex_pcc" }
 serde_json.workspace = true

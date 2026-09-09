@@ -22,6 +22,11 @@
     {
       "tool": "pwsh",
       "required": false
+    },
+    {
+      "tool": "python",
+      "required": true,
+      "minimum_version": "3.11"
     }
   ],
   "commands": [
@@ -34,6 +39,27 @@
         "--format-version",
         "1",
         "--no-deps"
+      ],
+      "risk": "read_only",
+      "side_effects": [],
+      "permissions": [],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "none"
+    },
+    {
+      "key": "pcc.selftest",
+      "label": "Universal Python PCC self-tests",
+      "program": "python",
+      "args": [
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/pcc/tests",
+        "-p",
+        "test_*.py"
       ],
       "risk": "read_only",
       "side_effects": [],
@@ -178,6 +204,7 @@
       "key": "full",
       "label": "Full Cortex quality gate",
       "stages": [
+        "pcc.selftest",
         "cargo.metadata",
         "fmt.check",
         "check",
@@ -214,10 +241,12 @@
     }
   ],
   "root_control_center": {
-    "mode": "cortex-standalone-root-control",
+    "mode": "cortex-root-control-with-python-pcc-provider",
     "entrypoint": "PROJECT_CONTROL_CENTER.cmd",
-    "runtime": "Cortex standalone project operations (PowerShell bootstrap; native CLI/GUI progressively assume services)",
-    "upstream": "Cortex",
-    "external_runtime_required": false
+    "runtime": "Cortex Root Project Control Center remains authoritative; Universal Python PCC provides typed project command/gate execution to Cortex CLI/AI/tooling",
+    "upstream": "Cortex Root Control + Universal Python PCC provider",
+    "external_runtime_required": false,
+    "python_provider": "tools/pcc/src/pcc",
+    "python_minimum_version": "3.11"
   }
 }

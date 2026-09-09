@@ -29,6 +29,7 @@ members = [
     "crates/cortex_project_registry",
     "crates/cortex_discovery",
     "crates/cortex_project_ops",
+    "crates/cortex_pcc",
     "crates/cortex_protocol",
     "crates/cortex_provider",
     "crates/cortex_provider_comfyui",

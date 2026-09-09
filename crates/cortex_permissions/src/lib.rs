@@ -208,6 +208,13 @@ pub fn permission_for_tool(name: &str) -> Permission {
             }
             _ => Permission::GitRead,
         }
+    } else if name.starts_with("pcc.") {
+        match name {
+            "pcc.status" | "pcc.catalog" | "pcc.doctor" | "pcc.archive_audit" => {
+                Permission::WorkspaceRead
+            }
+            _ => Permission::ProcessExecute,
+        }
     } else if name.starts_with("web.") {
         Permission::NetworkInternet
     } else if name.starts_with("vision.") || name.starts_with("capture.") {
@@ -281,6 +288,26 @@ mod tests {
             permission_for_tool("git.host.backup"),
             Permission::ExternalPath
         );
+    }
+
+    #[test]
+    fn universal_pcc_tools_preserve_execution_authority() {
+        assert_eq!(permission_for_tool("pcc.status"), Permission::WorkspaceRead);
+        assert_eq!(
+            permission_for_tool("pcc.catalog"),
+            Permission::WorkspaceRead
+        );
+        assert_eq!(permission_for_tool("pcc.doctor"), Permission::WorkspaceRead);
+        assert_eq!(
+            permission_for_tool("pcc.archive_audit"),
+            Permission::WorkspaceRead
+        );
+        assert_eq!(permission_for_tool("pcc.gate"), Permission::ProcessExecute);
+        assert_eq!(
+            permission_for_tool("pcc.run_readonly"),
+            Permission::ProcessExecute
+        );
+        assert_eq!(permission_for_tool("pcc.run"), Permission::ProcessExecute);
     }
 
     #[test]

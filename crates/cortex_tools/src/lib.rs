@@ -22,7 +22,8 @@ use cortex_image::{
     ImageArtifactCatalog,
 };
 use cortex_jobs::{EventKind, EventStore, JobStatus, JobStore};
-use cortex_permissions::{permission_for_tool, PermissionPolicy};
+use cortex_pcc::PccClient;
+use cortex_permissions::{parse_permission, permission_for_tool, Permission, PermissionPolicy};
 use cortex_plugin::PluginRegistry;
 use cortex_process::{CommandResult, OwnedProcessState, ProcessService, ProjectOperation};
 use cortex_protocol::{
@@ -765,6 +766,60 @@ impl ToolBroker {
 
     fn authorize_tool(&self, name: &str) -> Result<(), String> {
         self.permissions.require(permission_for_tool(name), name)
+    }
+
+    fn authorize_pcc_command(&self, key: &str) -> Result<PccClient, String> {
+        let client = PccClient::discover(self.workspace.root())?;
+        let descriptor = client.command_descriptor(key)?;
+        let operation = format!("pcc command {key}");
+
+        if let Some(risk) = descriptor.get("risk").and_then(Value::as_str) {
+            match risk {
+                "source_mutation" => self
+                    .permissions
+                    .require(Permission::WorkspaceWrite, &operation)?,
+                "external_mutation" => self
+                    .permissions
+                    .require(Permission::ExternalPath, &operation)?,
+                _ => {}
+            }
+        }
+
+        for permission in descriptor
+            .get("permissions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            let permission = parse_permission(permission).ok_or_else(|| {
+                format!("PCC command '{key}' declares unknown Cortex permission: {permission}")
+            })?;
+            self.permissions.require(permission, &operation)?;
+        }
+
+        for side_effect in descriptor
+            .get("side_effects")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            let permission = match side_effect {
+                "source_files" | "workspace_files" => Some(Permission::WorkspaceWrite),
+                "external_path" | "external_paths" => Some(Permission::ExternalPath),
+                "git" | "git_write" => Some(Permission::GitWrite),
+                "delete" | "deletes" => Some(Permission::Delete),
+                "credentials" => Some(Permission::Credentials),
+                "system" | "system_change" => Some(Permission::SystemChange),
+                "internet" | "network_internet" => Some(Permission::NetworkInternet),
+                _ => None,
+            };
+            if let Some(permission) = permission {
+                self.permissions.require(permission, &operation)?;
+            }
+        }
+        Ok(client)
     }
 
     fn require_rust_workspace(&self) -> Result<(), String> {
@@ -2584,6 +2639,26 @@ impl ToolBroker {
                     }
                 }
             }
+            "pcc.status" => PccClient::discover(self.workspace.root())?.status(),
+            "pcc.catalog" => PccClient::discover(self.workspace.root())?.catalog(),
+            "pcc.doctor" => PccClient::discover(self.workspace.root())?.doctor(),
+            "pcc.archive_audit" => {
+                let archive = required_string(&call.arguments, "archive")?;
+                let prefix = call.arguments.get("prefix").and_then(Value::as_str);
+                PccClient::discover(self.workspace.root())?.archive_audit(archive, prefix)
+            }
+            "pcc.gate" => {
+                let key = required_string(&call.arguments, "key")?;
+                PccClient::discover(self.workspace.root())?.gate(key)
+            }
+            "pcc.run_readonly" => {
+                let key = required_string(&call.arguments, "key")?;
+                self.authorize_pcc_command(key)?.run_read_only(key)
+            }
+            "pcc.run" => {
+                let key = required_string(&call.arguments, "key")?;
+                self.authorize_pcc_command(key)?.run_mutating(key)
+            }
             "vscode.get_diagnostics" => self.call_vscode("vscode.get_diagnostics", json!({})),
             "vscode.apply_workspace_edit" => {
                 let edits = call
@@ -2787,6 +2862,13 @@ pub fn definitions() -> Vec<ToolDefinition> {
         tool("source.replace_text", "Guarded exact source replacement inside an active transaction. API-sensitive replacements are blocked until required exact dependency packages are locally grounded.  `old` and `new` are decoded source text, not JSON-within-JSON strings; do not double-escape multiline source snippets.", true, json!({"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"expected_occurrences":{"type":"integer"}},"required":["path","old","new"]})),
         tool("source.commit", "Commit the active Cortex transaction. For candidates with an available quality baseline and source mutations, successful project validation is required before commit.", true, json!({"type":"object","properties":{}})),
         tool("source.rollback", "Roll back the active Cortex transaction.", true, json!({"type":"object","properties":{}})),
+        tool("pcc.status", "Read Universal Python Project Control Center status for the active project.", false, json!({"type":"object","properties":{}})),
+        tool("pcc.catalog", "Read the active project's canonical PCC command catalog and risk metadata.", false, json!({"type":"object","properties":{}})),
+        tool("pcc.doctor", "Check Universal Python PCC requirements and active-project operational readiness.", false, json!({"type":"object","properties":{}})),
+        tool("pcc.archive_audit", "Compare a project-relative donor ZIP against the active project file-by-file without importing it.", false, json!({"type":"object","properties":{"archive":{"type":"string"},"prefix":{"type":"string"}},"required":["archive"]})),
+        tool("pcc.gate", "Run a named project quality gate through the Universal Python PCC. Gates may create bounded build/cache/artifact/log outputs but cannot mutate source.", false, json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]})),
+        tool("pcc.run_readonly", "Run the exact registered argv for one PCC command only when project.control.json marks it read_only. Arbitrary trailing argv is not accepted.", false, json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]})),
+        tool("pcc.run", "Run the exact registered argv for one PCC command with explicit mutation authority derived from project.control.json. Arbitrary trailing argv is not accepted.", true, json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]})),
         tool("toolchain.status", "Inspect optional local open-source development integrations such as ripgrep, tree-sitter, rust-analyzer, Gitleaks, cargo-audit, cargo-deny, ScanCode, Wasmtime, Git and SearXNG configuration.", false, json!({"type":"object","properties":{}})),
         tool("project.profile", "Detect the active project adapter/profile and the quality/runtime capabilities Cortex can safely exercise.", false, json!({"type":"object","properties":{}})),
         tool("development.roadmap", "Discover and normalize an authoritative milestone roadmap. If none exists, return a generated proposal that requires approval before execution.", false, json!({"type":"object","properties":{}})),

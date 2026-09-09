@@ -264,6 +264,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cortex_pcc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cortex_permissions"
 version = "0.1.0"
 dependencies = [
@@ -450,6 +458,7 @@ dependencies = [
  "cortex_execution",
  "cortex_image",
  "cortex_jobs",
+ "cortex_pcc",
  "cortex_permissions",
  "cortex_plugin",
  "cortex_process",
