@@ -60,6 +60,25 @@
       "rollback": "none"
     },
     {
+      "key": "fmt.apply",
+      "label": "Apply canonical Rust formatting",
+      "program": "cargo",
+      "args": [
+        "fmt",
+        "--all"
+      ],
+      "risk": "local_mutation",
+      "side_effects": [
+        "source_files"
+      ],
+      "permissions": [
+        "workspace_write"
+      ],
+      "network_required": false,
+      "cancellation": "bounded_kill",
+      "rollback": "git_or_snapshot"
+    },
+    {
       "key": "check",
       "label": "Cargo workspace check",
       "program": "cargo",

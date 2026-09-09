@@ -229,8 +229,8 @@ mod windows {
     use std::collections::{hash_map::DefaultHasher, VecDeque};
     use std::env;
     use std::ffi::c_void;
-    use std::hash::{Hash, Hasher};
     use std::fs::OpenOptions;
+    use std::hash::{Hash, Hasher};
     use std::io::{BufRead, BufReader, Write};
     use std::path::PathBuf;
     use std::process::{Child, Command, Stdio};
@@ -3793,6 +3793,13 @@ mod windows {
                 show_active_workbench_document(parent);
                 layout(parent);
             }
+            UiAction::ShowVault => {
+                RIGHT_COLLAPSED.store(false, Ordering::SeqCst);
+                set_right_pane(parent, ID_VAULT, "Memory", "Search project memory...");
+                layout(parent);
+                let query = get_text(GetDlgItem(parent, ID_QUERY));
+                invoke(parent, |host| host.search_vault(query.trim()));
+            }
             UiAction::ToggleProjectSidebar => {
                 LEFT_COLLAPSED.fetch_xor(true, Ordering::SeqCst);
                 layout(parent);
@@ -3830,7 +3837,9 @@ mod windows {
                     CMD_CTX_EXPORT_CHAT_MARKDOWN => ("markdown", "Chat exported as Markdown"),
                     _ => ("json", "Chat exported as JSON"),
                 };
-                let _ = invoke_export(parent, label, |host| host.export_conversation(index, format));
+                let _ = invoke_export(parent, label, |host| {
+                    host.export_conversation(index, format)
+                });
                 return;
             }
             CMD_CTX_EXPORT_PROJECT_MARKDOWN => {
@@ -5197,6 +5206,10 @@ mod windows {
         }
     }
 
+    fn append_ui_blocking_log(detail: &str) {
+        record_ui_blocking_boundary("control_path", Duration::ZERO, detail);
+    }
+
     unsafe fn capture_worker(hwnd: Hwnd) -> Result<(Box<dyn DesktopWorker>, String), String> {
         let Some(host) = HOST.get() else {
             return Err("Cortex desktop host is unavailable".into());
@@ -5502,7 +5515,7 @@ mod windows {
                 ));
             }
             unsafe {
-                PostMessageW(hwnd_value as Hwnd, WM_UI_TICK, 0, 0);
+                PostMessageW(hwnd_value as Hwnd, WM_THINKING_TICK, 0, 0);
             }
         });
     }
@@ -6514,7 +6527,11 @@ LM Studio includes the `lms` CLI; bootstrap it if necessary and reselect this ta
         if !ASYNC_BUSY.load(Ordering::SeqCst) {
             EnableWindow(
                 GetDlgItem(hwnd, ID_CANCEL),
-                if snapshot.provider_recovery_pending { 1 } else { 0 },
+                if snapshot.provider_recovery_pending {
+                    1
+                } else {
+                    0
+                },
             );
         }
 

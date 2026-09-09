@@ -11,7 +11,6 @@ pub use transaction_flow::*;
 use cortex_adapter_git::GitAdapter;
 use cortex_project::ProjectId;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -276,9 +275,10 @@ impl ProjectExecutionLeaseStore {
         self.reap_stale_locked()?;
 
         let existing = self.read_all_locked()?;
-        if let Some(conflict) = existing.iter().find(|lease| {
-            lease.project_root == project_root && mode.conflicts_with(lease.mode)
-        }) {
+        if let Some(conflict) = existing
+            .iter()
+            .find(|lease| lease.project_root == project_root && mode.conflicts_with(lease.mode))
+        {
             return Err(format!(
                 "project operation is already leased: project={} operation={} mode={:?} owner_pid={} lease={}",
                 project_root.display(),
@@ -344,7 +344,10 @@ impl ProjectExecutionLeaseStore {
             ));
         }
         fs::remove_file(&path).map_err(|error| {
-            format!("failed to release project execution lease {}: {error}", path.display())
+            format!(
+                "failed to release project execution lease {}: {error}",
+                path.display()
+            )
         })?;
         Ok(true)
     }

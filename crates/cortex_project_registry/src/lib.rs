@@ -451,9 +451,7 @@ fn unix_millis() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cortex_project::{
-        ProjectHealthCheck, ProjectHealthState, ProjectRelationshipKind,
-    };
+    use cortex_project::{ProjectHealthCheck, ProjectHealthState, ProjectRelationshipKind};
 
     fn projection(
         workspace_id: &str,
@@ -493,17 +491,11 @@ mod tests {
         );
         state.projects.insert(
             "ws-2".into(),
-            projection(
-                "ws-2",
-                "havenwild",
-                Some("games"),
-                &["build"],
-                &["build"],
-            ),
+            projection("ws-2", "havenwild", Some("games"), &["build"], &["build"]),
         );
 
         assert_eq!(
-            state.capability_index()["build"],
+            state.capability_index()[&CapabilityId::new("build")],
             BTreeSet::from(["ws-1".to_string(), "ws-2".to_string()])
         );
         assert_eq!(
@@ -542,9 +534,7 @@ mod tests {
             confidence: 90,
             reason: "adapter".into(),
         };
-        assert!(store
-            .replace_relationships("ws-1", vec![good])
-            .is_ok());
+        assert!(store.replace_relationships("ws-1", vec![good]).is_ok());
 
         let bad = ProjectRelationship {
             from: ProjectId::new("alpha").unwrap(),
@@ -553,9 +543,7 @@ mod tests {
             confidence: 50,
             reason: "unrelated".into(),
         };
-        assert!(store
-            .replace_relationships("ws-1", vec![bad])
-            .is_err());
+        assert!(store.replace_relationships("ws-1", vec![bad]).is_err());
 
         let _ = fs::remove_dir_all(root);
     }

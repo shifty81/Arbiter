@@ -28,7 +28,9 @@ impl ProjectId {
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
         {
-            return Err(format!("project id contains unsupported characters: {value}"));
+            return Err(format!(
+                "project id contains unsupported characters: {value}"
+            ));
         }
         Ok(Self(value))
     }
@@ -248,7 +250,9 @@ impl ProjectHealth {
         let summary = match state {
             ProjectHealthState::Healthy => "all required project health checks are healthy",
             ProjectHealthState::Degraded => "project health is degraded",
-            ProjectHealthState::Unhealthy => "one or more required project health checks are unhealthy",
+            ProjectHealthState::Unhealthy => {
+                "one or more required project health checks are unhealthy"
+            }
             ProjectHealthState::Blocked => "project operations are blocked",
             ProjectHealthState::Unknown => "project health is not yet known",
         }
@@ -605,12 +609,14 @@ impl ProjectContract {
 
         let mut add = |id: &str, label: &str, source: CapabilitySource| {
             let key = CapabilityId::new(id);
-            capabilities.entry(key.clone()).or_insert(ProjectCapability {
-                id: key,
-                label: label.into(),
-                description: String::new(),
-                source,
-            });
+            capabilities
+                .entry(key.clone())
+                .or_insert(ProjectCapability {
+                    id: key,
+                    label: label.into(),
+                    description: String::new(),
+                    source,
+                });
         };
 
         for command in &self.commands {
@@ -891,12 +897,8 @@ mod tests {
 
     #[test]
     fn operation_result_is_bound_to_operation_identity() {
-        let operation = ProjectOperation::new(
-            "op-1",
-            ProjectId::new("cortex").unwrap(),
-            "build",
-        )
-        .unwrap();
+        let operation =
+            ProjectOperation::new("op-1", ProjectId::new("cortex").unwrap(), "build").unwrap();
         let result = OperationResult::succeeded(&operation, 42);
         assert_eq!(result.operation_id, "op-1");
         assert_eq!(result.command_key, "build");
@@ -921,7 +923,9 @@ mod tests {
         let encoded = serde_json::to_string(&snapshot).unwrap();
         let decoded: ProjectSpineSnapshot = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.identity.id.as_str(), "cortex");
-        assert!(decoded.capability_ids().contains(&CapabilityId::new("build")));
+        assert!(decoded
+            .capability_ids()
+            .contains(&CapabilityId::new("build")));
         assert!(decoded.command("build").is_some());
     }
 }

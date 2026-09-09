@@ -5,12 +5,8 @@
 //! registered workspaces may be refreshed into `cortex_project_registry`, but
 //! newly discovered candidates are never silently attached or promoted.
 
-use cortex_project::{
-    ProjectContract, ProjectId, ProjectRelationship, ProjectRelationshipKind,
-};
-use cortex_project_registry::{
-    ProjectRegistryProjectionState, ProjectRegistryProjectionStore,
-};
+use cortex_project::{ProjectContract, ProjectId, ProjectRelationship, ProjectRelationshipKind};
+use cortex_project_registry::{ProjectRegistryProjectionState, ProjectRegistryProjectionStore};
 use cortex_registry::WorkspaceRegistry;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
@@ -379,11 +375,7 @@ impl DiscoveryEngine {
         let has = |kind: DiscoveryMarkerKind| markers.iter().any(|marker| marker.kind == kind);
 
         let (kind, confidence, strong_boundary) = if let Some(contract) = contract.as_ref() {
-            (
-                contract.project.kind.0.clone(),
-                100,
-                true,
-            )
+            (contract.project.kind.0.clone(), 100, true)
         } else if has(DiscoveryMarkerKind::Cargo) {
             ("rust".into(), 85, false)
         } else if has(DiscoveryMarkerKind::VisualStudioSolution)
@@ -399,9 +391,7 @@ impl DiscoveryEngine {
             ("cmake".into(), 76, false)
         } else if has(DiscoveryMarkerKind::Go) {
             ("go".into(), 76, false)
-        } else if has(DiscoveryMarkerKind::JavaGradle)
-            || has(DiscoveryMarkerKind::JavaMaven)
-        {
+        } else if has(DiscoveryMarkerKind::JavaGradle) || has(DiscoveryMarkerKind::JavaMaven) {
             ("java".into(), 76, false)
         } else if has(DiscoveryMarkerKind::Godot) {
             ("godot".into(), 82, false)
@@ -502,9 +492,7 @@ fn marker_kind(name: &str) -> Option<DiscoveryMarkerKind> {
         "project.control.json" => Some(DiscoveryMarkerKind::ProjectControl),
         "cargo.toml" => Some(DiscoveryMarkerKind::Cargo),
         "package.json" => Some(DiscoveryMarkerKind::Node),
-        "pyproject.toml" | "setup.py" | "requirements.txt" => {
-            Some(DiscoveryMarkerKind::Python)
-        }
+        "pyproject.toml" | "setup.py" | "requirements.txt" => Some(DiscoveryMarkerKind::Python),
         "cmakelists.txt" => Some(DiscoveryMarkerKind::Cmake),
         "go.mod" => Some(DiscoveryMarkerKind::Go),
         "build.gradle" | "build.gradle.kts" | "settings.gradle" | "settings.gradle.kts" => {
@@ -673,11 +661,7 @@ fn relationship_proposals(
                     } else {
                         ProjectRelationshipKind::DerivedFrom
                     },
-                    confidence: if is_duplicate {
-                        95
-                    } else {
-                        family.confidence
-                    },
+                    confidence: if is_duplicate { 95 } else { family.confidence },
                     reason: family.reason.clone(),
                 });
             }
@@ -696,20 +680,10 @@ fn relationship_proposals(
 }
 
 fn normalize_family_name(value: &str) -> String {
-    let mut normalized = value
-        .trim()
-        .to_ascii_lowercase()
-        .replace([' ', '_'], "-");
+    let mut normalized = value.trim().to_ascii_lowercase().replace([' ', '_'], "-");
 
     for suffix in [
-        "-main",
-        "-master",
-        "-copy",
-        "-backup",
-        "-old",
-        "-new",
-        "-source",
-        "-repo",
+        "-main", "-master", "-copy", "-backup", "-old", "-new", "-source", "-repo",
     ] {
         if normalized.ends_with(suffix) {
             normalized.truncate(normalized.len().saturating_sub(suffix.len()));

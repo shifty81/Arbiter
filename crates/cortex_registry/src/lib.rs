@@ -1394,7 +1394,7 @@ impl WorkspaceRegistry {
                 root,
                 remaining_directories,
                 remaining_files,
-                &mut should_cancel,
+                &mut *should_cancel,
             )?;
             directory_count = directory_count.saturating_add(report.scanned_directories);
             ignored_directories = ignored_directories.saturating_add(report.ignored_directories);

@@ -112,8 +112,7 @@ fn run() -> Result<(), String> {
 
     // Project/domain extensions are discovered through the plugin/provider boundary.
     // Standalone Cortex must not compile an Open2D adapter into the generic CLI.
-    let tool_extensions: Vec<Box<dyn ToolExtension>> =
-        vec![Box::new(WebToolExtension::from_env())];
+    let tool_extensions: Vec<Box<dyn ToolExtension>> = vec![Box::new(WebToolExtension::from_env())];
     let tools = ToolBroker::new_with_extensions(
         &project_root,
         image_provider,
@@ -2476,7 +2475,7 @@ fn run_native_project_gate(workspace: &Workspace, gate_key: &str) -> Result<(), 
             parse_cargo_json,
         ) {
             Ok(result) => result,
-            Err(error) if command.program.eq_ignore_ascii_case("pwsh") => {
+            Err(_error) if command.program.eq_ignore_ascii_case("pwsh") => {
                 eprintln!("[INFO] pwsh unavailable; retrying stage with Windows PowerShell");
                 processes.run_capture_exact(
                     workspace.root(),

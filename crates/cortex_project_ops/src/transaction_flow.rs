@@ -747,9 +747,7 @@ fn apply_mutation(
             old,
             new,
             expected,
-        } => manager
-            .replace_text(path, old, new, *expected)
-            .map(|_| ()),
+        } => manager.replace_text(path, old, new, *expected).map(|_| ()),
     }
 }
 
@@ -853,8 +851,14 @@ mod tests {
 
         assert!(outcome.committed);
         assert!(!outcome.rolled_back);
-        assert_eq!(outcome.operation_result.state, ProjectOperationState::Succeeded);
-        assert_eq!(fs::read_to_string(project.join("file.txt")).unwrap(), "after");
+        assert_eq!(
+            outcome.operation_result.state,
+            ProjectOperationState::Succeeded
+        );
+        assert_eq!(
+            fs::read_to_string(project.join("file.txt")).unwrap(),
+            "after"
+        );
 
         let _ = fs::remove_dir_all(project);
         let _ = fs::remove_dir_all(state);
@@ -914,10 +918,15 @@ mod tests {
 
         let engine = ProjectTransactionEngine::new(&project, &state).unwrap();
         let outcome = engine
-            .execute(&plan, |_| Ok(vec![VerificationCheck::pass("unused", "unused")]))
+            .execute(&plan, |_| {
+                Ok(vec![VerificationCheck::pass("unused", "unused")])
+            })
             .unwrap();
 
-        assert_eq!(outcome.operation_result.state, ProjectOperationState::Failed);
+        assert_eq!(
+            outcome.operation_result.state,
+            ProjectOperationState::Failed
+        );
         assert!(!outcome.committed);
         assert!(!outcome.rolled_back);
 
@@ -937,7 +946,10 @@ mod tests {
             manager.write_text("file.txt", "after").unwrap();
         }
 
-        assert_eq!(fs::read_to_string(project.join("file.txt")).unwrap(), "after");
+        assert_eq!(
+            fs::read_to_string(project.join("file.txt")).unwrap(),
+            "after"
+        );
 
         let engine = ProjectTransactionEngine::new(&project, &state).unwrap();
         let outcome = engine

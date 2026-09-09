@@ -2,6 +2,8 @@
 param(
     [string]$ProjectRoot,
     [string]$Reason = 'MANUAL',
+    [string]$FailedStage,
+    [int]$ExitCode = 0,
     [string]$LogPath,
     [switch]$OpenFolder
 )
@@ -16,7 +18,28 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outDir = Join-Path $ProjectRoot 'artifacts\debug'
 $stage = Join-Path $ProjectRoot (".project_control\debug-stage\{0}-{1}" -f $stamp,[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $outDir,$stage | Out-Null
-$zipName = "Cortex_DebugBundle_{0}_{1}.zip" -f $stamp,($Reason -replace '[^A-Za-z0-9_-]','_')
+
+$startupEvidencePath = Join-Path $ProjectRoot 'artifacts\status\PENDING_PATCH_STARTUP_EVIDENCE.json'
+$patchStartupEvidence = $null
+if ($Reason -match '^(STARTUP_(GREEN|FAIL)|PATCH_INTAKE_FAIL|ROOT_BOOTSTRAP_FAIL)$' -and (Test-Path -LiteralPath $startupEvidencePath -PathType Leaf)) {
+    try {
+        $candidate = Get-Content -LiteralPath $startupEvidencePath -Raw | ConvertFrom-Json
+        if ([string]$candidate.schema -eq 'cortex.post_patch_startup_evidence.v1' -and -not [string]::IsNullOrWhiteSpace([string]$candidate.primaryPatchId)) {
+            $patchStartupEvidence = $candidate
+        }
+    } catch {
+        Emit 'WARN' "Post-patch startup evidence marker could not be read: $($_.Exception.Message)"
+    }
+}
+
+$safeReason = ($Reason -replace '[^A-Za-z0-9_-]','_')
+if ($patchStartupEvidence) {
+    $safePatchId = ([string]$patchStartupEvidence.primaryPatchId -replace '[^A-Za-z0-9._-]','_')
+    $batchSuffix = if ([int]$patchStartupEvidence.patchCount -gt 1) { '_BATCH' + [int]$patchStartupEvidence.patchCount } else { '' }
+    $zipName = "Cortex_PostPatch_{0}{1}_{2}_{3}.zip" -f $safePatchId,$batchSuffix,$stamp,$safeReason
+} else {
+    $zipName = "Cortex_DebugBundle_{0}_{1}.zip" -f $stamp,$safeReason
+}
 $zipPath = Join-Path $outDir $zipName
 
 try {
@@ -26,6 +49,13 @@ try {
     $summary.Add('========================================================================')
     $summary.Add("Created     : $(Get-Date -Format o)")
     $summary.Add("Reason      : $Reason")
+    $summary.Add("Failed stage: $FailedStage")
+    $summary.Add("Exit code   : $ExitCode")
+    if ($patchStartupEvidence) {
+        $summary.Add("Patch ID    : $([string]$patchStartupEvidence.primaryPatchId)")
+        $summary.Add("Patch title : $([string]$patchStartupEvidence.primaryTitle)")
+        $summary.Add("Patch count : $([int]$patchStartupEvidence.patchCount)")
+    }
     $summary.Add("Repository  : $ProjectRoot")
     $summary.Add("PowerShell  : $($PSVersionTable.PSVersion)")
     $summary.Add("OS          : $([Environment]::OSVersion.VersionString)")
@@ -114,16 +144,142 @@ try {
     @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 12) |
         Copy-Item -Destination $logsDest -Force -ErrorAction SilentlyContinue
 
+    $evidenceDest = Join-Path $stage 'latest-evidence'
+    New-Item -ItemType Directory -Force -Path $evidenceDest | Out-Null
+    $evidenceFiles = @(
+        'artifacts\builds\LATEST_BUILD_RECEIPT.json',
+        'artifacts\builds\LATEST_CARGO_DIAGNOSTICS.log',
+        'artifacts\certification\LATEST_ROOT_SELF_AUDIT.json',
+        'artifacts\status\LATEST_ROOT_STATUS.json',
+        'artifacts\status\LATEST_PUBLISHED_STATE.json',
+        'artifacts\patches\LATEST_PATCH_RECEIPT.json',
+        'artifacts\status\LATEST_ARTIFACT_STATUS.json'
+    )
+    foreach ($relative in $evidenceFiles) {
+        $src = Join-Path $ProjectRoot $relative
+        if (Test-Path -LiteralPath $src -PathType Leaf) {
+            Copy-Item -LiteralPath $src -Destination (Join-Path $evidenceDest ([IO.Path]::GetFileName($src))) -Force
+        }
+    }
+
+    # Capture only the source files explicitly referenced by the latest Cargo
+    # diagnostics. This keeps debug bundles bounded while giving repair tooling
+    # the exact working-tree preimages that produced the compiler error.
+    $cargoDiagnosticsPath = Join-Path $ProjectRoot 'artifacts\builds\LATEST_CARGO_DIAGNOSTICS.log'
+    if (Test-Path -LiteralPath $cargoDiagnosticsPath -PathType Leaf) {
+        try {
+            $diagnosticText = Get-Content -LiteralPath $cargoDiagnosticsPath -Raw
+            $sourceMatches = [regex]::Matches(
+                $diagnosticText,
+                '(?m)^\s*-->\s+(?<path>.+?\.rs):\d+:\d+\s*$'
+            )
+
+            $projectRootFull = [IO.Path]::GetFullPath($ProjectRoot)
+            $projectRootPrefix = $projectRootFull.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+            $seenDiagnosticSources = @{}
+            $diagnosticRows = @()
+            $diagnosticSourceDir = Join-Path $stage 'diagnostic-source'
+            $diagnosticFileLimit = 12
+            $diagnosticPerFileLimit = 1048576
+            $diagnosticTotalLimit = 4194304
+            $diagnosticTotalBytes = 0
+
+            foreach ($match in $sourceMatches) {
+                if ($diagnosticRows.Count -ge $diagnosticFileLimit) { break }
+
+                $candidateText = [string]$match.Groups['path'].Value
+                if ([string]::IsNullOrWhiteSpace($candidateText)) { continue }
+                $candidateText = $candidateText.Trim().Trim('"')
+
+                $candidatePath = if ([IO.Path]::IsPathRooted($candidateText)) {
+                    $candidateText
+                } else {
+                    Join-Path $ProjectRoot $candidateText
+                }
+
+                try {
+                    $fullPath = [IO.Path]::GetFullPath($candidatePath)
+                } catch {
+                    continue
+                }
+
+                if (-not $fullPath.StartsWith($projectRootPrefix,[StringComparison]::OrdinalIgnoreCase)) {
+                    continue
+                }
+                if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) { continue }
+
+                $relativePath = [IO.Path]::GetRelativePath($projectRootFull,$fullPath)
+                if ($relativePath.StartsWith('..')) { continue }
+                $key = $relativePath.ToLowerInvariant()
+                if ($seenDiagnosticSources.ContainsKey($key)) { continue }
+
+                $item = Get-Item -LiteralPath $fullPath
+                if ($item.Length -gt $diagnosticPerFileLimit) { continue }
+                if (($diagnosticTotalBytes + $item.Length) -gt $diagnosticTotalLimit) { break }
+
+                $destination = Join-Path $diagnosticSourceDir $relativePath
+                $destinationParent = Split-Path -Parent $destination
+                New-Item -ItemType Directory -Force -Path $destinationParent | Out-Null
+                Copy-Item -LiteralPath $fullPath -Destination $destination -Force
+
+                $sha = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                $diagnosticRows += [pscustomobject]@{
+                    path = $relativePath.Replace('\','/')
+                    bytes = [int64]$item.Length
+                    sha256 = $sha
+                    evidence = 'LATEST_CARGO_DIAGNOSTICS.log'
+                }
+                $seenDiagnosticSources[$key] = $true
+                $diagnosticTotalBytes += [int64]$item.Length
+            }
+
+            if ($diagnosticRows.Count -gt 0) {
+                [pscustomobject]@{
+                    schema = 'cortex.diagnostic_source_manifest.v1'
+                    generatedUtc = (Get-Date).ToUniversalTime().ToString('o')
+                    source = 'artifacts/builds/LATEST_CARGO_DIAGNOSTICS.log'
+                    fileCount = $diagnosticRows.Count
+                    totalBytes = $diagnosticTotalBytes
+                    limits = [pscustomobject]@{
+                        files = $diagnosticFileLimit
+                        bytesPerFile = $diagnosticPerFileLimit
+                        totalBytes = $diagnosticTotalLimit
+                    }
+                    files = $diagnosticRows
+                } | ConvertTo-Json -Depth 6 |
+                    Set-Content -LiteralPath (Join-Path $diagnosticSourceDir 'DIAGNOSTIC_SOURCE_MANIFEST.json') -Encoding UTF8
+                Emit 'PASS' ("Diagnostic source evidence: {0} file(s), {1} byte(s)." -f $diagnosticRows.Count,$diagnosticTotalBytes)
+            }
+        } catch {
+            Emit 'WARN' "Diagnostic source evidence collection failed: $($_.Exception.Message)"
+        }
+    }
+
+    if ($patchStartupEvidence) {
+        $patchStartupEvidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stage 'PATCH_STARTUP_EVIDENCE.json') -Encoding UTF8
+    }
+
     $latest = Join-Path $outDir 'LATEST_DEBUG_BUNDLE.txt'
-    @(
+    $latestLines = @(
         "Created=$(Get-Date -Format o)",
         "Reason=$Reason",
+        "FailedStage=$FailedStage",
+        "ExitCode=$ExitCode",
         "Bundle=$zipPath",
         "ActiveLog=$LogPath"
-    ) | Set-Content -LiteralPath $latest -Encoding UTF8
+    )
+    if ($patchStartupEvidence) {
+        $latestLines += "PatchId=$([string]$patchStartupEvidence.primaryPatchId)"
+        $latestLines += "PatchTitle=$([string]$patchStartupEvidence.primaryTitle)"
+        $latestLines += "PatchCount=$([int]$patchStartupEvidence.patchCount)"
+    }
+    $latestLines | Set-Content -LiteralPath $latest -Encoding UTF8
 
     if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
     Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zipPath -CompressionLevel Optimal
+    if ($patchStartupEvidence -and (Test-Path -LiteralPath $startupEvidencePath -PathType Leaf)) {
+        Remove-Item -LiteralPath $startupEvidencePath -Force -ErrorAction SilentlyContinue
+    }
     Emit 'PASS' "Debug handoff bundle: $zipPath"
     Write-CortexText " HANDOFF ZIP : $zipPath" 'Accent'
 
