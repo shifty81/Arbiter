@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-SURFACE_VERSION = "PCC-SURFACE-0.1"
+from PCCProjectDiscovery import discover_project_contract_data, discovery_summary
+
+SURFACE_VERSION = "PCC-SURFACE-0.3"
 
 
 class SurfaceError(RuntimeError):
@@ -36,6 +38,9 @@ class ContractCommand:
     risk: str = "unknown"
     program: str = ""
     args: tuple[str, ...] = ()
+    category: str = ""
+    mutates: bool = False
+    requires_confirmation: bool = False
 
 
 @dataclass(frozen=True)
@@ -50,10 +55,8 @@ class ProjectContract:
 
     @classmethod
     def load(cls, root: Path) -> "ProjectContract":
-        path = root / "project.control.json"
-        if not path.is_file():
-            raise SurfaceError(f"Missing project.control.json: {path}")
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        root = root.expanduser().resolve()
+        data = discover_project_contract_data(root)
         project = data.get("project") or {}
         commands: list[ContractCommand] = []
         for item in data.get("commands", []) or []:
@@ -69,6 +72,9 @@ class ProjectContract:
                     risk=str(item.get("risk") or "unknown"),
                     program=str(item.get("program") or ""),
                     args=tuple(str(x) for x in (item.get("args") or [])),
+                    category=str(item.get("category") or ""),
+                    mutates=bool(item.get("mutates")),
+                    requires_confirmation=bool(item.get("requiresConfirmation")),
                 )
             )
         gate_keys = tuple(
@@ -123,6 +129,38 @@ class ProjectRegistry:
     def _registry_id(root: Path) -> str:
         key = os.path.normcase(str(root.resolve()))
         return hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+    def passport_path(self, root: Path) -> Path:
+        folder = self.path.parent / "passports"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f"{self._registry_id(root)}.json"
+
+    def _write_passport(self, root: Path, contract: ProjectContract, *, last_opened_utc: str = "") -> Path:
+        discovery = contract.raw.get("_pccDiscovery") or {}
+        categories = sorted({item.category for item in contract.commands if item.category})
+        payload = {
+            "schema": "CORTEX_PROJECT_PASSPORT_V1",
+            "projectId": contract.project_id,
+            "name": contract.name,
+            "kind": contract.kind,
+            "root": str(root),
+            "trustState": "trusted_local",
+            "integrationState": "auto_bound" if contract.commands else "observed",
+            "contractSource": str(discovery.get("source") or "filesystem-scan"),
+            "projectContractRequired": False,
+            "provider": str(discovery.get("provider") or (contract.raw.get("root_control_center") or {}).get("machine_provider") or ""),
+            "capabilities": categories,
+            "commands": [item.key for item in contract.commands],
+            "qualityGates": list(contract.gate_keys),
+            "markers": discovery.get("markers") or {},
+            "lastOpenedUtc": last_opened_utc,
+            "updatedUtc": datetime.now(timezone.utc).isoformat(),
+        }
+        path = self.passport_path(root)
+        temp = path.with_suffix(path.suffix + ".tmp")
+        temp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+        return path
 
     def _read(self) -> dict[str, Any]:
         if not self.path.is_file():
@@ -197,6 +235,7 @@ class ProjectRegistry:
         if make_active:
             data["activeProject"] = rid
         self._write(data)
+        self._write_passport(root, contract, last_opened_utc=str(record["lastOpenedUtc"]))
         return RegisteredProject(rid, contract.project_id, contract.name, contract.kind, root, str(record["lastOpenedUtc"]))
 
     def touch(self, root: Path) -> RegisteredProject:
@@ -204,10 +243,24 @@ class ProjectRegistry:
 
     def remove(self, registry_id: str) -> None:
         data = self._read()
-        data["projects"] = [x for x in (data.get("projects") or []) if not (isinstance(x, dict) and str(x.get("registryId") or "") == registry_id)]
+        removed_root: Path | None = None
+        kept: list[Any] = []
+        for item in (data.get("projects") or []):
+            if isinstance(item, dict) and str(item.get("registryId") or "") == registry_id:
+                raw = str(item.get("root") or "").strip()
+                if raw:
+                    removed_root = Path(raw)
+                continue
+            kept.append(item)
+        data["projects"] = kept
         if str(data.get("activeProject") or "") == registry_id:
             data["activeProject"] = ""
         self._write(data)
+        if removed_root is not None:
+            try:
+                self.passport_path(removed_root).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 class BackendClient:
@@ -219,8 +272,9 @@ class BackendClient:
     """
 
     def __init__(self, root: Path, contract: ProjectContract | None = None) -> None:
-        self.root = root
-        self.contract = contract or ProjectContract.load(root)
+        self.root = root.expanduser().resolve()
+        self.contract = contract or ProjectContract.load(self.root)
+        self.provider_mode = "python"
         self.script = self._resolve_provider_script()
 
     def _resolve_provider_script(self) -> Path:
@@ -236,30 +290,105 @@ class BackendClient:
         ])
         for path in candidates:
             if path.is_file():
+                self.provider_mode = "python"
                 return path
+
+        # Universal auto-adapter: consume the project's existing command contract/root tool
+        # instead of requiring every project to be rewritten to Cortex's Python provider first.
+        if self.contract.commands:
+            bridge = Path(__file__).resolve().parent / "PCCAutoAdapter.py"
+            if bridge.is_file():
+                self.provider_mode = "auto-contract"
+                return bridge
+        summary = discovery_summary(self.root)
         raise SurfaceError(
-            "This project is registered but does not yet expose a standardized Python PCC machine provider. "
-            "Standardize its project adapter before running project operations from the universal GUI."
+            "Project scan found no executable PCC command authority. "
+            f"source={summary.get('source')}, provider={summary.get('provider') or '<none>'}, "
+            f"commands={summary.get('commands', 0)}"
         )
 
+    @property
+    def provider_label(self) -> str:
+        if self.provider_mode == "python":
+            try:
+                return str(self.script.relative_to(self.root))
+            except ValueError:
+                return str(self.script)
+        discovery = self.contract.raw.get("_pccDiscovery") or {}
+        source = str(discovery.get("source") or "auto-scan")
+        declared = str(discovery.get("provider") or "").strip()
+        if not declared:
+            control = self.contract.raw.get("root_control_center") or {}
+            declared = str(control.get("discoveredPowerShell") or control.get("launcher") or "project.control.json")
+        return f"Auto adapter ({source}) -> {declared or 'registered commands'}"
+
+    def supports(self, command: str) -> bool:
+        if self.provider_mode == "python":
+            return True
+        from PCCAutoAdapter import ALIASES
+        keys = {item.key.casefold() for item in self.contract.commands}
+        if command.casefold() in keys:
+            return True
+        if command == "status-json":
+            return True
+        if command == "commit-push-green":
+            return "git.commit-green" in keys and "git.push" in keys
+        return any(alias.casefold() in keys for alias in ALIASES.get(command, ()))
+
+    def _provider_python(self) -> str:
+        """Resolve a console Python for the hidden process host.
+
+        The GUI normally runs under pythonw.exe.  Launching the provider with pythonw and
+        CREATE_NO_WINDOW leaves console-subsystem grandchildren without a console, so Cargo,
+        Git, test helpers or PowerShell may allocate transient consoles of their own.  A
+        hidden console Python gives the whole descendant tree one invisible console to inherit.
+        """
+        exe = Path(sys.executable)
+        if os.name == "nt" and exe.name.casefold() == "pythonw.exe":
+            console = exe.with_name("python.exe")
+            if console.is_file():
+                return str(console)
+        return str(exe)
+
     def argv(self, command: str, extra: Sequence[str] = ()) -> list[str]:
-        return [sys.executable, str(self.script), command, "--root", str(self.root), *map(str, extra)]
+        return [self._provider_python(), str(self.script), command, "--root", str(self.root), *map(str, extra)]
 
     @staticmethod
     def _embedded_creationflags(*, process_group: bool = False) -> int:
-        """Keep project commands embedded in the GUI on Windows.
+        """Create one hidden console host that descendants inherit.
 
-        The universal PCC captures stdout/stderr itself, so child console programs must not
-        allocate transient Windows console windows when the operator launched the GUI through
-        pythonw.exe.  CREATE_NO_WINDOW preserves the captured pipes while preventing the
-        distracting flash of cargo/git/python command consoles.
+        This deliberately does *not* use CREATE_NO_WINDOW.  A no-console parent can cause
+        native grandchildren to allocate their own console.  Instead, Windows creates one
+        hidden console for the provider and every normal descendant inherits it.
         """
         if os.name != "nt":
             return 0
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        flags = int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
         if process_group:
-            flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         return flags
+
+    @staticmethod
+    def _embedded_startupinfo() -> subprocess.STARTUPINFO | None:
+        if os.name != "nt":
+            return None
+        info = subprocess.STARTUPINFO()
+        info.dwFlags |= int(getattr(subprocess, "STARTF_USESHOWWINDOW", 1))
+        info.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0))
+        return info
+
+    def _embedded_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.pop("CORTEX_PCC_EMBEDDED_NO_CONSOLE", None)
+        env["PCC_EMBEDDED_HIDDEN_CONSOLE"] = "1"
+        control_dir = str(Path(__file__).resolve().parent)
+        current = str(env.get("PYTHONPATH") or "").strip()
+        parts = [part for part in current.split(os.pathsep) if part] if current else []
+        normalized = {os.path.normcase(os.path.abspath(part)) for part in parts}
+        if os.path.normcase(os.path.abspath(control_dir)) not in normalized:
+            parts.insert(0, control_dir)
+        env["PYTHONPATH"] = os.pathsep.join(parts)
+        return env
 
     def run(self, command: str, extra: Sequence[str] = (), *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -273,6 +402,8 @@ class BackendClient:
             timeout=timeout,
             check=False,
             creationflags=self._embedded_creationflags(),
+            startupinfo=self._embedded_startupinfo(),
+            env=self._embedded_env(),
         )
 
     def status(self) -> dict[str, Any]:
@@ -300,6 +431,8 @@ class BackendClient:
             errors="replace",
             bufsize=1,
             creationflags=self._embedded_creationflags(process_group=True),
+            startupinfo=self._embedded_startupinfo(),
+            env=self._embedded_env(),
         )
 
 
@@ -389,7 +522,8 @@ def validate_surface(root: Path) -> list[str]:
     backend = BackendClient(root)
     notes = [
         f"contract={contract.project_id}:{contract.kind}",
-        f"provider={backend.script.relative_to(root)}",
+        f"provider={backend.provider_label}",
+        f"provider_mode={backend.provider_mode}",
         f"commands={len(contract.commands)}",
         f"gates={len(contract.gate_keys)}",
     ]

@@ -814,42 +814,21 @@ def scan(root: Path) -> dict[str, Any]:
         group = by_id[key]
         applied = applied_records.get(key)
         if applied is not None:
+            # Replay protection is semantic, not byte-based.  Once a patch ID has an APPLIED
+            # receipt, any recognized transport that presents that ID again is invalid.
+            # Byte-identical pending browser copies are consumed/archived during the successful
+            # apply path so they never survive to become false replay failures on restart.
             known_hashes: set[str] = set(applied.get("hashes", set()))
             for validation in group:
                 digest = sha256_file(validation.zip_path)
-                if known_hashes and digest in known_hashes:
-                    ignored.append(str(validation.zip_path))
-                    already_applied_transports.append(
-                        {
-                            "patchId": validation.patch_id,
-                            "path": str(validation.zip_path),
-                            "name": validation.zip_path.name,
-                            "sha256": digest,
-                            "reason": "Exact transport already has an APPLIED receipt",
-                        }
-                    )
-                elif known_hashes:
-                    invalid.append(
-                        {
-                            "path": str(validation.zip_path),
-                            "name": validation.zip_path.name,
-                            "error": (
-                                f"Patch ID has already been applied with different source SHA-256: "
-                                f"{validation.patch_id}"
-                            ),
-                        }
-                    )
-                else:
-                    invalid.append(
-                        {
-                            "path": str(validation.zip_path),
-                            "name": validation.zip_path.name,
-                            "error": (
-                                f"Patch ID has already been applied but its historical receipt has no "
-                                f"source ZIP hash to prove this transport is identical: {validation.patch_id}"
-                            ),
-                        }
-                    )
+                detail = "same transport SHA-256" if digest in known_hashes else "different/unknown transport SHA-256"
+                invalid.append(
+                    {
+                        "path": str(validation.zip_path),
+                        "name": validation.zip_path.name,
+                        "error": f"Patch replay rejected: {validation.patch_id} already has an APPLIED receipt ({detail})",
+                    }
+                )
             continue
 
         if len(group) == 1:
@@ -1041,6 +1020,38 @@ def do_scan(root: Path) -> int:
     return 0 if summary["Invalid"] == 0 else 2
 
 
+def archive_redundant_pending_transports(root: Path, patch_id: str, details: Iterable[dict[str, str]]) -> list[str]:
+    """Archive byte-identical pending copies after the canonical transport is applied.
+
+    This preserves strict replay protection while also handling browser-created `(1).zip`
+    copies safely.  We only receive entries that scan already proved byte-identical to the
+    canonical pending patch.
+    """
+    archived: list[str] = []
+    folder = root / "artifacts" / "patches" / "applied" / "redundant-transports"
+    folder.mkdir(parents=True, exist_ok=True)
+    for item in details:
+        if str(item.get("patchId") or "").casefold() != patch_id.casefold():
+            continue
+        raw = str(item.get("path") or "").strip()
+        if not raw:
+            continue
+        path = Path(raw)
+        if not path.is_file():
+            continue
+        target = folder / f"{stamp()}_{path.name}"
+        if target.exists():
+            target = folder / f"{stamp()}_{uuid.uuid4().hex[:8]}_{path.name}"
+        shutil.move(str(path), str(target))
+        for suffix in (".sha256", ".sha256.txt"):
+            side = Path(str(path) + suffix)
+            if side.is_file():
+                shutil.move(str(side), str(Path(str(target) + suffix)))
+        archived.append(str(target))
+        emit("WARN", f"ARCHIVED REDUNDANT TRANSPORT: {path.name} [{patch_id}]")
+    return archived
+
+
 def do_apply(root: Path) -> int:
     emit("INFO", "START Root incremental patch intake")
     with ApplyLock(root):
@@ -1094,6 +1105,9 @@ def _do_apply_locked(root: Path) -> int:
         already.add(validation.patch_id)
         if receipt.get("archivePath"):
             archives.append(str(receipt["archivePath"]))
+        archives.extend(archive_redundant_pending_transports(
+            root, validation.patch_id, summary.get("DuplicateTransportDetails", []) or []
+        ))
         if validation.restart_required:
             restart_required = True
             emit("WARN", "Control-center files changed; stopping patch queue until the Root Utility relaunches.")

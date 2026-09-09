@@ -8,6 +8,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -27,7 +28,20 @@ from PCCSurfaceCommon import (
     validate_surface,
 )
 
-GUI_VERSION = "PCC-GUI-0.3"
+from PCCVaultCatalog import (
+    baseline_dir as vault_baseline_dir,
+    capture_baseline as vault_capture_baseline,
+    compare_baseline as vault_compare_baseline,
+    catalog_dir as vault_catalog_dir,
+    catalog_record as vault_catalog_record,
+    classify_path as vault_classify_path,
+    latest_summary as vault_latest_summary,
+    scan_project as vault_scan_project,
+    search_catalog as vault_search_catalog,
+    vault_root as global_vault_root,
+)
+
+GUI_VERSION = "PCC-GUI-0.7"
 
 BG = "#090b0e"
 PANEL = "#11151a"
@@ -78,6 +92,10 @@ class CortexPCCGui:
         self._app_tab_buttons: dict[str, Any] = {}
         self._project_entries_by_id: dict[str, RegisteredProject] = {}
         self._busy = False
+        self._vault_busy = False
+        self._vault_cancel = False
+        self._vault_node_paths: dict[str, Path] = {}
+        self._vault_metrics: dict[str, Any] = {}
 
         self._configure_styles()
         self._build_shell()
@@ -149,7 +167,7 @@ class CortexPCCGui:
         tabs = tk.Frame(self.window, bg=PANEL, height=44)
         tabs.pack(fill="x")
         tabs.pack_propagate(False)
-        for name in ("Projects", "Project Workspace"):
+        for name in ("Projects", "Project Workspace", "Vault / Forge"):
             btn = tk.Button(
                 tabs,
                 text=name,
@@ -170,12 +188,13 @@ class CortexPCCGui:
 
         self.app_content = tk.Frame(self.window, bg=BG)
         self.app_content.pack(fill="both", expand=True)
-        for name in ("Projects", "Project Workspace"):
+        for name in ("Projects", "Project Workspace", "Vault / Forge"):
             frame = tk.Frame(self.app_content, bg=BG)
             self._app_frames[name] = frame
 
         self._build_projects_tab(self._app_frames["Projects"])
         self._build_workspace_tab(self._app_frames["Project Workspace"])
+        self._build_vault_tab(self._app_frames["Vault / Forge"])
 
     def _build_projects_tab(self, parent: Any) -> None:
         tk = self.tk
@@ -195,13 +214,13 @@ class CortexPCCGui:
         self._button(toolbar, "Open Project Workspace", self._open_selected_project, compact=True).pack(side="left", padx=6)
         self._button(toolbar, "Open Folder", self._open_selected_project_folder, compact=True).pack(side="left", padx=6)
         self._button(toolbar, "Remove Registration", self._remove_selected_project, compact=True, danger=True).pack(side="left", padx=6)
-        self._button(toolbar, "Refresh List", self._refresh_projects, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Rescan / Rebind", self._refresh_projects, compact=True).pack(side="left", padx=6)
 
         panel = self._panel(shell)
         panel.pack(fill="both", expand=True)
         self.projects_tree = ttk.Treeview(
             panel,
-            columns=("name", "kind", "root", "adapter", "last"),
+            columns=("name", "kind", "root", "adapter", "catalog", "last"),
             show="headings",
             selectmode="browse",
         )
@@ -210,6 +229,7 @@ class CortexPCCGui:
             ("kind", "Type", 140),
             ("root", "Repository / Root", 520),
             ("adapter", "PCC", 130),
+            ("catalog", "Vault", 110),
             ("last", "Last Opened", 160),
         ):
             self.projects_tree.heading(key, text=title)
@@ -339,6 +359,341 @@ class CortexPCCGui:
         self.footer = tk.Label(statusbar, text="[Status:Loading]", bg="#07090b", fg=CYAN, font=("Consolas", 9), anchor="w")
         self.footer.pack(fill="both", padx=12)
 
+    def _build_vault_tab(self, parent: Any) -> None:
+        tk = self.tk
+        ttk = self.ttk
+
+        shell = tk.Frame(parent, bg=BG)
+        shell.pack(fill="both", expand=True, padx=18, pady=14)
+        self._section_title(
+            shell,
+            "Vault / Local Forge",
+            "Local-first project catalog, source browser, asset inventory and onboarding evidence. No project JSON is required.",
+        )
+
+        toolbar = tk.Frame(shell, bg=BG)
+        toolbar.pack(fill="x", pady=(0, 9))
+        self._button(toolbar, "Scan Active Project", lambda: self._start_vault_scan(False), primary=True, compact=True).pack(side="left", padx=(0, 6))
+        self._button(toolbar, "Deep Hash Scan", lambda: self._start_vault_scan(True), compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Refresh Browser", self._vault_refresh_tree, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Open Catalog", lambda: open_path(vault_catalog_dir(self.root_path)), compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Open Vault Root", lambda: open_path(global_vault_root()), compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Capture Baseline", self._vault_capture_baseline, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Compare Baseline", self._vault_compare_baseline, compact=True).pack(side="left", padx=6)
+        self.vault_scan_status = tk.Label(toolbar, text="Idle", bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.vault_scan_status.pack(side="right")
+
+        metrics = tk.Frame(shell, bg=BG)
+        metrics.pack(fill="x", pady=(0, 9))
+        self.vault_metric_labels: dict[str, Any] = {}
+        for key, title in (
+            ("files", "Cataloged"),
+            ("assets", "Assets"),
+            ("large", "Large Files"),
+            ("duplicates", "Duplicate Groups"),
+            ("json", "Invalid JSON"),
+            ("excluded", "Pruned Dirs"),
+        ):
+            card = tk.Frame(metrics, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
+            card.pack(side="left", fill="x", expand=True, padx=(0, 8))
+            tk.Label(card, text=title, bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=12, pady=(8, 1))
+            value = tk.Label(card, text="—", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 12))
+            value.pack(anchor="w", padx=12, pady=(0, 8))
+            self.vault_metric_labels[key] = value
+
+        panes = tk.PanedWindow(shell, orient="horizontal", bg=BG, sashwidth=5, sashrelief="flat", bd=0)
+        panes.pack(fill="both", expand=True)
+
+        left = self._panel(panes, "Project Files")
+        right = self._panel(panes, "Catalog Detail")
+        panes.add(left, minsize=470, stretch="always")
+        panes.add(right, minsize=390, stretch="always")
+
+        search_row = tk.Frame(left, bg=PANEL)
+        search_row.pack(fill="x", padx=10, pady=(0, 7))
+        self.vault_search_var = tk.StringVar()
+        search = tk.Entry(
+            search_row,
+            textvariable=self.vault_search_var,
+            bg="#090c10",
+            fg=TEXT,
+            insertbackground=TEXT,
+            relief="flat",
+            font=("Segoe UI", 9),
+        )
+        search.pack(side="left", fill="x", expand=True, ipady=6)
+        search.bind("<Return>", lambda _e: self._vault_search())
+        self._button(search_row, "Search Catalog", self._vault_search, compact=True).pack(side="left", padx=(6, 0))
+        self._button(search_row, "Clear", self._vault_clear_search, compact=True).pack(side="left", padx=(6, 0))
+
+        tree_shell = tk.Frame(left, bg=PANEL)
+        tree_shell.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.vault_tree = ttk.Treeview(
+            tree_shell,
+            columns=("class", "size", "modified"),
+            show="tree headings",
+            selectmode="browse",
+        )
+        self.vault_tree.heading("#0", text="Name")
+        self.vault_tree.column("#0", width=360, anchor="w")
+        for key, title, width in (("class", "Class", 130), ("size", "Size", 100), ("modified", "Modified", 150)):
+            self.vault_tree.heading(key, text=title)
+            self.vault_tree.column(key, width=width, anchor="w")
+        self.vault_tree.tag_configure("SOURCE", foreground=GREEN)
+        self.vault_tree.tag_configure("ASSET", foreground=CYAN)
+        self.vault_tree.tag_configure("BUILD_OUTPUT", foreground=MUTED)
+        self.vault_tree.tag_configure("DEPENDENCY", foreground=MUTED)
+        self.vault_tree.tag_configure("ARCHIVE", foreground=YELLOW)
+        self.vault_tree.tag_configure("CONTROL", foreground="#d29dff")
+        vscroll = tk.Scrollbar(tree_shell, command=self.vault_tree.yview, bg=PANEL)
+        self.vault_tree.configure(yscrollcommand=vscroll.set)
+        self.vault_tree.pack(side="left", fill="both", expand=True)
+        vscroll.pack(side="right", fill="y")
+        self.vault_tree.bind("<<TreeviewOpen>>", self._vault_tree_opened)
+        self.vault_tree.bind("<<TreeviewSelect>>", self._vault_tree_selected)
+        self.vault_tree.bind("<Double-1>", lambda _e: self._vault_open_selected())
+
+        right_actions = tk.Frame(right, bg=PANEL)
+        right_actions.pack(fill="x", padx=12, pady=(0, 8))
+        self._button(right_actions, "Open", self._vault_open_selected, primary=True, compact=True).pack(side="left", padx=(0, 6))
+        self._button(right_actions, "Reveal", self._vault_reveal_selected, compact=True).pack(side="left", padx=6)
+        self._button(right_actions, "Copy Path", self._vault_copy_selected_path, compact=True).pack(side="left", padx=6)
+
+        detail_shell = tk.Frame(right, bg="#07090b", highlightthickness=1, highlightbackground=BORDER)
+        detail_shell.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.vault_detail = tk.Text(
+            detail_shell,
+            bg="#07090b",
+            fg=TEXT,
+            insertbackground=TEXT,
+            bd=0,
+            relief="flat",
+            font=("Consolas", 9),
+            wrap="word",
+            height=10,
+        )
+        dscroll = tk.Scrollbar(detail_shell, command=self.vault_detail.yview, bg=PANEL)
+        self.vault_detail.configure(yscrollcommand=dscroll.set)
+        self.vault_detail.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
+        dscroll.pack(side="right", fill="y", padx=(4, 8), pady=8)
+        self.vault_detail.configure(state="disabled")
+        self._vault_refresh_tree()
+        self._vault_render_summary(vault_latest_summary(self.root_path))
+
+    @staticmethod
+    def _human_bytes(value: int) -> str:
+        amount = float(max(0, int(value)))
+        units = ["B", "KB", "MB", "GB", "TB"]
+        for unit in units:
+            if amount < 1024.0 or unit == units[-1]:
+                return f"{amount:.0f} {unit}" if unit == "B" else f"{amount:.1f} {unit}"
+            amount /= 1024.0
+        return f"{int(value)} B"
+
+    def _vault_refresh_tree(self) -> None:
+        if not hasattr(self, "vault_tree"):
+            return
+        for iid in self.vault_tree.get_children():
+            self.vault_tree.delete(iid)
+        self._vault_node_paths.clear()
+        root = self.root_path
+        iid = "vault-root"
+        self.vault_tree.insert("", "end", iid=iid, text=root.name, values=("PRIMARY_PROJECT", "", ""), open=True, tags=("SOURCE",))
+        self._vault_node_paths[iid] = root
+        self._vault_insert_children(iid, root)
+        self._vault_render_summary(vault_latest_summary(root))
+
+    def _vault_insert_children(self, parent_iid: str, path: Path) -> None:
+        try:
+            entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.casefold()))
+        except OSError:
+            return
+        # Remove lazy placeholder if present.
+        for child in self.vault_tree.get_children(parent_iid):
+            if str(child).startswith("dummy:"):
+                self.vault_tree.delete(child)
+        for child in entries:
+            try:
+                is_dir = child.is_dir()
+                stat = child.stat()
+            except OSError:
+                continue
+            classification = vault_classify_path(self.root_path, child, is_dir=is_dir)
+            rel = child.relative_to(self.root_path).as_posix()
+            iid = "vault:" + rel.replace("/", "\\")
+            if self.vault_tree.exists(iid):
+                continue
+            size = "" if is_dir else self._human_bytes(int(stat.st_size))
+            modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+            self.vault_tree.insert(parent_iid, "end", iid=iid, text=child.name, values=(classification, size, modified), tags=(classification,))
+            self._vault_node_paths[iid] = child
+            if is_dir:
+                try:
+                    next(child.iterdir())
+                    dummy = "dummy:" + iid
+                    self.vault_tree.insert(iid, "end", iid=dummy, text="…")
+                except (StopIteration, OSError):
+                    pass
+
+    def _vault_tree_opened(self, _event: Any = None) -> None:
+        iid = self.vault_tree.focus()
+        path = self._vault_node_paths.get(iid)
+        if path and path.is_dir():
+            self._vault_insert_children(iid, path)
+
+    def _vault_tree_selected(self, _event: Any = None) -> None:
+        iid = self.vault_tree.focus()
+        path = self._vault_node_paths.get(iid)
+        if not path:
+            return
+        self._vault_show_path(path)
+
+    def _vault_show_path(self, path: Path) -> None:
+        try:
+            rel = path.relative_to(self.root_path).as_posix() if path != self.root_path else "."
+        except ValueError:
+            rel = str(path)
+        try:
+            stat = path.stat()
+            size = "Directory" if path.is_dir() else self._human_bytes(stat.st_size)
+            modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        except OSError:
+            size, modified = "Unavailable", "Unavailable"
+        classification = "PRIMARY_PROJECT" if path == self.root_path else vault_classify_path(self.root_path, path, is_dir=path.is_dir())
+        rec = None if path.is_dir() else vault_catalog_record(self.root_path, rel)
+        lines = [
+            f"Path           : {path}",
+            f"Relative       : {rel}",
+            f"Classification : {classification}",
+            f"Size           : {size}",
+            f"Modified       : {modified}",
+        ]
+        if rec:
+            lines.extend([
+                f"Catalog SHA256 : {rec.get('sha256') or '<deferred>'}",
+                f"JSON valid     : {rec.get('jsonValid') if rec.get('jsonValid') is not None else 'n/a'}",
+                f"Catalog note   : {rec.get('note') or '—'}",
+            ])
+        else:
+            lines.append("Catalog        : Run Scan Active Project to index/hash this item.")
+        self.vault_detail.configure(state="normal")
+        self.vault_detail.delete("1.0", "end")
+        self.vault_detail.insert("1.0", "\n".join(lines))
+        self.vault_detail.configure(state="disabled")
+
+    def _vault_selected_path(self) -> Path | None:
+        iid = self.vault_tree.focus() if hasattr(self, "vault_tree") else ""
+        return self._vault_node_paths.get(iid)
+
+    def _vault_open_selected(self) -> None:
+        path = self._vault_selected_path()
+        if path:
+            open_path(path)
+
+    def _vault_reveal_selected(self) -> None:
+        path = self._vault_selected_path()
+        if not path:
+            return
+        if path.is_file():
+            reveal_file(path)
+        else:
+            open_path(path)
+
+    def _vault_copy_selected_path(self) -> None:
+        path = self._vault_selected_path()
+        if path:
+            self._copy_to_clipboard(str(path), "Vault Path")
+
+    def _vault_clear_search(self) -> None:
+        if hasattr(self, "vault_search_var"):
+            self.vault_search_var.set("")
+        self._vault_refresh_tree()
+
+    def _vault_search(self) -> None:
+        query = self.vault_search_var.get().strip()
+        if not query:
+            self._vault_refresh_tree()
+            return
+        results = vault_search_catalog(self.root_path, query)
+        for iid in self.vault_tree.get_children():
+            self.vault_tree.delete(iid)
+        self._vault_node_paths.clear()
+        root_iid = "vault-search"
+        self.vault_tree.insert("", "end", iid=root_iid, text=f"Search: {query}", values=("CATALOG_SEARCH", f"{len(results)} result(s)", ""), open=True)
+        for index, item in enumerate(results):
+            rel = str(item.get("relPath") or "")
+            path = self.root_path / Path(rel)
+            iid = f"search:{index}"
+            self.vault_tree.insert(root_iid, "end", iid=iid, text=rel, values=(item.get("classification") or "", self._human_bytes(int(item.get("bytes") or 0)), ""), tags=(str(item.get("classification") or ""),))
+            self._vault_node_paths[iid] = path
+
+    def _start_vault_scan(self, deep: bool) -> None:
+        if self._vault_busy:
+            self._popup("Vault Scan", "A Vault/Forge scan is already running.", kind="warning")
+            return
+        self._vault_busy = True
+        self._vault_cancel = False
+        self.vault_scan_status.configure(text="Deep hash scan…" if deep else "Scanning…", fg=CYAN)
+        root = self.root_path
+
+        def progress(payload: dict[str, Any]) -> None:
+            self._event_q.put(("vault-progress", payload))
+
+        def work() -> None:
+            try:
+                summary = vault_scan_project(root, deep_hash=deep, progress=progress, cancelled=lambda: self._vault_cancel)
+                self._event_q.put(("vault-done", (root, summary)))
+            except Exception as exc:
+                self._event_q.put(("vault-error", str(exc)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _vault_capture_baseline(self) -> None:
+        try:
+            path = vault_capture_baseline(self.root_path)
+        except Exception as exc:
+            self._popup("Vault Baseline", str(exc), kind="warning")
+            return
+        self._append_log(f"[PASS] Vault baseline captured: {path}\n", "pass")
+        self._popup("Vault Baseline", f"Baseline captured for {self.contract.name}.\n\n{path}", kind="success")
+
+    def _vault_compare_baseline(self) -> None:
+        try:
+            result = vault_compare_baseline(self.root_path)
+        except Exception as exc:
+            self._popup("Vault Baseline", str(exc), kind="warning")
+            return
+        counts = result.get("counts") or {}
+        message = (
+            f"Added: {counts.get('added', 0)}\n"
+            f"Removed: {counts.get('removed', 0)}\n"
+            f"Changed: {counts.get('changed', 0)}\n\n"
+            f"Report: {vault_catalog_dir(self.root_path) / 'baseline-comparison.json'}"
+        )
+        self._append_log(f"[INFO] Vault baseline comparison: {counts}\n", "info")
+        self._popup("Vault Baseline Comparison", message, kind="info")
+
+    def _vault_render_summary(self, summary: dict[str, Any] | None) -> None:
+        if not hasattr(self, "vault_metric_labels"):
+            return
+        if not summary:
+            for label in self.vault_metric_labels.values():
+                label.configure(text="—", fg=MUTED)
+            return
+        classes = summary.get("classCounts") or {}
+        values = {
+            "files": int(summary.get("files") or 0),
+            "assets": int(classes.get("ASSET") or 0),
+            "large": int(summary.get("largeFiles") or 0),
+            "duplicates": int(summary.get("duplicateGroups") or 0),
+            "json": int(summary.get("invalidJson") or 0),
+            "excluded": int(summary.get("excludedDirectories") or 0),
+        }
+        for key, value in values.items():
+            color = RED if key == "json" and value else (YELLOW if key in {"large", "duplicates"} and value else GREEN)
+            self.vault_metric_labels[key].configure(text=str(value), fg=color)
+        self._vault_metrics = summary
+
     def _panel(self, parent: Any, title: str | None = None) -> Any:
         tk = self.tk
         frame = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
@@ -360,7 +715,7 @@ class CortexPCCGui:
         bg = CYAN if primary else (RED if danger else PANEL_2)
         fg = "#001018" if primary else TEXT
         active = "#52e7ff" if primary else ("#ff7a83" if danger else "#24303a")
-        return tk.Button(
+        button = tk.Button(
             parent,
             text=text,
             command=command,
@@ -375,6 +730,83 @@ class CortexPCCGui:
             padx=12 if compact else 18,
             pady=6 if compact else 10,
         )
+        button.bind("<Enter>", lambda _e, b=button: b.configure(bg=active))
+        button.bind("<Leave>", lambda _e, b=button, c=bg: b.configure(bg=c))
+        return button
+
+    def _round_window(self, window: Any) -> None:
+        """Best-effort Windows 11 rounded corners for PCC-owned borderless windows."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            window.update_idletasks()
+            hwnd = int(window.winfo_id())
+            parent_hwnd = int(ctypes.windll.user32.GetParent(hwnd))
+            target = parent_hwnd or hwnd
+            preference = ctypes.c_int(2)  # DWMWCP_ROUND
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(target, 33, ctypes.byref(preference), ctypes.sizeof(preference))
+        except Exception:
+            pass
+
+    def _center_modal(self, dialog: Any, width: int, height: int) -> None:
+        dialog.update_idletasks()
+        try:
+            px = self.window.winfo_rootx()
+            py = self.window.winfo_rooty()
+            pw = self.window.winfo_width()
+            ph = self.window.winfo_height()
+            x = px + max(0, (pw - width) // 2)
+            y = py + max(0, (ph - height) // 2)
+        except Exception:
+            sw, sh = dialog.winfo_screenwidth(), dialog.winfo_screenheight()
+            x, y = max(0, (sw - width) // 2), max(0, (sh - height) // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _popup(self, title: str, message: str, *, kind: str = "info", confirm: bool = False, parent: Any | None = None) -> bool:
+        tk = self.tk
+        host = parent or self.window
+        dialog = tk.Toplevel(host)
+        dialog.withdraw()
+        dialog.configure(bg=BG)
+        dialog.overrideredirect(True)
+        dialog.transient(host)
+        dialog.resizable(False, False)
+
+        accent = RED if kind == "error" else (YELLOW if kind == "warning" else (GREEN if kind == "success" else CYAN))
+        outer = tk.Frame(dialog, bg=accent, padx=1, pady=1)
+        outer.pack(fill="both", expand=True)
+        shell = tk.Frame(outer, bg=PANEL)
+        shell.pack(fill="both", expand=True)
+        tk.Frame(shell, bg=accent, height=4).pack(fill="x")
+        tk.Label(shell, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13), anchor="w").pack(fill="x", padx=18, pady=(16, 6))
+        tk.Label(shell, text=message, bg=PANEL, fg=MUTED, font=("Segoe UI", 10), anchor="w", justify="left", wraplength=520).pack(fill="both", expand=True, padx=18, pady=(0, 14))
+        result = [False]
+        def close(value: bool) -> None:
+            result[0] = value
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.destroy()
+        actions = tk.Frame(shell, bg=PANEL)
+        actions.pack(fill="x", padx=16, pady=(0, 16))
+        if confirm:
+            self._button(actions, "Cancel", lambda: close(False), compact=True).pack(side="right", padx=(8, 0))
+            self._button(actions, "Continue", lambda: close(True), primary=True, compact=True).pack(side="right")
+        else:
+            self._button(actions, "OK", lambda: close(True), primary=True, compact=True).pack(side="right")
+        dialog.bind("<Escape>", lambda _e: close(False))
+        dialog.bind("<Return>", lambda _e: close(True))
+        dialog.protocol("WM_DELETE_WINDOW", lambda: close(False))
+        self._center_modal(dialog, 570, 250 if len(message) < 380 else 310)
+        self._round_window(dialog)
+        dialog.deiconify()
+        dialog.lift()
+        dialog.grab_set()
+        dialog.focus_force()
+        host.wait_window(dialog)
+        return bool(result[0])
 
     def _section_title(self, parent: Any, title: str, subtitle: str = "") -> None:
         tk = self.tk
@@ -559,12 +991,12 @@ class CortexPCCGui:
 
     def _activate_project(self, root: Path) -> None:
         if self._busy:
-            self.messagebox.showwarning("Project Control Center", "Finish or stop the active PCC job before switching projects.")
+            self._popup("Project Control Center", "Finish or stop the active PCC job before switching projects.", kind="warning")
             return
         try:
             contract = ProjectContract.load(root.resolve())
         except Exception as exc:
-            self.messagebox.showerror("Project Control Center", f"Unable to load project:\n{root}\n\n{exc}")
+            self._popup("Unable to Load Project", f"{root}\n\n{exc}", kind="error")
             return
         self.root_path = root.resolve()
         self.contract = contract
@@ -575,6 +1007,9 @@ class CortexPCCGui:
         self._reload_registered_commands()
         self._reset_status_cards()
         self._clear_log()
+        if hasattr(self, "vault_tree"):
+            self._vault_refresh_tree()
+            self._vault_render_summary(vault_latest_summary(self.root_path))
         self._append_log(f"Active project changed to {self.contract.name}.\n", "info")
         self._append_log(f"Root: {self.root_path}\n", "muted")
         if self.backend_error:
@@ -589,7 +1024,12 @@ class CortexPCCGui:
     def _update_header(self) -> None:
         if not hasattr(self, "active_project_label"):
             return
-        adapter = "PCC adapter ready" if self.backend is not None else "adapter standardization required"
+        if self.backend is None:
+            adapter = "PCC scan could not bind operations"
+        elif self.backend.provider_mode == "auto-contract":
+            adapter = "PCC auto-adapter ready"
+        else:
+            adapter = "PCC native provider ready"
         self.active_project_label.configure(
             text=f"Active: {self.contract.name}  •  {self.contract.kind}  •  {compact_path(self.root_path, 88)}  •  {adapter}"
         )
@@ -605,9 +1045,19 @@ class CortexPCCGui:
         for iid in self.projects_tree.get_children():
             self.projects_tree.delete(iid)
         try:
+            # Registration is a live binding, not a one-time label snapshot. Re-scan every
+            # existing root so newly standardized project.control.json/root-tool changes are
+            # adopted automatically without removing/re-adding the project.
+            previous = self.registry.entries()
+            for registered in previous:
+                if registered.root.is_dir():
+                    try:
+                        self.registry.register(registered.root, make_active=False)
+                    except Exception:
+                        pass
             entries = self.registry.entries()
         except Exception as exc:
-            self.messagebox.showerror("Project Registry", str(exc))
+            self._popup("Project Registry", str(exc), kind="error")
             return
         for entry in entries:
             self._project_entries_by_id[entry.registry_id] = entry
@@ -618,17 +1068,20 @@ class CortexPCCGui:
             else:
                 try:
                     contract = ProjectContract.load(entry.root)
-                    BackendClient(entry.root, contract)
+                    backend = BackendClient(entry.root, contract)
+                    adapter_text = "Auto-bound" if backend.provider_mode == "auto-contract" else "Ready"
                 except SurfaceError:
-                    tag, adapter_text = "adapter", "Needs adapter"
+                    tag, adapter_text = "adapter", "Scan incomplete"
                 except Exception:
                     tag, adapter_text = "missing", "Invalid"
+            catalog = vault_latest_summary(entry.root) if entry.root.is_dir() else None
+            catalog_text = f"{catalog.get('files', 0)} files" if catalog else "Not scanned"
             last = entry.last_opened_utc.replace("T", " ")[:19] if entry.last_opened_utc else "—"
             self.projects_tree.insert(
                 "",
                 "end",
                 iid=entry.registry_id,
-                values=(entry.name, entry.kind, str(entry.root), adapter_text, last),
+                values=(entry.name, entry.kind, str(entry.root), adapter_text, catalog_text, last),
                 tags=(tag,),
             )
         current_id = ProjectRegistry._registry_id(self.root_path)
@@ -653,10 +1106,18 @@ class CortexPCCGui:
         try:
             contract = ProjectContract.load(entry.root)
             backend = BackendClient(entry.root, contract)
-            provider = str(backend.script)
+            adapter = "Auto-bound" if backend.provider_mode == "auto-contract" else "Native provider"
+            provider = backend.provider_label
+            discovery = contract.raw.get("_pccDiscovery") or {}
+            source = str(discovery.get("source") or "unknown")
+            catalog = vault_latest_summary(entry.root)
+            catalog_line = f"{catalog.get('files', 0)} files / {catalog.get('duplicateGroups', 0)} duplicate groups" if catalog else "Not cataloged yet"
         except Exception as exc:
-            adapter = "Needs standardization"
+            adapter = "Scan incomplete"
             provider = str(exc)
+            source = "filesystem-scan"
+            catalog = vault_latest_summary(entry.root) if entry.root.exists() else None
+            catalog_line = f"{catalog.get('files', 0)} files" if catalog else "Not cataloged yet"
             detail_color = YELLOW if entry.root.exists() else RED
         self.project_detail.configure(
             text=(
@@ -664,6 +1125,9 @@ class CortexPCCGui:
                 f"Type       : {entry.kind}\n"
                 f"Root       : {entry.root}\n"
                 f"PCC        : {adapter}\n"
+                f"Discovery  : {source} (project.control.json optional)\n"
+                f"Vault      : {catalog_line}\n"
+                f"Passport   : {self.registry.passport_path(entry.root)}\n"
                 f"Provider   : {provider}"
             ),
             fg=detail_color,
@@ -676,9 +1140,10 @@ class CortexPCCGui:
         try:
             entry = self.registry.register(Path(raw), make_active=False)
         except Exception as exc:
-            self.messagebox.showerror(
+            self._popup(
                 "Register Project",
-                f"This folder cannot be registered yet. A standardized project.control.json is required.\n\n{exc}",
+                f"The universal PCC could not scan/register this folder.\n\n{exc}",
+                kind="error",
             )
             return
         self._refresh_projects()
@@ -686,15 +1151,27 @@ class CortexPCCGui:
             self.projects_tree.selection_set(entry.registry_id)
             self.projects_tree.focus(entry.registry_id)
             self._project_selection_changed()
+        self._start_onboarding_scan(entry.root)
+
+    def _start_onboarding_scan(self, root: Path) -> None:
+        root = root.resolve()
+        self._append_log(f"[INFO] Onboarding scan queued: {root}\n", "info")
+        def work() -> None:
+            try:
+                summary = vault_scan_project(root, deep_hash=False)
+                self._event_q.put(("onboard-done", (root, summary)))
+            except Exception as exc:
+                self._event_q.put(("onboard-error", (root, str(exc))))
+        threading.Thread(target=work, daemon=True).start()
 
     def _remove_selected_project(self) -> None:
         entry = self._selected_project()
         if entry is None:
             return
         if entry.root.resolve() == self.root_path.resolve():
-            if not self.messagebox.askyesno("Remove Registration", f"Remove the active project '{entry.name}' from the registry? This does not delete any project files."):
+            if not self._popup("Remove Registration", f"Remove the active project '{entry.name}' from the registry? This does not delete any project files.", kind="warning", confirm=True):
                 return
-        elif not self.messagebox.askyesno("Remove Registration", f"Remove '{entry.name}' from the PCC registry? This does not delete any project files."):
+        elif not self._popup("Remove Registration", f"Remove '{entry.name}' from the PCC registry? This does not delete any project files.", kind="warning", confirm=True):
             return
         self.registry.remove(entry.registry_id)
         self._refresh_projects()
@@ -702,7 +1179,7 @@ class CortexPCCGui:
     def _open_selected_project(self) -> None:
         entry = self._selected_project()
         if entry is None:
-            self.messagebox.showinfo("Projects", "Select a project first.")
+            self._popup("Projects", "Select a project first.")
             return
         self._activate_project(entry.root)
 
@@ -750,7 +1227,7 @@ class CortexPCCGui:
     def _copy_all(self, widget: Any) -> None:
         text = widget.get("1.0", "end-1c")
         if not text:
-            self.messagebox.showinfo("Copy Console", "There is no console output to copy.")
+            self._popup("Copy Console", "There is no console output to copy.")
             return
         self._copy_to_clipboard(text, "All Console Output")
 
@@ -758,7 +1235,7 @@ class CortexPCCGui:
         try:
             text = widget.get("sel.first", "sel.last")
         except self.tk.TclError:
-            self.messagebox.showinfo("Copy Selection", "Select console text first, or use Copy All.")
+            self._popup("Copy Selection", "Select console text first, or use Copy All.")
             return
         self._copy_to_clipboard(text, "Console Selection")
 
@@ -879,7 +1356,11 @@ class CortexPCCGui:
         else:
             sync = f"{ahead} ahead / {behind} behind"
 
-        provider = str(self.backend.script.relative_to(self.root_path)) if self.backend is not None else "Unavailable"
+        provider = self.backend.provider_label if self.backend is not None else "Unavailable"
+        toolchain = str(status.get("toolchain") or "").strip()
+        if not toolchain:
+            ready_tools = [name for name, ready in tools.items() if ready]
+            toolchain = ", ".join(ready_tools) if ready_tools else "Not reported"
         lines = [
             f"Repository : {self.root_path}",
             f"Project    : {self.contract.name}",
@@ -890,8 +1371,7 @@ class CortexPCCGui:
             f"Updates    : {upd_text}",
             f"Hygiene    : {'Clean' if hygiene.get('clean', True) else 'Needs attention'}",
             f"PCC        : {provider}",
-            f"Cargo      : {'Ready' if tools.get('cargo') else 'Missing'}",
-            f"Rustc      : {'Ready' if tools.get('rustc') else 'Missing'}",
+            f"Toolchain  : {toolchain}",
             f"Runtime    : {binaries.get('gui') or 'Not built / not reported'}",
             f"Active log : {(status.get('session') or {}).get('log') or '<not reported>'}",
         ]
@@ -919,13 +1399,17 @@ class CortexPCCGui:
     # ------------------------------------------------------------------
     def _start_command(self, command: str, extra: Sequence[str] = (), *, label: str | None = None) -> None:
         if self.backend is None:
-            self.messagebox.showwarning(
-                "Project Control Center",
-                "This registered project does not yet expose the standardized Python PCC machine provider required for universal operations.",
+            self._popup("Project Control Center", "The universal PCC scan could not bind an executable operation provider for this project.", kind="warning")
+            return
+        if not self.backend.supports(command):
+            self._popup(
+                "Operation Not Available",
+                f"The selected project does not expose an operation mapped to '{command}'.\n\nUse Registered Commands to review what the project scanner discovered.",
+                kind="warning",
             )
             return
         if self._busy or (self._active_proc and self._active_proc.poll() is None):
-            self.messagebox.showwarning("Project Control Center", "Another PCC job is already running.")
+            self._popup("Project Control Center", "Another PCC job is already running.", kind="warning")
             return
         self._show_app_tab("Project Workspace")
         # The embedded project console is the authoritative visible execution surface.
@@ -940,6 +1424,7 @@ class CortexPCCGui:
         self.stop_btn.configure(state="normal")
         self.refresh_btn.configure(state="disabled")
         self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {self._active_command} ===\n", "info")
+        self._append_log("[ProcessHost] Embedded capture ON / descendant console windows suppressed.\n", "info")
         self.footer.configure(text=f"[Job:Running] [{self._active_command}]", fg=CYAN)
 
         def work() -> None:
@@ -996,8 +1481,36 @@ class CortexPCCGui:
                     self.operation_label.configure(text=f"Last: {command} FAIL", fg=RED)
                     self.console_job_label.configure(text=f"Last: {command} FAIL", fg=RED)
                     self._append_log(f"ERROR: {detail}\n", "fail")
-                    self.messagebox.showerror("PCC command failed", detail)
+                    self._popup("PCC Command Failed", detail, kind="error")
                     self._refresh_status_async()
+                elif kind == "onboard-done":
+                    root, summary = payload
+                    self._append_log(f"[PASS] Project onboarding catalog complete: {root} ({summary.get('files', 0)} files)\n", "pass")
+                    self._refresh_projects()
+                    if Path(root).resolve() == self.root_path.resolve():
+                        self._vault_render_summary(summary)
+                elif kind == "onboard-error":
+                    root, detail = payload
+                    self._append_log(f"[WARN] Project onboarding catalog incomplete: {root}: {detail}\n", "warn")
+                    self._refresh_projects()
+                elif kind == "vault-progress":
+                    files = int((payload or {}).get("files") or 0)
+                    hashed = int((payload or {}).get("hashed") or 0)
+                    reused = int((payload or {}).get("reusedHashes") or 0)
+                    self.vault_scan_status.configure(text=f"Scanning {files} files · {hashed} hashed · {reused} cached", fg=CYAN)
+                elif kind == "vault-done":
+                    root, summary = payload
+                    self._vault_busy = False
+                    if Path(root).resolve() == self.root_path.resolve():
+                        self.vault_scan_status.configure(text=f"PASS · {summary.get('files', 0)} files · {summary.get('elapsedSeconds', 0)}s", fg=GREEN)
+                        self._vault_render_summary(summary)
+                        self._vault_refresh_tree()
+                    self._append_log(f"[PASS] Vault/Forge catalog scan complete: {root} ({summary.get('files', 0)} files)\n", "pass")
+                elif kind == "vault-error":
+                    self._vault_busy = False
+                    self.vault_scan_status.configure(text="Scan failed", fg=RED)
+                    self._append_log(f"[FAIL] Vault/Forge scan: {payload}\n", "fail")
+                    self._popup("Vault Scan Failed", str(payload), kind="error")
                 elif kind == "status":
                     self._render_status(payload)
                 elif kind == "status-error":
@@ -1066,71 +1579,83 @@ class CortexPCCGui:
         tk = self.tk
         default, basis = self._green_commit_default()
         dialog = tk.Toplevel(self.window)
-        dialog.title("Commit + Push Certified GREEN" if push else "Commit Certified GREEN")
+        dialog.withdraw()
         dialog.configure(bg=BG)
+        dialog.overrideredirect(True)
         dialog.transient(self.window)
-        dialog.resizable(True, True)
-        dialog.geometry("760x360")
-        dialog.minsize(620, 300)
+        dialog.resizable(False, False)
 
-        shell = tk.Frame(dialog, bg=BG)
-        shell.pack(fill="both", expand=True, padx=18, pady=16)
+        outer = tk.Frame(dialog, bg=CYAN, padx=1, pady=1)
+        outer.pack(fill="both", expand=True)
+        shell = tk.Frame(outer, bg=PANEL)
+        shell.pack(fill="both", expand=True)
+        tk.Frame(shell, bg=CYAN, height=4).pack(fill="x")
+
+        header = tk.Frame(shell, bg=PANEL)
+        header.pack(fill="x", padx=22, pady=(18, 8))
         tk.Label(
-            shell,
-            text="Commit Certified GREEN",
-            bg=BG,
+            header,
+            text="COMMIT + PUSH CERTIFIED GREEN" if push else "COMMIT CERTIFIED GREEN",
+            bg=PANEL,
             fg=TEXT,
             font=("Segoe UI Semibold", 15),
         ).pack(anchor="w")
         tk.Label(
-            shell,
-            text=basis,
-            bg=BG,
+            header,
+            text=f"{self.contract.name}  ·  {basis}",
+            bg=PANEL,
             fg=GREEN,
             font=("Segoe UI", 9),
-            wraplength=710,
+            wraplength=750,
             justify="left",
-        ).pack(anchor="w", pady=(4, 12))
-        tk.Label(shell, text="Commit message", bg=BG, fg=MUTED, font=("Segoe UI Semibold", 9)).pack(anchor="w")
+        ).pack(anchor="w", pady=(5, 0))
 
-        editor_frame = tk.Frame(shell, bg="#07090b", highlightthickness=1, highlightbackground=BORDER)
-        editor_frame.pack(fill="both", expand=True, pady=(5, 12))
+        body = tk.Frame(shell, bg=PANEL)
+        body.pack(fill="both", expand=True, padx=22, pady=(5, 12))
+        tk.Label(body, text="Commit message", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 9)).pack(anchor="w")
+        editor_frame = tk.Frame(body, bg="#07090b", highlightthickness=1, highlightbackground=BORDER)
+        editor_frame.pack(fill="both", expand=True, pady=(6, 0))
         editor = tk.Text(
             editor_frame,
             bg="#07090b",
             fg=TEXT,
             insertbackground=TEXT,
+            selectbackground="#21404a",
+            selectforeground=TEXT,
             bd=0,
             relief="flat",
             font=("Consolas", 10),
             wrap="word",
             undo=True,
-            height=7,
+            height=10,
         )
         scroll = tk.Scrollbar(editor_frame, command=editor.yview, bg=PANEL)
         editor.configure(yscrollcommand=scroll.set)
-        editor.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
-        scroll.pack(side="right", fill="y", padx=(4, 8), pady=8)
+        editor.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=12)
+        scroll.pack(side="right", fill="y", padx=(5, 9), pady=9)
         editor.insert("1.0", default)
         editor.tag_add("sel", "1.0", "end-1c")
-        editor.focus_set()
 
         result: list[str | None] = [None]
-
+        def close(value: str | None) -> None:
+            result[0] = value
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.destroy()
         def accept() -> None:
             message = editor.get("1.0", "end-1c").strip()
             if not message:
-                self.messagebox.showwarning("Commit Certified GREEN", "Enter a commit message.", parent=dialog)
+                self._popup("Commit Certified GREEN", "Enter a commit message before continuing.", kind="warning", parent=dialog)
+                editor.focus_set()
                 return
-            result[0] = message
-            dialog.destroy()
+            close(message)
 
-        def cancel() -> None:
-            dialog.destroy()
-
-        actions = tk.Frame(shell, bg=BG)
-        actions.pack(fill="x")
-        self._button(actions, "Cancel", cancel, compact=True).pack(side="right", padx=(8, 0))
+        actions = tk.Frame(shell, bg=PANEL)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        tk.Label(actions, text="Esc = Cancel", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
+        self._button(actions, "Cancel", lambda: close(None), compact=True).pack(side="right", padx=(8, 0))
         self._button(
             actions,
             "Commit + Push GREEN" if push else "Commit GREEN",
@@ -1139,9 +1664,15 @@ class CortexPCCGui:
             compact=True,
         ).pack(side="right")
 
-        dialog.bind("<Escape>", lambda _e: cancel())
-        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        dialog.bind("<Escape>", lambda _e: close(None))
+        dialog.bind("<Control-Return>", lambda _e: accept())
+        dialog.protocol("WM_DELETE_WINDOW", lambda: close(None))
+        self._center_modal(dialog, 820, 430)
+        self._round_window(dialog)
+        dialog.deiconify()
+        dialog.lift()
         dialog.grab_set()
+        editor.focus_force()
         self.window.wait_window(dialog)
         return result[0]
 
@@ -1152,14 +1683,16 @@ class CortexPCCGui:
 
     def _commit_push_green(self) -> None:
         message = self._ask_commit_message(push=True)
-        if message and self.messagebox.askyesno(
-            "Commit + push",
+        if message and self._popup(
+            "Commit + Push GREEN",
             "Commit the current certified GREEN source and push it to the configured remote?",
+            kind="warning",
+            confirm=True,
         ):
             self._start_command("commit-push-green", ["--message", message], label="commit-push-green")
 
     def _apply_updates(self) -> None:
-        if self.messagebox.askyesno("Apply validated updates", "Apply the currently validated PCC update queue? Invalid updates remain fail-closed."):
+        if self._popup("Apply Validated Updates", "Apply the currently validated PCC update queue? Invalid updates remain fail-closed.", kind="warning", confirm=True):
             self._start_command("patch-apply", ["--yes"], label="apply-updates")
 
     def _open_latest_debug(self) -> None:
@@ -1170,15 +1703,30 @@ class CortexPCCGui:
             open_path(self.root_path / "artifacts" / "debug")
 
     def _open_cli(self) -> None:
-        launcher = self.root_path / "PROJECT_CONTROL_CENTER.cmd"
-        if os.name == "nt" and launcher.is_file():
-            subprocess.Popen(["cmd.exe", "/k", str(launcher), "--cli"], cwd=str(self.root_path))
+        control = self.contract.raw.get("root_control_center") or {}
+        declared = str(control.get("launcher") or "").strip()
+        candidates = []
+        if declared:
+            candidates.append(self.root_path / declared)
+        candidates.extend([
+            self.root_path / "PROJECT_CONTROL_CENTER.cmd",
+            *sorted(self.root_path.glob("*Tools.cmd")),
+            *sorted(self.root_path.glob("*ControlCenter.cmd")),
+        ])
+        launcher = next((path for path in candidates if path.is_file()), None)
+        if os.name == "nt" and launcher is not None:
+            # Root launchers own their own interactive syntax; do not force Cortex's --cli
+            # switch onto legacy/adopted project utilities.
+            argv = ["cmd.exe", "/k", str(launcher)]
+            if launcher.name.casefold() == "project_control_center.cmd":
+                argv.append("--cli")
+            subprocess.Popen(argv, cwd=str(self.root_path), creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
             return
-        self.messagebox.showinfo("Project Control Center", f"Project CLI launcher not found: {launcher}")
+        self._popup("Project Control Center", "No interactive project launcher was discovered for the selected project.")
 
     def _on_close(self) -> None:
         if self._active_proc and self._active_proc.poll() is None:
-            if not self.messagebox.askyesno("Active PCC job", "A Project Control Center job is still running. Stop it and close?"):
+            if not self._popup("Active PCC Job", "A Project Control Center job is still running. Stop it and close?", kind="warning", confirm=True):
                 return
             terminate_process_tree(self._active_proc)
         self.window.destroy()
