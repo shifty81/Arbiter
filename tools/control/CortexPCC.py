@@ -429,6 +429,9 @@ class GateEngine:
             self.ctx.cargo_toml,
             self.ctx.project_control,
             self.ctx.tools / "CortexPCC.py",
+            self.ctx.tools / "CortexPCCGui.py",
+            self.ctx.tools / "CortexPCCConsole.py",
+            self.ctx.tools / "PCCSurfaceCommon.py",
             self.ctx.tools / "CortexGitAuthority.py",
             self.ctx.tools / "CortexPatchAuthority.py",
             self.ctx.tools / "CortexPCCMaintenance.py",
@@ -445,14 +448,12 @@ class GateEngine:
         return "PASS", f"AST parsed {len(files)} Python files"
 
     def _json_contracts(self) -> tuple[str, str]:
-        checked = 0
-        for path in (self.ctx.project_control, self.ctx.root / "PATCH_MANIFEST.json"):
-            if path.is_file():
-                json.loads(path.read_text(encoding="utf-8-sig"))
-                checked += 1
-        if checked == 0:
-            return "FAIL", "no JSON project contracts available"
-        return "PASS", f"parsed {checked} JSON contract(s)"
+        # Project configuration and patch transport metadata are separate authorities.
+        # A root PATCH_MANIFEST.json must never make the project-contract gate pass.
+        if not self.ctx.project_control.is_file():
+            return "FAIL", f"project contract missing: {self.ctx.project_control.name}"
+        json.loads(self.ctx.project_control.read_text(encoding="utf-8-sig"))
+        return "PASS", "parsed 1 authoritative project JSON contract"
 
     def _powershell_syntax(self) -> tuple[str, str]:
         ps = shutil.which("pwsh") or shutil.which("powershell") or shutil.which("powershell.exe")
@@ -484,9 +485,15 @@ class GateEngine:
             return "FAIL", f"patch authority scan exited {code}"
         invalid = int(summary.get("Invalid", 0) or 0)
         pending = int(summary.get("Pending", 0) or 0)
+        recovered = int(summary.get("RecoveredSidecars", 0) or 0)
         if invalid:
-            return "FAIL", f"{invalid} invalid recognized patch(es), {pending} valid pending"
-        return "PASS", f"{pending} valid pending patch(es), no invalid patches"
+            details = summary.get("InvalidPatches", []) or []
+            first = details[0] if details else {}
+            reason = str(first.get("error", "unknown patch validation error"))
+            name = str(first.get("name", "recognized patch"))
+            return "FAIL", f"{invalid} invalid recognized patch(es); first: {name} - {reason}"
+        suffix = f", recovered {recovered} missing sidecar(s)" if recovered else ""
+        return "PASS", f"{pending} valid pending patch(es), no invalid patches{suffix}"
 
     def _git_authority(self) -> tuple[str, str]:
         if not self.git.script.is_file():
@@ -541,12 +548,25 @@ class GateEngine:
             self._check("Rust/Cargo tools", self._cargo_tools),
             self._check("Cargo workspace metadata", self._cargo_metadata),
         ]
-        ok = all(c.status != "FAIL" for c in checks)
+        failed = next((c for c in checks if c.status == "FAIL"), None)
+        ok = failed is None
         if ok:
             self.failed_stage = ""
             self.log.emit("PASS", "QUICK PROJECT GATE GREEN", phase="gate:quick")
         else:
-            self.log.emit("FAIL", "QUICK PROJECT GATE FAILED", phase="gate:quick")
+            stage_names = {
+                "Required PCC/project files": "pcc-required-files",
+                "Python PCC syntax": "pcc-python-syntax",
+                "JSON contracts": "project-contract",
+                "Root artifact hygiene": "root-hygiene",
+                "PowerShell compatibility syntax": "powershell-syntax",
+                "Patch authority": "patch-authority",
+                "Git authority": "git-authority",
+                "Rust/Cargo tools": "cargo-toolchain",
+                "Cargo workspace metadata": "cargo-metadata",
+            }
+            self.failed_stage = stage_names.get(failed.name, "quick")
+            self.log.emit("FAIL", f"QUICK PROJECT GATE FAILED at {self.failed_stage}: {failed.detail}", phase="gate:quick")
         return ok, checks
 
     def cargo_step(self, label: str, args: Sequence[str], *, timeout: float = 1800) -> bool:
@@ -729,6 +749,7 @@ class CortexPCC:
         if verbose:
             print(f"Pending valid : {summary.get('Pending', 0)}")
             print(f"Invalid       : {summary.get('Invalid', 0)}")
+            print(f"Recovered SHA : {summary.get('RecoveredSidecars', 0)}")
             print(f"Ignored ZIPs  : {summary.get('Ignored', 0)}")
             for item in summary.get("ValidPatches", []) or []:
                 print(f"  VALID   {item.get('patchId')}  {Path(str(item.get('path'))).name}")
@@ -761,11 +782,23 @@ class CortexPCC:
         return 0
 
     def restart(self) -> None:
+        # Operator surfaces are now authoritative clients of this core.  A PCC self-update
+        # must relaunch through the root bootstrap so the default GUI/console policy is
+        # preserved instead of dropping the operator into a raw CortexPCC.py console.
+        launcher = self.ctx.root / "PROJECT_CONTROL_CENTER.cmd"
+        if is_windows() and launcher.is_file():
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(launcher)],
+                cwd=str(self.ctx.root),
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            )
+            return
+        gui = self.ctx.tools / "CortexPCCGui.py"
+        if gui.is_file():
+            subprocess.Popen([*which_python(), str(gui), "--root", str(self.ctx.root)], cwd=str(self.ctx.root))
+            return
         argv = [*which_python(), str(self.ctx.tools / "CortexPCC.py"), "--root", str(self.ctx.root)]
-        if is_windows():
-            subprocess.Popen(argv, cwd=str(self.ctx.root), creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
-        else:
-            subprocess.Popen(argv, cwd=str(self.ctx.root))
+        subprocess.Popen(argv, cwd=str(self.ctx.root))
 
     def status(self, *, as_json: bool = False) -> int:
         git = self.git.summary()
@@ -990,8 +1023,14 @@ class CortexPCC:
     def startup(self) -> None:
         self.print_banner()
         code, patch = self.patch_status(verbose=False)
+        recovered = int(patch.get("RecoveredSidecars", 0) or 0)
+        if recovered:
+            for item in patch.get("RecoveredSidecarDetails", []) or []:
+                self.log.emit("WARN", f"Recovered missing patch SHA-256 sidecar after full internal ZIP validation: {item.get('name')}")
         if int(patch.get("Invalid", 0) or 0):
             self.log.emit("FAIL", f"Startup found {patch.get('Invalid')} invalid recognized patch(es); source unchanged.")
+            for item in patch.get("InvalidPatches", []) or []:
+                self.log.emit("FAIL", f"Invalid patch: {item.get('name')} - {item.get('error')}")
         elif int(patch.get("Pending", 0) or 0):
             self.log.emit("WARN", f"Startup found {patch.get('Pending')} validated pending patch(es); apply explicitly from Source / Project Control.")
         else:

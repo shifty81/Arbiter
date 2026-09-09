@@ -1,33 +1,88 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul 2>nul
+
 set "CORTEX_ROOT=%~dp0"
 if "%CORTEX_ROOT:~-1%"=="\" set "CORTEX_ROOT=%CORTEX_ROOT:~0,-1%"
-set "PCC=%CORTEX_ROOT%\tools\control\CortexPCC.py"
-set "PCC_EXIT=1"
 
+set "PCC_CORE=%CORTEX_ROOT%\tools\control\CortexPCC.py"
+set "PCC_GUI=%CORTEX_ROOT%\tools\control\CortexPCCGui.py"
+set "PCC_CONSOLE=%CORTEX_ROOT%\tools\control\CortexPCCConsole.py"
+set "PCC_EXIT=1"
+set "PY_CMD="
+set "PYW_CMD="
+
+call :resolve_python
+if errorlevel 1 goto :python_fail
+
+if /I "%~1"=="--cli" goto :interactive_cli
+if /I "%~1"=="cli" goto :interactive_cli
+if /I "%CORTEX_PCC_FORCE_CLI%"=="1" goto :interactive_cli
+
+rem Any explicit command is a headless/machine-facing PCC request.
+if not "%~1"=="" goto :headless
+
+rem Normal double-click/operator launch: GUI is primary. The console shell remains a fallback.
+if exist "%PCC_GUI%" (
+  %PY_CMD% "%PCC_GUI%" --self-test --root "%CORTEX_ROOT%" >nul 2>nul
+  if errorlevel 1 (
+    echo [WARN] PCC GUI preflight failed. Falling back to the formatted console shell.
+    goto :interactive_cli
+  )
+  if defined PYW_CMD (
+    start "Cortex Project Control Center" %PYW_CMD% "%PCC_GUI%" --root "%CORTEX_ROOT%"
+    exit /b 0
+  )
+  start "Cortex Project Control Center" %PY_CMD% "%PCC_GUI%" --root "%CORTEX_ROOT%"
+  exit /b 0
+)
+
+echo [WARN] PCC GUI surface is missing. Falling back to the formatted console shell.
+goto :interactive_cli
+
+:interactive_cli
+if exist "%PCC_CONSOLE%" (
+  %PY_CMD% "%PCC_CONSOLE%" --root "%CORTEX_ROOT%"
+) else (
+  echo [WARN] Formatted PCC console surface is missing. Falling back to CortexPCC.py.
+  %PY_CMD% "%PCC_CORE%" --root "%CORTEX_ROOT%"
+)
+set "PCC_EXIT=%ERRORLEVEL%"
+goto :done
+
+:headless
+%PY_CMD% "%PCC_CORE%" %* --root "%CORTEX_ROOT%"
+set "PCC_EXIT=%ERRORLEVEL%"
+goto :done
+
+:resolve_python
 where py.exe >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-  py.exe -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>nul
-  if %ERRORLEVEL% EQU 0 (
-    py.exe -3 "%PCC%" --root "%CORTEX_ROOT%"
-    set "PCC_EXIT=%ERRORLEVEL%"
-    goto :done
+if not errorlevel 1 (
+  py.exe -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)" >nul 2>nul
+  if not errorlevel 1 (
+    set "PY_CMD=py.exe -3"
+    where pyw.exe >nul 2>nul
+    if not errorlevel 1 set "PYW_CMD=pyw.exe -3"
+    exit /b 0
   )
 )
 
 where python.exe >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-  python.exe -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>nul
-  if %ERRORLEVEL% EQU 0 (
-    python.exe "%PCC%" --root "%CORTEX_ROOT%"
-    set "PCC_EXIT=%ERRORLEVEL%"
-    goto :done
+if not errorlevel 1 (
+  python.exe -c "import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)" >nul 2>nul
+  if not errorlevel 1 (
+    set "PY_CMD=python.exe"
+    where pythonw.exe >nul 2>nul
+    if not errorlevel 1 set "PYW_CMD=pythonw.exe"
+    exit /b 0
   )
 )
+exit /b 1
 
-echo [FAIL] Cortex Python Project Control Center requires Python 3.10 or newer.
+:python_fail
+echo [FAIL] Cortex Project Control Center requires Python 3.11 or newer.
 set "PCC_EXIT=1"
+goto :done
 
 :done
 if not "%PCC_EXIT%"=="0" (

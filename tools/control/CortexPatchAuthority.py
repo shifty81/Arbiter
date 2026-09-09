@@ -139,19 +139,53 @@ def assert_safe_ancestors(root: Path, dest: Path) -> None:
                 raise PatchError(f"Patch destination crosses a reparse point/symlink: {current}")
 
 
-def read_sidecar(zip_path: Path) -> Path:
-    for candidate in (Path(str(zip_path) + ".sha256"), Path(str(zip_path) + ".sha256.txt")):
+def sidecar_candidates(zip_path: Path) -> tuple[Path, Path]:
+    return Path(str(zip_path) + ".sha256"), Path(str(zip_path) + ".sha256.txt")
+
+
+def existing_sidecar(zip_path: Path) -> Path | None:
+    for candidate in sidecar_candidates(zip_path):
         if candidate.is_file():
-            text = candidate.read_text(encoding="utf-8", errors="strict").strip()
-            m = re.match(r"^([A-Fa-f0-9]{64})(?:\s+\*?.+)?$", text)
-            if not m:
-                raise PatchError(f"Malformed SHA-256 sidecar: {candidate.name}")
-            expected = m.group(1).lower()
-            actual = sha256_file(zip_path)
-            if actual != expected:
-                raise PatchError(f"ZIP SHA-256 mismatch for {zip_path.name}")
             return candidate
+    return None
+
+
+def read_sidecar(zip_path: Path) -> Path:
+    candidate = existing_sidecar(zip_path)
+    if candidate is not None:
+        text = candidate.read_text(encoding="utf-8", errors="strict").strip()
+        m = re.match(r"^([A-Fa-f0-9]{64})(?:\s+\*?.+)?$", text)
+        if not m:
+            raise PatchError(f"Malformed SHA-256 sidecar: {candidate.name}")
+        expected = m.group(1).lower()
+        actual = sha256_file(zip_path)
+        if actual != expected:
+            raise PatchError(f"ZIP SHA-256 mismatch for {zip_path.name}")
+        return candidate
     raise PatchError(f"Required SHA-256 sidecar is missing for {zip_path.name}")
+
+
+def write_sidecar_atomic(zip_path: Path) -> tuple[Path, str]:
+    """Create the canonical transport sidecar after internal patch validation succeeds.
+
+    This is recovery for an omitted transport checksum, not a bypass for a bad one.
+    Existing malformed or mismatched sidecars are never replaced automatically.
+    """
+    target = Path(str(zip_path) + ".sha256")
+    digest = sha256_file(zip_path)
+    tmp = target.with_name(target.name + ".tmp-" + uuid.uuid4().hex)
+    try:
+        tmp.write_text(f"{digest}  {zip_path.name}\n", encoding="ascii")
+        if sha256_file(zip_path) != digest:
+            raise PatchError(f"ZIP changed while recovering SHA-256 sidecar: {zip_path.name}")
+        os.replace(tmp, target)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+    return target, digest
 
 
 def zip_regular_names(zf: zipfile.ZipFile) -> list[str]:
@@ -394,19 +428,58 @@ def receipt_dir(root: Path) -> Path:
     return root / "artifacts" / "patches" / "receipts"
 
 
-def applied_patch_ids(root: Path) -> set[str]:
-    out: set[str] = set()
+def applied_patch_records(root: Path) -> dict[str, dict[str, Any]]:
+    """Read applied receipts case-insensitively and retain trusted source ZIP hashes.
+
+    Historical Cortex receipts used both "APPLIED" and "applied".  Receipt status is
+    therefore normalized instead of treating casing as part of the persistence contract.
+    """
+    out: dict[str, dict[str, Any]] = {}
     d = receipt_dir(root)
     if not d.is_dir():
         return out
-    for p in d.glob("*.json"):
+    for receipt_path in d.glob("*.json"):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            if data.get("status") == "applied" and data.get("patchId"):
-                out.add(str(data["patchId"]))
+            data = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if str(data.get("status", "")).strip().casefold() != "applied":
+                continue
+            patch_id = str(data.get("patchId", "")).strip()
+            if not patch_id:
+                continue
+            key = patch_id.casefold()
+            record = out.setdefault(key, {"patchId": patch_id, "hashes": set(), "receipts": []})
+            record["receipts"].append(str(receipt_path))
+            for field in ("zipSha256", "sourceZipSha256"):
+                digest = str(data.get(field, "")).strip().lower()
+                if re.fullmatch(r"[a-f0-9]{64}", digest):
+                    record["hashes"].add(digest)
         except Exception:
             continue
     return out
+
+
+def applied_patch_ids(root: Path) -> set[str]:
+    return {str(record["patchId"]) for record in applied_patch_records(root).values()}
+
+
+_DOWNLOAD_COPY_RE = re.compile(r" \(\d+\)(?=\.zip$)", re.IGNORECASE)
+
+
+def transport_preference_key(root: Path, validation: Validation) -> tuple[Any, ...]:
+    """Choose one deterministic transport when browsers leave byte-identical copies."""
+    path = validation.zip_path
+    try:
+        in_root = path.parent.resolve() == root.resolve()
+    except OSError:
+        in_root = path.parent.absolute() == root.absolute()
+    browser_copy = bool(_DOWNLOAD_COPY_RE.search(path.name))
+    return (
+        0 if in_root else 1,
+        0 if not browser_copy else 1,
+        len(path.name),
+        path.name.casefold(),
+        str(path).casefold(),
+    )
 
 
 def id_map(values: Iterable[str]) -> dict[str, str]:
@@ -691,27 +764,130 @@ def scan(root: Path) -> dict[str, Any]:
             candidates.extend(p for p in base.glob("*.zip") if p.is_file())
     unique = sorted({p.absolute() for p in candidates}, key=lambda p: str(p).lower())
 
+    candidate_validations: list[Validation] = []
     valid: list[Validation] = []
     invalid: list[dict[str, str]] = []
     ignored: list[str] = []
-    seen_patch_ids: set[str] = set()
-    already = applied_patch_ids(root)
+    recovered_sidecars: list[dict[str, str]] = []
+    duplicate_transports: list[dict[str, str]] = []
+    already_applied_transports: list[dict[str, str]] = []
 
+    applied_records = applied_patch_records(root)
+    already = {str(record["patchId"]) for record in applied_records.values()}
+
+    # Phase 1: validate every recognized transport independently.  Do not let filename
+    # ordering decide which duplicate patch ID becomes authoritative.
     for path in unique:
         if not looks_like_patch(path):
             ignored.append(str(path))
             continue
         try:
-            validation = validate_patch(path, require_sidecar=True)
-            if validation.patch_id.casefold() in {x.casefold() for x in already}:
-                raise PatchError(f"Patch ID has already been applied: {validation.patch_id}")
-            key = validation.patch_id.casefold()
-            if key in seen_patch_ids:
-                raise PatchError(f"Duplicate pending patch ID: {validation.patch_id}")
-            seen_patch_ids.add(key)
-            valid.append(validation)
+            recovered: dict[str, str] | None = None
+            if existing_sidecar(path) is None:
+                # First prove the ZIP is internally complete and self-consistent. Only then
+                # recover the omitted transport checksum. A present-but-bad sidecar still
+                # fails closed through normal validation below.
+                validation = validate_patch(path, require_sidecar=False)
+                sidecar_path, digest = write_sidecar_atomic(path)
+                validation.sidecar_path = sidecar_path
+                recovered = {
+                    "path": str(path),
+                    "name": path.name,
+                    "sidecar": str(sidecar_path),
+                    "sha256": digest,
+                }
+            else:
+                validation = validate_patch(path, require_sidecar=True)
+            candidate_validations.append(validation)
+            if recovered is not None:
+                recovered_sidecars.append(recovered)
         except Exception as exc:
             invalid.append({"path": str(path), "name": path.name, "error": str(exc)})
+
+    # Phase 2: group by semantic patch ID. Exact byte-for-byte browser/download copies
+    # are one transport, not a queue conflict. Divergent payloads sharing an ID fail closed.
+    by_id: dict[str, list[Validation]] = {}
+    for validation in candidate_validations:
+        by_id.setdefault(validation.patch_id.casefold(), []).append(validation)
+
+    for key in sorted(by_id):
+        group = by_id[key]
+        applied = applied_records.get(key)
+        if applied is not None:
+            known_hashes: set[str] = set(applied.get("hashes", set()))
+            for validation in group:
+                digest = sha256_file(validation.zip_path)
+                if known_hashes and digest in known_hashes:
+                    ignored.append(str(validation.zip_path))
+                    already_applied_transports.append(
+                        {
+                            "patchId": validation.patch_id,
+                            "path": str(validation.zip_path),
+                            "name": validation.zip_path.name,
+                            "sha256": digest,
+                            "reason": "Exact transport already has an APPLIED receipt",
+                        }
+                    )
+                elif known_hashes:
+                    invalid.append(
+                        {
+                            "path": str(validation.zip_path),
+                            "name": validation.zip_path.name,
+                            "error": (
+                                f"Patch ID has already been applied with different source SHA-256: "
+                                f"{validation.patch_id}"
+                            ),
+                        }
+                    )
+                else:
+                    invalid.append(
+                        {
+                            "path": str(validation.zip_path),
+                            "name": validation.zip_path.name,
+                            "error": (
+                                f"Patch ID has already been applied but its historical receipt has no "
+                                f"source ZIP hash to prove this transport is identical: {validation.patch_id}"
+                            ),
+                        }
+                    )
+            continue
+
+        if len(group) == 1:
+            valid.append(group[0])
+            continue
+
+        hashes = {sha256_file(validation.zip_path) for validation in group}
+        if len(hashes) != 1:
+            for validation in group:
+                invalid.append(
+                    {
+                        "path": str(validation.zip_path),
+                        "name": validation.zip_path.name,
+                        "error": (
+                            f"Conflicting pending transports share patch ID {validation.patch_id} "
+                            "but have different SHA-256 values"
+                        ),
+                    }
+                )
+            continue
+
+        canonical = sorted(group, key=lambda validation: transport_preference_key(root, validation))[0]
+        valid.append(canonical)
+        canonical_sha = sha256_file(canonical.zip_path)
+        for duplicate in group:
+            if duplicate is canonical:
+                continue
+            ignored.append(str(duplicate.zip_path))
+            duplicate_transports.append(
+                {
+                    "patchId": duplicate.patch_id,
+                    "path": str(duplicate.zip_path),
+                    "name": duplicate.zip_path.name,
+                    "sha256": canonical_sha,
+                    "canonicalPath": str(canonical.zip_path),
+                    "reason": "Byte-identical duplicate transport",
+                }
+            )
 
     valid.sort(key=lambda v: v.sort_key)
     valid, dependency_errors = order_by_dependencies(valid, already)
@@ -725,6 +901,12 @@ def scan(root: Path) -> dict[str, Any]:
         "Pending": len(valid),
         "Invalid": len(invalid),
         "Ignored": len(ignored),
+        "RecoveredSidecars": len(recovered_sidecars),
+        "RecoveredSidecarDetails": recovered_sidecars,
+        "DuplicateTransports": len(duplicate_transports),
+        "DuplicateTransportDetails": duplicate_transports,
+        "AlreadyAppliedTransports": len(already_applied_transports),
+        "AlreadyAppliedTransportDetails": already_applied_transports,
         "RestartRequired": False,
         "Archives": [],
         "ValidPatches": [
@@ -841,6 +1023,12 @@ def public_summary(summary: dict[str, Any]) -> dict[str, Any]:
 def do_scan(root: Path) -> int:
     summary = scan(root)
     emit("INFO", "START Root incremental patch scan")
+    for item in summary.get("RecoveredSidecarDetails", []) or []:
+        emit("WARN", f"RECOVERED SHA-256 SIDECAR: {item['name']} -> {Path(item['sidecar']).name}")
+    for item in summary.get("DuplicateTransportDetails", []) or []:
+        emit("WARN", f"IGNORED BYTE-IDENTICAL DUPLICATE: {item['name']} [{item['patchId']}]")
+    for item in summary.get("AlreadyAppliedTransportDetails", []) or []:
+        emit("WARN", f"IGNORED ALREADY-APPLIED TRANSPORT: {item['name']} [{item['patchId']}]")
     if summary["Pending"]:
         for p in summary["ValidPatches"]:
             emit("INFO", f"VALID PATCH: {p['patchId']} - {Path(p['path']).name}")
