@@ -48,6 +48,10 @@ $known = @(
     'CommitGreen',
     'CommitPushGreen',
     'Push',
+    'Fetch',
+    'Compare',
+    'History',
+    'Verify',
     'Pull',
     'CommitManual',
     'ManualCommit'
@@ -88,6 +92,10 @@ $authorityAction = switch ($normalized) {
     'commitgreen'     { 'commit-green' }
     'commitpushgreen' { 'commit-push-green' }
     'push'            { 'push' }
+    'fetch'           { 'fetch' }
+    'compare'         { 'compare' }
+    'history'         { 'history' }
+    'verify'          { 'verify' }
     'pull'            { 'pull' }
     'commitmanual'    { 'manual-commit' }
     'manualcommit'    { 'manual-commit' }

@@ -1,6 +1,4 @@
 [CmdletBinding()]
-param()
-# Cortex is already the authoritative standalone project.
-# This file remains only as a compatibility shim for older adapters that still dispatch the retired stage.
-Write-Host '[SKIP] Legacy standalone-boundary migration gate retired; no enforcement performed.' -ForegroundColor Yellow
+param([string]$ProjectRoot)
+Write-Warning 'Standalone-boundary certification is retired. Cortex is already the standalone authority; use the PCC Quick/Fast/Full quality gates.'
 exit 0

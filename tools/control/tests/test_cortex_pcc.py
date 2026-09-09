@@ -1,0 +1,494 @@
+from __future__ import annotations
+
+import hashlib
+import importlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+import zipfile
+from pathlib import Path
+
+TOOLS = Path(__file__).resolve().parents[1]
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+
+import CortexPCC as pcc
+import CortexPatchAuthority as patch
+import CortexGitAuthority as git
+import CortexPCCMaintenance as maintenance
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def init_git(root: Path) -> None:
+    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["git", "config", "user.email", "pcc-tests@example.invalid"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "PCC Tests"], cwd=root, check=True)
+
+
+def commit_all(root: Path, msg: str = "baseline") -> None:
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-m", msg], cwd=root, check=True, stdout=subprocess.DEVNULL)
+
+
+def make_patch(root: Path, patch_id: str, files: dict[str, bytes], *, remove=None, depends=None,
+               series="T", sequence="1", sidecar=True, extra_files=None, overrides=None) -> Path:
+    remove = remove or []
+    depends = depends or []
+    specs = []
+    overrides = overrides or {}
+    for rel, data in files.items():
+        item = {"path": rel, "sha256": sha(data), "bytes": len(data)}
+        item.update(overrides.get(rel, {}))
+        specs.append(item)
+    manifest = {
+        "schema": patch.SCHEMA,
+        "project": patch.PROJECT,
+        "patchId": patch_id,
+        "title": f"Test {patch_id}",
+        "series": series,
+        "sequence": sequence,
+        "applyMode": "transactional",
+        "dependsOn": depends,
+        "files": specs,
+        "remove": remove,
+    }
+    zp = root / f"{patch_id}_RootPatch.zip"
+    with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("PATCH_MANIFEST.json", json.dumps(manifest, indent=2))
+        for rel, data in files.items():
+            zf.writestr(rel, data)
+        for rel, data in (extra_files or {}).items():
+            zf.writestr(rel, data)
+    if sidecar:
+        Path(str(zp) + ".sha256").write_text(f"{patch.sha256_file(zp)}  {zp.name}\n", encoding="utf-8")
+    return zp
+
+
+class TempRoot(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+
+class PCC60PassTests(TempRoot):
+    # 01
+    def test_01_normalize_root_explicit(self):
+        self.assertEqual(pcc.normalize_root(self.root), self.root.resolve())
+
+    # 02
+    def test_02_parse_authority_result_json(self):
+        text = "noise\nPCC_RESULT_JSON={\"Pending\":2}\n"
+        self.assertEqual(pcc.JsonAuthorityBridge.parse_result_json(text)["Pending"], 2)
+
+    # 03
+    def test_03_session_log_writes_text_and_jsonl(self):
+        log = pcc.SessionLog(self.root, quiet=True)
+        log.emit("PASS", "hello", phase="test")
+        self.assertIn("hello", log.text_path.read_text())
+        row = json.loads(log.jsonl_path.read_text().splitlines()[-1])
+        self.assertEqual(row["phase"], "test")
+
+    # 04
+    def test_04_command_runner_success(self):
+        log = pcc.SessionLog(self.root, quiet=True)
+        result = pcc.CommandRunner(log).run([sys.executable, "-c", "print('ok')"], cwd=self.root, stream=False)
+        self.assertTrue(result.ok)
+        self.assertIn("ok", result.stdout)
+
+    # 05
+    def test_05_command_runner_failure(self):
+        log = pcc.SessionLog(self.root, quiet=True)
+        result = pcc.CommandRunner(log).run([sys.executable, "-c", "raise SystemExit(7)"], cwd=self.root, stream=False)
+        self.assertEqual(result.returncode, 7)
+
+    # 06
+    def test_06_command_runner_timeout(self):
+        log = pcc.SessionLog(self.root, quiet=True)
+        result = pcc.CommandRunner(log).run([sys.executable, "-c", "import time; time.sleep(2)"], cwd=self.root, timeout=0.1, stream=False)
+        self.assertTrue(result.timed_out)
+        self.assertEqual(result.returncode, 124)
+
+    # 07
+    def test_07_project_context_normalized_paths(self):
+        ctx = pcc.ProjectContext.create(self.root)
+        self.assertEqual(ctx.patch_receipts, self.root / "artifacts" / "patches" / "receipts")
+
+    # 08
+    def test_08_binary_path_platform_suffix(self):
+        target = self.root / "target"
+        name = "cortex.exe" if os.name == "nt" else "cortex"
+        exe = target / "release" / name
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"x")
+        self.assertEqual(pcc.CortexPCC.binary_path("cortex", target), exe)
+
+    # 09
+    def test_09_python_ast_parse_entrypoint(self):
+        ast_text = (TOOLS / "CortexPCC.py").read_text(encoding="utf-8")
+        compile(ast_text, "CortexPCC.py", "exec")
+
+    # 10
+    def test_10_patch_normalize_relative_path(self):
+        self.assertEqual(patch.normalize_rel("tools\\control\\x.py"), "tools/control/x.py")
+
+    # 11
+    def test_11_patch_rejects_traversal(self):
+        with self.assertRaises(patch.PatchError):
+            patch.normalize_rel("../evil.txt")
+
+    # 12
+    def test_12_patch_rejects_operational_destination(self):
+        with self.assertRaises(patch.PatchError):
+            patch.normalize_rel("artifacts/evil.txt")
+
+    # 13
+    def test_13_patch_valid_manifest_and_sidecar(self):
+        zp = make_patch(self.root, "TEST-013", {"src/a.txt": b"a"})
+        value = patch.validate_patch(zp)
+        self.assertEqual(value.patch_id, "TEST-013")
+
+    # 14
+    def test_14_patch_requires_sidecar(self):
+        zp = make_patch(self.root, "TEST-014", {"src/a.txt": b"a"}, sidecar=False)
+        with self.assertRaises(patch.PatchError):
+            patch.validate_patch(zp)
+
+    # 15
+    def test_15_patch_rejects_bad_sidecar(self):
+        zp = make_patch(self.root, "TEST-015", {"src/a.txt": b"a"})
+        Path(str(zp) + ".sha256").write_text("0" * 64 + "  x.zip\n")
+        with self.assertRaises(patch.PatchError):
+            patch.validate_patch(zp)
+
+    # 16
+    def test_16_patch_rejects_undeclared_extra(self):
+        zp = make_patch(self.root, "TEST-016", {"src/a.txt": b"a"}, extra_files={"extra.txt": b"x"})
+        with self.assertRaises(patch.PatchError):
+            patch.validate_patch(zp)
+
+    # 17
+    def test_17_patch_rejects_payload_hash_mismatch(self):
+        zp = make_patch(self.root, "TEST-017", {"src/a.txt": b"a"})
+        with zipfile.ZipFile(zp, "r") as zf:
+            manifest = json.loads(zf.read("PATCH_MANIFEST.json"))
+        manifest["files"][0]["sha256"] = "0" * 64
+        with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("PATCH_MANIFEST.json", json.dumps(manifest))
+            zf.writestr("src/a.txt", b"a")
+        Path(str(zp) + ".sha256").write_text(patch.sha256_file(zp) + "  x\n")
+        with self.assertRaises(patch.PatchError):
+            patch.validate_patch(zp)
+
+    # 18
+    def test_18_patch_rejects_case_duplicate_zip_entries(self):
+        zp = self.root / "TEST-018_RootPatch.zip"
+        manifest = {"schema": patch.SCHEMA, "project": patch.PROJECT, "patchId": "TEST-018", "title": "x", "series": "T", "sequence": "1", "files": [{"path":"A.txt","sha256":sha(b'a'),"bytes":1}]}
+        with zipfile.ZipFile(zp, "w") as zf:
+            zf.writestr("PATCH_MANIFEST.json", json.dumps(manifest)); zf.writestr("A.txt", b"a"); zf.writestr("a.TXT", b"a")
+        Path(str(zp)+".sha256").write_text(patch.sha256_file(zp)+"  x\n")
+        with self.assertRaises(patch.PatchError): patch.validate_patch(zp)
+
+    # 19
+    def test_19_patch_rejects_invalid_patch_id(self):
+        zp = make_patch(self.root, "TEST-019", {"x.txt": b"x"})
+        with zipfile.ZipFile(zp, "r") as zf: m=json.loads(zf.read("PATCH_MANIFEST.json"))
+        m["patchId"] = "bad/id"
+        with zipfile.ZipFile(zp, "w") as zf: zf.writestr("PATCH_MANIFEST.json", json.dumps(m)); zf.writestr("x.txt", b"x")
+        Path(str(zp)+".sha256").write_text(patch.sha256_file(zp)+"  x\n")
+        with self.assertRaises(patch.PatchError): patch.validate_patch(zp)
+
+    # 20
+    def test_20_patch_rejects_self_dependency(self):
+        zp = make_patch(self.root, "TEST-020", {"x.txt": b"x"}, depends=["TEST-020"])
+        with self.assertRaises(patch.PatchError): patch.validate_patch(zp)
+
+    # 21
+    def test_21_patch_scan_marks_missing_dependency_invalid(self):
+        make_patch(self.root, "TEST-021", {"x.txt": b"x"}, depends=["TEST-999"])
+        result = patch.scan(self.root)
+        self.assertEqual(result["Invalid"], 1)
+
+    # 22
+    def test_22_patch_topological_dependency_order(self):
+        make_patch(self.root, "TEST-022B", {"b.txt": b"b"}, depends=["TEST-022A"], sequence="1")
+        make_patch(self.root, "TEST-022A", {"a.txt": b"a"}, sequence="9")
+        result = patch.scan(self.root)
+        self.assertEqual([x.patch_id for x in result["_validations"]], ["TEST-022A", "TEST-022B"])
+
+    # 23
+    def test_23_patch_dependency_cycle_fails_closed(self):
+        make_patch(self.root, "TEST-023A", {"a.txt": b"a"}, depends=["TEST-023B"])
+        make_patch(self.root, "TEST-023B", {"b.txt": b"b"}, depends=["TEST-023A"])
+        result = patch.scan(self.root)
+        self.assertGreaterEqual(result["Invalid"], 2)
+        self.assertEqual(result["Pending"], 0)
+
+    # 24
+    def test_24_patch_apply_writes_file_and_receipt(self):
+        make_patch(self.root, "TEST-024", {"src/new.txt": b"hello"})
+        self.assertEqual(patch.do_apply(self.root), 0)
+        self.assertEqual((self.root / "src/new.txt").read_bytes(), b"hello")
+        self.assertTrue((self.root / "artifacts/patches/receipts/TEST-024.json").is_file())
+
+    # 25
+    def test_25_patch_apply_removes_file(self):
+        target = self.root / "old.txt"; target.write_text("old")
+        make_patch(self.root, "TEST-025", {"new.txt": b"new"}, remove=["old.txt"])
+        self.assertEqual(patch.do_apply(self.root), 0)
+        self.assertFalse(target.exists())
+
+    # 26
+    def test_26_patch_preimage_mismatch_preserves_source(self):
+        target = self.root / "a.txt"; target.write_text("old")
+        make_patch(self.root, "TEST-026", {"a.txt": b"new"}, overrides={"a.txt":{"beforeSha256":"0"*64,"mustExist":True}})
+        self.assertNotEqual(patch.do_apply(self.root), 0)
+        self.assertEqual(target.read_text(), "old")
+
+    # 27
+    def test_27_patch_replay_protection(self):
+        make_patch(self.root, "TEST-027", {"a.txt": b"a"})
+        self.assertEqual(patch.do_apply(self.root), 0)
+        # Recreate the same patch ID after the receipt exists.
+        make_patch(self.root, "TEST-027", {"a.txt": b"a"})
+        result = patch.scan(self.root)
+        self.assertEqual(result["Invalid"], 1)
+
+    # 28
+    def test_28_patch_control_file_requires_restart(self):
+        zp = make_patch(self.root, "TEST-028", {"tools/control/CortexPCC.py": b"print('x')\n"})
+        self.assertTrue(patch.validate_patch(zp).restart_required)
+
+    # 29
+    def test_29_non_patch_zip_is_ignored(self):
+        zp = self.root / "Cortex_DebugBundle_test.zip"
+        with zipfile.ZipFile(zp, "w") as zf: zf.writestr("x.txt", "x")
+        result = patch.scan(self.root)
+        self.assertEqual(result["Ignored"], 1)
+
+    # 30
+    def test_30_stale_patch_lock_is_reclaimed(self):
+        lock = self.root / ".project_control/patch-intake.lock"; lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": 99999999, "createdUtc": "old"}))
+        with patch.ApplyLock(self.root):
+            self.assertTrue(lock.exists())
+        self.assertFalse(lock.exists())
+
+    # 31
+    def test_31_git_snapshot_excludes_operational_and_zip(self):
+        (self.root / "src.txt").write_text("src")
+        (self.root / "transport.zip").write_bytes(b"z")
+        (self.root / "artifacts").mkdir(); (self.root / "artifacts/a.txt").write_text("a")
+        snap = git.snapshot(self.root)
+        self.assertEqual(snap["pathCount"], 1)
+
+    # 32
+    def test_32_git_mark_green_matches_current_source(self):
+        (self.root / "src.txt").write_text("src")
+        git.mark_green(self.root)
+        ok, _, _ = git.certify_matches(self.root)
+        self.assertTrue(ok)
+
+    # 33
+    def test_33_git_green_becomes_stale_after_change(self):
+        target = self.root / "src.txt"; target.write_text("src")
+        git.mark_green(self.root); target.write_text("changed")
+        ok, _, _ = git.certify_matches(self.root)
+        self.assertFalse(ok)
+
+    # 34
+    def test_34_git_stage_governed_excludes_zip_transport(self):
+        init_git(self.root); (self.root / "src.txt").write_text("one"); commit_all(self.root)
+        (self.root / "src.txt").write_text("two"); (self.root / "patch.zip").write_bytes(b"zip")
+        git.stage_governed(self.root)
+        names = subprocess.check_output(["git","diff","--cached","--name-only"], cwd=self.root, text=True).splitlines()
+        self.assertIn("src.txt", names); self.assertNotIn("patch.zip", names)
+
+    # 35
+    def test_35_git_stage_governed_stages_deletion(self):
+        init_git(self.root); f=self.root/"src.txt"; f.write_text("one"); commit_all(self.root); f.unlink()
+        git.stage_governed(self.root)
+        names = subprocess.check_output(["git","diff","--cached","--name-only"], cwd=self.root, text=True).splitlines()
+        self.assertIn("src.txt", names)
+
+    # 36
+    def test_36_git_green_commit_rejects_non_main_branch(self):
+        init_git(self.root); (self.root/"src.txt").write_text("one"); commit_all(self.root); git.mark_green(self.root)
+        subprocess.run(["git","checkout","-b","dev"], cwd=self.root, check=True, stdout=subprocess.DEVNULL)
+        with self.assertRaises(git.GitError): git.commit_green(self.root, "x")
+
+    # 37
+    def test_37_git_status_summary_machine_fields(self):
+        init_git(self.root); (self.root/"src.txt").write_text("one"); commit_all(self.root)
+        summary = git.status_summary(self.root)
+        self.assertTrue(summary["gitReady"]); self.assertEqual(summary["branch"], "main")
+
+    # 38
+    def test_38_git_manual_commit_commits_governed_source_only(self):
+        init_git(self.root); (self.root/"src.txt").write_text("one"); commit_all(self.root)
+        (self.root/"src.txt").write_text("two"); (self.root/"noise.zip").write_bytes(b"x")
+        self.assertEqual(git.manual_commit(self.root, "manual"), 0)
+        tracked = subprocess.check_output(["git","ls-files"], cwd=self.root, text=True).splitlines()
+        self.assertIn("src.txt", tracked); self.assertNotIn("noise.zip", tracked)
+
+    # 39
+    def test_39_git_atomic_green_marker_is_valid_json(self):
+        (self.root/"src.txt").write_text("one"); git.mark_green(self.root)
+        data = json.loads((self.root/".cortex/last-green-quality-gate.json").read_text())
+        self.assertEqual(data["schema"], "cortex.green_quality_gate.v1")
+
+    # 40
+    def test_40_pcc_argument_parser_exposes_self_test(self):
+        args = pcc.build_parser().parse_args(["self-test", "--root", str(self.root)])
+        self.assertEqual(args.command, "self-test")
+
+    # 41
+    def test_41_session_logs_live_under_artifacts(self):
+        log = pcc.SessionLog(self.root, quiet=True)
+        self.assertEqual(log.logs_dir, self.root / "artifacts" / "logs" / "sessions")
+
+    # 42
+    def test_42_hygiene_detects_root_latest_pointer(self):
+        (self.root / "LATEST_DEBUG_BUNDLE.txt").write_text("x")
+        report = maintenance.scan_root_hygiene(self.root)
+        self.assertFalse(report["clean"]); self.assertEqual(report["violationCount"], 1)
+
+    # 43
+    def test_43_hygiene_detects_root_debug_zip(self):
+        (self.root / "Cortex_DebugBundle_20260909_FULL_FAIL.zip").write_bytes(b"x")
+        report = maintenance.scan_root_hygiene(self.root)
+        self.assertEqual(report["violationCount"], 1)
+
+    # 44
+    def test_44_hygiene_repair_archives_pointer(self):
+        src = self.root / "LATEST_DEBUG_BUNDLE.txt"; src.write_text("legacy")
+        result = maintenance.repair_root_hygiene(self.root)
+        self.assertFalse(src.exists()); self.assertEqual(len(result["moved"]), 1)
+        self.assertTrue((self.root / result["moved"][0]["to"]).is_file())
+
+    # 45
+    def test_45_hygiene_repair_moves_debug_zip_to_artifacts_debug(self):
+        src = self.root / "Cortex_DebugBundle_20260909_FULL_FAIL.zip"; src.write_bytes(b"zip")
+        result = maintenance.repair_root_hygiene(self.root)
+        dest = self.root / result["moved"][0]["to"]
+        self.assertEqual(dest.parent, self.root / "artifacts" / "debug")
+
+    # 46
+    def test_46_hygiene_repair_moves_legacy_session_logs(self):
+        old = self.root / "logs" / "sessions" / "cortex-root-old.log"; old.parent.mkdir(parents=True); old.write_text("x")
+        report = maintenance.scan_root_hygiene(self.root)
+        self.assertEqual(report["advisoryCount"], 1)
+        result = maintenance.repair_root_hygiene(self.root)
+        dest = self.root / result["moved"][0]["to"]
+        self.assertEqual(dest.parent, self.root / "artifacts" / "logs" / "sessions")
+
+    # 47
+    def test_47_hygiene_repair_writes_receipt(self):
+        (self.root / "LATEST_DEBUG_BUNDLE.txt").write_text("legacy")
+        result = maintenance.repair_root_hygiene(self.root)
+        self.assertTrue(Path(result["receipt"]).is_file())
+
+    # 48
+    def test_48_latest_debug_pointer_is_artifact_local_and_atomic(self):
+        debug = self.root / "artifacts" / "debug"; debug.mkdir(parents=True)
+        zp = debug / "Cortex_DebugBundle_x.zip"; zp.write_bytes(b"zip")
+        verification = {"sha256": maintenance.sha256_file(zp), "bytes": 3, "verified": True}
+        textp, jsonp = maintenance.write_latest_debug_pointer(debug, zp, reason="TEST", exit_code=0, failed_stage="", verification=verification)
+        self.assertEqual(textp.parent, debug); self.assertEqual(jsonp.parent, debug)
+        self.assertFalse((self.root / "LATEST_DEBUG_BUNDLE.txt").exists())
+
+    # 49
+    def test_49_debug_manifest_hashes_tree(self):
+        work = self.root / "work"; work.mkdir(); (work / "a.txt").write_text("abc")
+        manifest = maintenance.debug_manifest_for_tree(work)
+        self.assertEqual(manifest["fileCount"], 1); self.assertEqual(manifest["files"][0]["sha256"], sha(b"abc"))
+
+    # 50
+    def test_50_debug_bundle_verifier_accepts_manifested_zip(self):
+        work = self.root / "work"; work.mkdir(); (work / "a.txt").write_text("abc")
+        maintenance.atomic_write_json(work / "MANIFEST.json", maintenance.debug_manifest_for_tree(work))
+        zp = self.root / "debug.zip"
+        with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in work.iterdir(): zf.write(f, f.name)
+        result = maintenance.verify_debug_bundle(zp)
+        self.assertTrue(result["verified"])
+
+    # 51
+    def test_51_debug_bundle_verifier_rejects_tamper(self):
+        work = self.root / "work"; work.mkdir(); (work / "a.txt").write_text("abc")
+        maintenance.atomic_write_json(work / "MANIFEST.json", maintenance.debug_manifest_for_tree(work))
+        zp = self.root / "debug.zip"
+        with zipfile.ZipFile(zp, "w") as zf: zf.write(work / "MANIFEST.json", "MANIFEST.json"); zf.writestr("a.txt", b"tampered")
+        with self.assertRaises(maintenance.MaintenanceError): maintenance.verify_debug_bundle(zp)
+
+    # 52
+    def test_52_debug_sidecar_matches_zip(self):
+        zp = self.root / "debug.zip"; zp.write_bytes(b"abc")
+        side = maintenance.write_debug_sidecar(zp)
+        self.assertTrue(side.read_text().startswith(sha(b"abc")))
+
+    # 53
+    def test_53_retention_plan_selects_old_debug_bundles(self):
+        d = self.root / "artifacts" / "debug"; d.mkdir(parents=True)
+        for i in range(4):
+            pth=d/f"Cortex_DebugBundle_{i}.zip"; pth.write_bytes(str(i).encode()); os.utime(pth,(i+1,i+1))
+        plan = maintenance.retention_plan(self.root, keep_debug=2, keep_log_files=2)
+        self.assertEqual(len([x for x in plan["targets"] if x.endswith(".zip")]), 2)
+
+    # 54
+    def test_54_artifact_prune_dry_run_does_not_delete(self):
+        d=self.root/"artifacts/debug"; d.mkdir(parents=True)
+        for i in range(3):
+            pth=d/f"Cortex_DebugBundle_{i}.zip"; pth.write_bytes(b"x"); os.utime(pth,(i+1,i+1))
+        result=maintenance.prune_artifacts(self.root, keep_debug=1, keep_log_files=2, apply=False)
+        self.assertEqual(result["deleteCount"],2); self.assertEqual(len(list(d.glob("*.zip"))),3)
+
+    # 55
+    def test_55_artifact_prune_apply_deletes_old(self):
+        d=self.root/"artifacts/debug"; d.mkdir(parents=True)
+        for i in range(3):
+            pth=d/f"Cortex_DebugBundle_{i}.zip"; pth.write_bytes(b"x"); os.utime(pth,(i+1,i+1))
+        result=maintenance.prune_artifacts(self.root, keep_debug=1, keep_log_files=2, apply=True)
+        self.assertEqual(len(result["deleted"]),2); self.assertEqual(len(list(d.glob("*.zip"))),1)
+
+    # 56
+    def test_56_operation_lock_acquires_and_releases(self):
+        lock=self.root/".project_control/pcc-operation.lock"
+        with maintenance.OperationLock(self.root,"test"): self.assertTrue(lock.exists())
+        self.assertFalse(lock.exists())
+
+    # 57
+    def test_57_operation_lock_reclaims_dead_pid(self):
+        lock=self.root/".project_control/pcc-operation.lock"; lock.parent.mkdir(parents=True); lock.write_text(json.dumps({"pid":99999999}))
+        with maintenance.OperationLock(self.root,"test"): self.assertTrue(lock.exists())
+        self.assertFalse(lock.exists())
+
+    # 58
+    def test_58_doctor_reports_hygiene_and_disk(self):
+        report=maintenance.doctor(self.root)
+        self.assertIn("hygiene",report); self.assertIn("disk",report); self.assertTrue(report["hygiene"]["clean"])
+
+    # 59
+    def test_59_parser_exposes_python_maintenance_commands(self):
+        for command in ("doctor","doctor-json","root-hygiene","root-hygiene-fix","artifact-prune","verify-latest-debug"):
+            self.assertEqual(pcc.build_parser().parse_args([command,"--root",str(self.root)]).command,command)
+
+    # 60
+    def test_60_pcc12_version_and_no_duplicate_fast_menu(self):
+        self.assertEqual(pcc.PCC_VERSION,"CTX-PCC-12.0")
+        source=(TOOLS/"CortexPCC.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count('print(" 21 Fast gate")'),1)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

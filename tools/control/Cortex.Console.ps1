@@ -12,7 +12,7 @@ function Set-CortexConsoleDefaults {
 function Write-CortexText {
     param(
         [Parameter(Mandatory=$true)][string]$Text,
-        [ValidateSet('Default','Header','Info','Pass','Warn','Fail','Debug','Muted','Label','Value','Accent')]
+        [ValidateSet('Default','Header','Info','Pass','Warn','Fail','Debug','Label','Value','Accent')]
         [string]$Style = 'Default',
         [switch]$NoNewline
     )
@@ -23,7 +23,6 @@ function Write-CortexText {
         'Warn'   { 'Yellow' }
         'Fail'   { 'Red' }
         'Debug'  { 'DarkGray' }
-        'Muted'  { 'DarkGray' }
         'Label'  { 'DarkCyan' }
         'Value'  { 'White' }
         'Accent' { 'Magenta' }

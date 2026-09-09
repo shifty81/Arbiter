@@ -84,13 +84,15 @@ def should_skip(root: Path, path: Path) -> bool:
     if not parts:
         return True
 
-    if parts[0] in EXCLUDED_TOP_LEVEL:
+    folded_parts = tuple(part.casefold() for part in parts)
+    if folded_parts[0] in {x.casefold() for x in EXCLUDED_TOP_LEVEL}:
         return True
 
-    if any(part in EXCLUDED_DIR_NAMES for part in parts[:-1]):
+    excluded_dirs = {x.casefold() for x in EXCLUDED_DIR_NAMES}
+    if any(part in excluded_dirs for part in folded_parts[:-1]):
         return True
 
-    lower_name = path.name.lower()
+    lower_name = path.name.casefold()
     if any(lower_name.endswith(suffix) for suffix in EXCLUDED_SUFFIXES):
         return True
 
@@ -104,15 +106,18 @@ def snapshot(root: Path) -> dict[str, object]:
     rows: list[str] = []
     path_count = 0
 
-    for path in sorted(root.rglob("*"), key=lambda p: p.as_posix().lower()):
-        if not path.is_file() or path.is_symlink():
+    for path in sorted(root.rglob("*"), key=lambda p: p.as_posix().casefold()):
+        if path.is_symlink() or not path.is_file():
             continue
         if should_skip(root, path):
             continue
 
         rel = path.relative_to(root).as_posix()
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        size = path.stat().st_size
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            size = path.stat().st_size
+        except OSError as exc:
+            raise GitError(f"Unable to fingerprint governed source file {rel}: {exc}") from exc
         rows.append(f"{rel}\t{size}\t{digest}")
         path_count += 1
 
@@ -125,6 +130,13 @@ def snapshot(root: Path) -> dict[str, object]:
 
 def marker_path(root: Path) -> Path:
     return root / MARKER_REL
+
+
+def write_json_atomic(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp-" + str(os.getpid()))
+    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def load_marker(root: Path) -> dict[str, object]:
@@ -174,7 +186,7 @@ def mark_green(root: Path) -> int:
     }
     path = marker_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+    write_json_atomic(path, marker)
     print("GREEN SOURCE MARKER: PASS")
     print(f" Fingerprint : {snap['fingerprint']}")
     print(f" Paths       : {snap['pathCount']}")
@@ -398,7 +410,7 @@ def refresh_marker_git_identity(root: Path) -> None:
         marker["gitBranch"] = current_branch(root) or None
         marker["fingerprint"] = snap["fingerprint"]
         marker["pathCount"] = snap["pathCount"]
-        marker_path(root).write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+        write_json_atomic(marker_path(root), marker)
     except Exception:
         pass
 
@@ -513,14 +525,38 @@ def reset_operational_paths_from_index(root: Path) -> None:
         git(root, "reset", "--", relative, check=False)
 
 
+def unstage_excluded_paths(root: Path) -> None:
+    cp = git(root, "diff", "--cached", "--name-only", "-z", check=False)
+    raw = cp.stdout
+    for rel in [x for x in raw.split("\0") if x]:
+        candidate = root / Path(rel)
+        try:
+            excluded = should_skip(root, candidate)
+        except Exception:
+            excluded = True
+        if excluded:
+            git(root, "reset", "--", rel, check=False)
+
+
 def stage_governed(root: Path) -> None:
+    # Stage once so deletions are represented, then explicitly unstage every path that
+    # the governed-source fingerprint excludes. This keeps GREEN staging and GREEN
+    # fingerprint semantics identical, including root ZIP/sidecar transport residue.
     git(root, "add", "-A")
     reset_operational_paths_from_index(root)
+    unstage_excluded_paths(root)
+
+
+def require_main_branch(root: Path, action: str) -> None:
+    branch = current_branch(root)
+    if branch != "main":
+        raise GitError(f"{action} requires local branch 'main'; current branch is {branch or '<detached>'}.")
 
 
 def commit_green(root: Path, message: str) -> int:
     if not git_repo(root):
         raise GitError("Cortex is not a Git repository yet.")
+    require_main_branch(root, "GREEN commit")
 
     marker = load_marker(root)
     ok, snap, reason = certify_matches(root, marker)
@@ -574,6 +610,7 @@ def commit_green(root: Path, message: str) -> int:
 def push_main(root: Path) -> int:
     if not git_repo(root):
         raise GitError("Cortex is not a Git repository yet.")
+    require_main_branch(root, "Push")
 
     print("PUSH PRECHECK")
     print("=============")
@@ -592,10 +629,85 @@ def commit_push_green(root: Path, message: str) -> int:
     return push_main(root)
 
 
+def fetch_main(root: Path) -> int:
+    if not git_repo(root):
+        raise GitError("Cortex is not a Git repository yet.")
+    git(root, "fetch", "--prune", "origin", "main", timeout=300)
+    print("Fetch origin/main: PASS")
+    return 0
+
+
+def compare_main(root: Path) -> int:
+    if not git_repo(root):
+        raise GitError("Cortex is not a Git repository yet.")
+    if git(root, "rev-parse", "--verify", "origin/main", check=False).returncode != 0:
+        raise GitError("origin/main is unavailable. Run Fetch first.")
+    local = current_head(root)
+    remote = git_text(root, "rev-parse", "origin/main")
+    print("LOCAL / ORIGIN COMPARISON")
+    print("=========================")
+    print(f" Local HEAD  : {local or '<unborn>'}")
+    print(f" origin/main : {remote or '<missing>'}")
+    if not local:
+        print(" Relationship: local branch has no commit")
+        return 0
+    counts = git_text(root, "rev-list", "--left-right", "--count", "HEAD...origin/main").split()
+    ahead = int(counts[0]) if len(counts) == 2 and counts[0].isdigit() else 0
+    behind = int(counts[1]) if len(counts) == 2 and counts[1].isdigit() else 0
+    print(f" Ahead       : {ahead}")
+    print(f" Behind      : {behind}")
+    print("\nOUTGOING COMMITS")
+    print("----------------")
+    print(git(root, "log", "--oneline", "origin/main..HEAD", check=False).stdout.strip() or "<none>")
+    print("\nINCOMING COMMITS")
+    print("----------------")
+    print(git(root, "log", "--oneline", "HEAD..origin/main", check=False).stdout.strip() or "<none>")
+    return 0
+
+
+def history(root: Path) -> int:
+    if not git_repo(root):
+        raise GitError("Cortex is not a Git repository yet.")
+    print("RECENT SOURCE HISTORY")
+    print("=====================")
+    print(git(root, "log", "--graph", "--decorate", "--oneline", "-20", check=False).stdout.strip() or "<no commits>")
+    return 0
+
+
+def verify_sync(root: Path) -> int:
+    if not git_repo(root):
+        raise GitError("Cortex is not a Git repository yet.")
+    summary = status_summary(root)
+    print("SOURCE AUTHORITY VERIFICATION")
+    print("=============================")
+    print(f" Branch      : {summary.get('branch')}")
+    print(f" HEAD        : {summary.get('headShort') or '<unborn>'}")
+    print(f" Working tree: {'CLEAN' if summary.get('clean') else 'MODIFIED'}")
+    print(f" Ahead/behind: {summary.get('ahead')} / {summary.get('behind')}")
+    print(f" FULL GREEN  : {'MATCH' if summary.get('greenMatch') else 'NOT MATCHED'}")
+    ok = bool(summary.get('clean')) and summary.get('ahead') == 0 and summary.get('behind') == 0 and bool(summary.get('greenMatch'))
+    print(f" Authority   : {'GREEN / SYNCED' if ok else 'ATTENTION REQUIRED'}")
+    return 0 if ok else 2
+
+
 def pull_ff_only(root: Path) -> int:
     if not git_repo(root):
         raise GitError("Cortex is not a Git repository yet.")
-    git(root, "pull", "--ff-only", "origin", "main", timeout=300)
+    porcelain = git(root, "status", "--porcelain=v1", "-uall", check=False).stdout.strip()
+    if porcelain:
+        raise GitError("Fast-forward pull requires a clean working tree. Commit/stash/review local changes first.")
+    before = snapshot(root)
+    git(root, "fetch", "--prune", "origin", "main", timeout=300)
+    if git(root, "rev-parse", "--verify", "origin/main", check=False).returncode != 0:
+        raise GitError("origin/main could not be resolved after fetch.")
+    local = current_head(root)
+    remote = git_text(root, "rev-parse", "origin/main")
+    if local and not (is_ancestor(root, local, remote) or is_ancestor(root, remote, local)):
+        raise GitError("Local main and origin/main diverged; refusing automatic pull.")
+    git(root, "merge", "--ff-only", "origin/main", timeout=300)
+    after = snapshot(root)
+    if local == remote and before != after:
+        raise GitError("Source changed even though local/origin were already aligned; inspect repository state.")
     print("Fast-forward-only pull: PASS")
     return 0
 
@@ -603,13 +715,15 @@ def pull_ff_only(root: Path) -> int:
 def manual_commit(root: Path, message: str) -> int:
     if not git_repo(root):
         raise GitError("Cortex is not a Git repository yet.")
-    git(root, "add", "-A")
+    if not message.strip():
+        raise GitError("Manual commit message cannot be empty.")
+    stage_governed(root)
     staged = git(root, "diff", "--cached", "--quiet", check=False)
     if staged.returncode == 0:
-        print("Nothing staged; no commit needed.")
+        print("Nothing governed is staged; no commit needed.")
         return 0
     git(root, "commit", "-m", message, timeout=180)
-    print("Manual commit created. This path is not GREEN-gate certified.")
+    print("Manual governed-source commit created. This path is not GREEN-gate certified.")
     return 0
 
 
@@ -625,6 +739,10 @@ def main() -> int:
         "commit-green",
         "commit-push-green",
         "push",
+        "fetch",
+        "compare",
+        "history",
+        "verify",
         "pull",
         "manual-commit",
     ])
@@ -653,6 +771,14 @@ def main() -> int:
         return commit_push_green(root, args.message or "Cortex GREEN checkpoint")
     if args.action == "push":
         return push_main(root)
+    if args.action == "fetch":
+        return fetch_main(root)
+    if args.action == "compare":
+        return compare_main(root)
+    if args.action == "history":
+        return history(root)
+    if args.action == "verify":
+        return verify_sync(root)
     if args.action == "pull":
         return pull_ff_only(root)
     if args.action == "manual-commit":
