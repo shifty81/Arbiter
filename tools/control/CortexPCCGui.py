@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -42,7 +43,7 @@ from PCCVaultCatalog import (
 )
 from PCCRepoHygiene import prepare as repo_hygiene_prepare
 
-GUI_VERSION = "PCC-GUI-0.9"
+GUI_VERSION = "PCC-GUI-0.10.1"
 
 BG = "#090b0e"
 PANEL = "#11151a"
@@ -143,11 +144,12 @@ class CortexPCCGui:
         style.map("Treeview", background=[("selected", "#21404a")], foreground=[("selected", TEXT)])
         style.configure("TProgressbar", troughcolor=PANEL_2, background=CYAN, borderwidth=0)
 
+
     def _build_shell(self) -> None:
         tk = self.tk
 
-        header = tk.Frame(self.window, bg=BG, height=78)
-        header.pack(fill="x", padx=22, pady=(14, 6))
+        header = tk.Frame(self.window, bg=BG, height=84)
+        header.pack(fill="x", padx=22, pady=(12, 5))
         header.pack_propagate(False)
 
         title_block = tk.Frame(header, bg=BG)
@@ -164,7 +166,7 @@ class CortexPCCGui:
             text="",
             bg=BG,
             fg=MUTED,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 9),
         )
         self.active_project_label.pack(anchor="w", pady=(4, 0))
         self._update_header()
@@ -176,19 +178,26 @@ class CortexPCCGui:
             text=f"{GUI_VERSION} ACTIVE",
             bg=BG,
             fg=GREEN,
-            font=("Consolas", 9),
-        ).pack(side="left", padx=(0, 10), pady=12)
+            font=("Consolas", 8),
+        ).pack(side="left", padx=(0, 9), pady=13)
         self.refresh_btn = self._button(header_actions, "Refresh", self._refresh_clicked, compact=True)
-        self.refresh_btn.pack(side="left", padx=4, pady=12)
+        self.refresh_btn.pack(side="left", padx=3, pady=13)
         self.cli_btn = self._button(header_actions, "Open Project CLI", self._open_cli, compact=True)
-        self.cli_btn.pack(side="left", padx=4, pady=12)
+        self.cli_btn.pack(side="left", padx=3, pady=13)
+
+        # Workspace health occupies the free header space only while Project Workspace is active.
+        self.header_health_host = tk.Frame(header, bg=BG)
+        self.header_health_host.pack(side="left", fill="both", expand=True, padx=(28, 16))
+        self.header_health_rail = tk.Frame(self.header_health_host, bg=BG)
+        self._build_header_health_rail(self.header_health_rail)
 
         tk.Frame(self.window, bg=CYAN, height=1).pack(fill="x")
 
         tabs = tk.Frame(self.window, bg=PANEL, height=44)
         tabs.pack(fill="x")
         tabs.pack_propagate(False)
-        for name in ("Projects", "Project Workspace", "Vault / Forge"):
+
+        for name in ("Projects", "Project Workspace"):
             btn = tk.Button(
                 tabs,
                 text=name,
@@ -206,6 +215,24 @@ class CortexPCCGui:
             )
             btn.pack(side="left", fill="y")
             self._app_tab_buttons[name] = btn
+
+        vault_btn = tk.Button(
+            tabs,
+            text="Vault / Forge",
+            command=lambda: self._show_app_tab("Vault / Forge"),
+            bg=PANEL,
+            fg=TEXT,
+            activebackground=PANEL_2,
+            activeforeground=CYAN,
+            bd=0,
+            relief="flat",
+            cursor="hand2",
+            font=("Segoe UI Semibold", 10),
+            padx=22,
+            pady=8,
+        )
+        vault_btn.pack(side="right", fill="y")
+        self._app_tab_buttons["Vault / Forge"] = vault_btn
 
         self.app_content = tk.Frame(self.window, bg=BG)
         self.app_content.pack(fill="both", expand=True)
@@ -278,33 +305,101 @@ class CortexPCCGui:
         )
         self.project_detail.pack(fill="x", padx=14, pady=(4, 12))
 
+
     def _build_workspace_tab(self, parent: Any) -> None:
         tk = self.tk
 
-        # Workspace-only health rail. It intentionally does not appear on Projects or Vault / Forge.
-        health_row = tk.Frame(parent, bg=BG, height=72)
-        health_row.pack(fill="x", padx=18, pady=(12, 4))
-        health_row.pack_propagate(False)
-        # Align the rail with the main workspace content column, leaving the operations rail clear.
-        tk.Frame(health_row, bg=BG, width=198).pack(side="left", fill="y")
-        health = tk.Frame(health_row, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
-        health.pack(side="left", fill="both", expand=True)
-        self._build_health_rail(health)
+        # Quick actions span the entire workspace above all three operational panels.
+        quick = self._panel(parent)
+        quick.pack(fill="x", padx=16, pady=(10, 6))
+        quick_row = tk.Frame(quick, bg=PANEL)
+        quick_row.pack(fill="x", padx=12, pady=9)
+        tk.Label(
+            quick_row,
+            text="QUICK ACTIONS",
+            bg=PANEL,
+            fg=CYAN,
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left", padx=(2, 14))
+        self._button(
+            quick_row,
+            "FULL GATE / CERTIFY GREEN",
+            lambda: self._start_command("full"),
+            primary=True,
+            compact=True,
+        ).pack(side="left", padx=(0, 6))
+        self._button(
+            quick_row,
+            "COMMIT + PUSH GREEN",
+            self._commit_push_green,
+            compact=True,
+        ).pack(side="left", padx=6)
+        self._button(
+            quick_row,
+            "BUILD",
+            lambda: self._start_command("build"),
+            compact=True,
+        ).pack(side="left", padx=6)
+        self._button(
+            quick_row,
+            "RUN",
+            lambda: self._start_command("launch-gui"),
+            compact=True,
+        ).pack(side="left", padx=6)
+        self._button(
+            quick_row,
+            "APPLY UPDATES",
+            self._apply_updates,
+            compact=True,
+        ).pack(side="left", padx=6)
+        self._button(
+            quick_row,
+            "DEBUG BUNDLE",
+            lambda: self._start_command("debug-bundle"),
+            compact=True,
+        ).pack(side="left", padx=6)
 
-        # A compact Havenwild-style project workspace occupies the region below the health rail.
-        upper = tk.Frame(parent, bg=BG)
-        upper.pack(fill="both", expand=True)
-
-        nav = tk.Frame(upper, bg=PANEL, width=190, highlightthickness=1, highlightbackground=BORDER)
-        nav.pack(side="left", fill="y", padx=(18, 8), pady=(14, 8))
-        nav.pack_propagate(False)
-        tk.Label(nav, text="PROJECT OPERATIONS", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 9)).pack(
-            anchor="w", padx=16, pady=(16, 8)
+        # Main Project Workspace is always three columns:
+        #   small operation rail | dynamic command surface | persistent console.
+        panes = tk.PanedWindow(
+            parent,
+            orient="horizontal",
+            bg=BG,
+            bd=0,
+            sashwidth=5,
+            sashrelief="flat",
+            showhandle=False,
+            opaqueresize=True,
         )
-        for page in ("Dashboard", "Build & Run", "Updates", "Source Control", "Diagnostics", "Logs", "Registered Commands"):
+        panes.pack(fill="both", expand=True, padx=16, pady=(0, 6))
+        self.workspace_panes = panes
+
+        # LEFT: compact navigation authority.
+        nav = self._panel(panes)
+        nav.configure(width=158)
+        nav.pack_propagate(False)
+        nav_header = tk.Frame(nav, bg=PANEL)
+        nav_header.pack(fill="x", padx=10, pady=(11, 5))
+        tk.Label(
+            nav_header,
+            text="PROJECT OPERATIONS",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w")
+
+        nav_pages = (
+            ("Dashboard", "Dashboard"),
+            ("Build & Run", "Build & Run"),
+            ("Updates", "Updates"),
+            ("Source Control", "Source Control"),
+            ("Diagnostics", "Diagnostics"),
+            ("Advanced Commands", "Advanced Commands"),
+        )
+        for page, label in nav_pages:
             btn = tk.Button(
                 nav,
-                text=page,
+                text=label,
                 anchor="w",
                 command=lambda p=page: self._show_page(p),
                 bg=PANEL,
@@ -313,34 +408,37 @@ class CortexPCCGui:
                 activeforeground=CYAN,
                 bd=0,
                 relief="flat",
-                font=("Segoe UI", 10),
+                font=("Segoe UI", 9),
                 cursor="hand2",
-                padx=16,
-                pady=8,
+                padx=12,
+                pady=7,
             )
-            btn.pack(fill="x", padx=2, pady=1)
+            btn.pack(fill="x", padx=3, pady=1)
             self._nav_buttons[page] = btn
 
-        tk.Frame(nav, bg=BORDER, height=1).pack(fill="x", padx=12, pady=(12, 9))
+        tk.Frame(nav, bg=BORDER, height=1).pack(fill="x", padx=10, pady=(10, 8))
         self.operation_label = tk.Label(
             nav,
             text="Idle",
             bg=PANEL,
             fg=MUTED,
-            font=("Segoe UI", 9),
-            wraplength=155,
+            font=("Segoe UI", 8),
+            wraplength=132,
             justify="left",
         )
-        self.operation_label.pack(anchor="w", padx=16, pady=(0, 5))
+        self.operation_label.pack(anchor="w", padx=12, pady=(0, 5))
         self.stop_btn = self._button(nav, "Stop Active Job", self._stop_active, compact=True, danger=True)
-        self.stop_btn.pack(fill="x", padx=12, pady=(2, 8))
+        # Hidden when idle; it appears only while an operation is actually running.
         self.stop_btn.configure(state="disabled")
 
-        self.content = tk.Frame(upper, bg=BG)
-        self.content.pack(side="left", fill="both", expand=True, padx=(8, 18), pady=(14, 8))
+        # MIDDLE: clicking the left rail swaps this dynamic command surface.
+        center = self._panel(panes)
+        self.content = tk.Frame(center, bg=PANEL)
+        self.content.pack(fill="both", expand=True, padx=13, pady=12)
 
-        for page in ("Dashboard", "Build & Run", "Updates", "Source Control", "Diagnostics", "Logs", "Registered Commands"):
-            frame = tk.Frame(self.content, bg=BG)
+        pages = ("Dashboard", "Build & Run", "Updates", "Source Control", "Diagnostics", "Advanced Commands")
+        for page in pages:
+            frame = tk.Frame(self.content, bg=PANEL)
             self._page_frames[page] = frame
 
         self._build_dashboard(self._page_frames["Dashboard"])
@@ -348,23 +446,39 @@ class CortexPCCGui:
         self._build_updates_page(self._page_frames["Updates"])
         self._build_source_page(self._page_frames["Source Control"])
         self._build_diagnostics_page(self._page_frames["Diagnostics"])
-        self._build_logs_page(self._page_frames["Logs"])
-        self._build_commands_page(self._page_frames["Registered Commands"])
+        self._build_commands_page(self._page_frames["Advanced Commands"])
 
-        # Persistent embedded console: every project operation streams here, including Full Gate.
-        console = tk.Frame(parent, bg=PANEL, height=250, highlightthickness=1, highlightbackground=BORDER)
-        console.pack(fill="x", padx=18, pady=(0, 6))
-        console.pack_propagate(False)
+        # RIGHT: persistent console takes almost half the application by default.
+        console = self._panel(panes)
+        self.console_panel = console
         console_bar = tk.Frame(console, bg=PANEL)
-        console_bar.pack(fill="x", padx=10, pady=(7, 4))
-        tk.Label(console_bar, text="PROJECT CONSOLE", bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 9)).pack(side="left")
-        tk.Label(console_bar, text=GUI_VERSION, bg=PANEL, fg=MUTED, font=("Consolas", 8)).pack(side="left", padx=(8, 0))
-        self.console_job_label = tk.Label(console_bar, text="Idle", bg=PANEL, fg=MUTED, font=("Segoe UI", 9))
-        self.console_job_label.pack(side="left", padx=(12, 0))
-        self._button(console_bar, "Copy All", lambda: self._copy_all(self.console_text), compact=True).pack(side="right", padx=(6, 0))
-        self._button(console_bar, "Copy Selection", lambda: self._copy_selection(self.console_text), compact=True).pack(side="right", padx=(6, 0))
-        self._button(console_bar, "Clear", self._clear_log, compact=True).pack(side="right", padx=(6, 0))
-        self._button(console_bar, "Open Active Log", self._open_active_log, compact=True).pack(side="right", padx=(6, 0))
+        console_bar.pack(fill="x", padx=10, pady=(8, 5))
+        tk.Label(
+            console_bar,
+            text="PROJECT CONSOLE",
+            bg=PANEL,
+            fg=CYAN,
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left")
+        tk.Label(
+            console_bar,
+            text=GUI_VERSION,
+            bg=PANEL,
+            fg=MUTED,
+            font=("Consolas", 7),
+        ).pack(side="left", padx=(7, 0))
+        self.console_job_label = tk.Label(
+            console_bar,
+            text="Idle",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 8),
+        )
+        self.console_job_label.pack(side="left", padx=(9, 0))
+        self._button(console_bar, "Copy All", lambda: self._copy_all(self.console_text), compact=True).pack(side="right", padx=(5, 0))
+        self._button(console_bar, "Copy Sel", lambda: self._copy_selection(self.console_text), compact=True).pack(side="right", padx=(5, 0))
+        self._button(console_bar, "Clear", self._clear_log, compact=True).pack(side="right", padx=(5, 0))
+        self._button(console_bar, "Log", self._open_active_log, compact=True).pack(side="right", padx=(5, 0))
 
         console_body = tk.Frame(console, bg="#07090b")
         console_body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -373,6 +487,8 @@ class CortexPCCGui:
             bg="#07090b",
             fg=TEXT,
             insertbackground=TEXT,
+            selectbackground="#21404a",
+            selectforeground=TEXT,
             bd=0,
             relief="flat",
             font=("Consolas", 9),
@@ -384,11 +500,23 @@ class CortexPCCGui:
         cscroll.pack(side="right", fill="y")
         self._configure_log_tags(self.console_text)
 
-        statusbar = tk.Frame(parent, bg="#07090b", height=28, highlightthickness=1, highlightbackground="#20262d")
+        panes.add(nav, minsize=138, width=158)
+        panes.add(center, minsize=330, width=430)
+        panes.add(console, minsize=460, width=610)
+        self.window.after(160, self._set_workspace_sashes)
+
+        statusbar = tk.Frame(parent, bg="#07090b", height=25, highlightthickness=1, highlightbackground="#20262d")
         statusbar.pack(fill="x", side="bottom")
         statusbar.pack_propagate(False)
-        self.footer = tk.Label(statusbar, text="[Status:Loading]", bg="#07090b", fg=CYAN, font=("Consolas", 9), anchor="w")
-        self.footer.pack(fill="both", padx=12)
+        self.footer = tk.Label(
+            statusbar,
+            text="[Status:Loading]",
+            bg="#07090b",
+            fg=CYAN,
+            font=("Consolas", 8),
+            anchor="w",
+        )
+        self.footer.pack(fill="both", padx=10)
 
     def _build_vault_tab(self, parent: Any) -> None:
         tk = self.tk
@@ -725,11 +853,48 @@ class CortexPCCGui:
             self.vault_metric_labels[key].configure(text=str(value), fg=color)
         self._vault_metrics = summary
 
+
     def _panel(self, parent: Any, title: str | None = None) -> Any:
         tk = self.tk
-        frame = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
+        frame = tk.Frame(parent, bg=BG, bd=0, highlightthickness=0)
+        canvas = tk.Canvas(frame, bg=BG, bd=0, highlightthickness=0)
+        canvas.place(x=0, y=0, relwidth=1, relheight=1)
+
+        def rounded_rect(c: Any, x1: int, y1: int, x2: int, y2: int, radius: int, **kwargs: Any) -> int:
+            r = max(2, min(radius, (x2 - x1) // 2, (y2 - y1) // 2))
+            points = [
+                x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+                x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+                x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
+            ]
+            return c.create_polygon(points, smooth=True, splinesteps=18, **kwargs)
+
+        def redraw(_event: Any = None) -> None:
+            try:
+                w = max(2, frame.winfo_width())
+                h = max(2, frame.winfo_height())
+                canvas.delete("panel")
+                rounded_rect(
+                    canvas,
+                    1, 1, w - 1, h - 1, 10,
+                    fill=PANEL,
+                    outline=BORDER,
+                    width=1,
+                    tags="panel",
+                )
+            except Exception:
+                pass
+
+        frame.bind("<Configure>", redraw, add="+")
+        frame._pcc_canvas = canvas  # type: ignore[attr-defined]
         if title:
-            tk.Label(frame, text=title, bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 11)).pack(anchor="w", padx=14, pady=(12, 6))
+            tk.Label(
+                frame,
+                text=title,
+                bg=PANEL,
+                fg=CYAN,
+                font=("Segoe UI Semibold", 10),
+            ).pack(anchor="w", padx=13, pady=(11, 5))
         return frame
 
     def _button(
@@ -839,132 +1004,168 @@ class CortexPCCGui:
         host.wait_window(dialog)
         return bool(result[0])
 
+
     def _section_title(self, parent: Any, title: str, subtitle: str = "") -> None:
         tk = self.tk
-        tk.Label(parent, text=title, bg=BG, fg=TEXT, font=("Segoe UI Semibold", 16)).pack(anchor="w")
+        tk.Label(parent, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 15)).pack(anchor="w")
         if subtitle:
-            tk.Label(parent, text=subtitle, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(3, 12))
+            tk.Label(parent, text=subtitle, bg=PANEL, fg=MUTED, font=("Segoe UI", 8), wraplength=520, justify="left").pack(anchor="w", pady=(3, 10))
 
-    # ------------------------------------------------------------------
-    # Project workspace pages
-    # ------------------------------------------------------------------
-    def _build_health_rail(self, parent: Any) -> None:
+    def _build_header_health_rail(self, parent: Any) -> None:
+        """Compact status LEDs shown only while Project Workspace is active."""
         tk = self.tk
-        left = tk.Frame(parent, bg=PANEL)
-        left.pack(side="left", fill="y", padx=(12, 8), pady=8)
-        tk.Label(left, text="PROJECT HEALTH", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8)).pack(anchor="w")
-        tk.Label(left, text="Live authority", bg=PANEL, fg=TEXT, font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 0))
-
-        rail = tk.Frame(parent, bg=PANEL)
-        rail.pack(side="left", fill="both", expand=True, padx=(4, 8), pady=5)
         keys = ("Git", "GREEN", "Updates", "Hygiene", "PCC", "Runtime", "Sync")
+        rail = tk.Frame(parent, bg=BG)
+        rail.pack(fill="both", expand=True)
         for col, key in enumerate(keys):
-            cell = tk.Frame(rail, bg=PANEL)
-            cell.grid(row=0, column=col, sticky="nsew", padx=2)
-            rail.grid_columnconfigure(col, weight=1, uniform="health")
-            tk.Label(cell, text=key, bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 7)).pack(pady=(1, 0))
-            value = tk.Label(cell, text="Loading", bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 9))
-            value.pack(pady=(0, 0))
-            led = tk.Canvas(cell, width=12, height=12, bg=PANEL, highlightthickness=0, bd=0)
-            led.pack(pady=(1, 0))
-            oval = led.create_oval(2, 2, 10, 10, fill=MUTED, outline="")
+            cell = tk.Frame(rail, bg=BG)
+            cell.grid(row=0, column=col, sticky="nsew", padx=3, pady=(7, 4))
+            rail.grid_columnconfigure(col, weight=1, uniform="header-health")
+            tk.Label(
+                cell,
+                text=key,
+                bg=BG,
+                fg=MUTED,
+                font=("Segoe UI Semibold", 7),
+            ).pack()
+            line = tk.Frame(cell, bg=BG)
+            line.pack(pady=(2, 0))
+            led = tk.Canvas(line, width=10, height=10, bg=BG, highlightthickness=0, bd=0)
+            led.pack(side="left", padx=(0, 4))
+            oval = led.create_oval(2, 2, 8, 8, fill=MUTED, outline="")
+            value = tk.Label(
+                line,
+                text="Loading",
+                bg=BG,
+                fg=CYAN,
+                font=("Segoe UI Semibold", 8),
+            )
+            value.pack(side="left")
             self._status_values[key] = value
             self._status_leds[key] = (led, oval)
 
+    def _set_workspace_sashes(self) -> None:
+        panes = getattr(self, "workspace_panes", None)
+        if panes is None:
+            return
+        try:
+            panes.update_idletasks()
+            width = max(900, panes.winfo_width())
+            # left ~13%, middle to ~52%, console gets the remaining ~48%.
+            panes.sash_place(0, max(145, int(width * 0.13)), 0)
+            panes.sash_place(1, max(500, int(width * 0.52)), 0)
+        except Exception:
+            pass
+
+    def _action_grid(self, parent: Any, actions: Sequence[tuple[str, Callable[[], None], bool]], *, columns: int = 2) -> Any:
+        tk = self.tk
+        body = tk.Frame(parent, bg=PANEL)
+        body.pack(fill="x", padx=4, pady=4)
+        for col in range(columns):
+            body.grid_columnconfigure(col, weight=1, uniform="actions")
+        for index, (label, command, primary) in enumerate(actions):
+            row, col = divmod(index, columns)
+            btn = self._button(body, label, command, primary=primary, compact=True)
+            btn.configure(wraplength=185, justify="center")
+            btn.grid(row=row, column=col, sticky="ew", padx=4, pady=4)
+        return body
+
+
+    def _build_health_rail(self, parent: Any) -> None:
+        # Legacy compatibility shim. Health is now rendered in the application header.
+        return
+
     def _build_dashboard(self, parent: Any) -> None:
         tk = self.tk
-        actions = self._panel(parent, "Primary Actions")
-        actions.pack(fill="x", pady=(0, 10))
-        row = tk.Frame(actions, bg=PANEL)
-        row.pack(fill="x", padx=14, pady=(4, 14))
-        self._button(row, "FULL QUALITY GATE / CERTIFY GREEN", lambda: self._start_command("full"), primary=True).pack(side="left", padx=(0, 8))
-        self._button(row, "COMMIT CURRENT CERTIFIED GREEN", self._commit_green).pack(side="left", padx=8)
-        self._button(row, "Apply Updates", self._apply_updates).pack(side="left", padx=8)
-        self._button(row, "Open Latest Debug", self._open_latest_debug).pack(side="left", padx=8)
-
+        self._section_title(
+            parent,
+            "Dashboard",
+            "Selected-project authority and the most useful development state at a glance.",
+        )
         summary = self._panel(parent, "Current Authority")
         summary.pack(fill="both", expand=True)
-        self.summary_text = tk.Text(summary, bg=PANEL, fg=TEXT, insertbackground=TEXT, bd=0, relief="flat", font=("Consolas", 10), height=10, wrap="word")
-        self.summary_text.pack(fill="both", expand=True, padx=14, pady=(4, 14))
+        self.summary_text = tk.Text(
+            summary,
+            bg=PANEL,
+            fg=TEXT,
+            insertbackground=TEXT,
+            selectbackground="#21404a",
+            selectforeground=TEXT,
+            bd=0,
+            relief="flat",
+            font=("Consolas", 9),
+            height=16,
+            wrap="word",
+        )
+        self.summary_text.pack(fill="both", expand=True, padx=12, pady=(4, 12))
         self.summary_text.configure(state="disabled")
 
-    def _build_build_page(self, parent: Any) -> None:
-        tk = self.tk
-        self._section_title(parent, "Build & Run", "Project operations stream into the embedded Project Console below.")
-        panel = self._panel(parent, "Build")
-        panel.pack(fill="x")
-        row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=14, pady=14)
-        self._button(row, "Build Debug", lambda: self._start_command("build"), primary=True).pack(side="left", padx=(0, 8))
-        self._button(row, "Build Release", lambda: self._start_command("build-release")).pack(side="left", padx=8)
-        self._button(row, "Quick Gate", lambda: self._start_command("quick")).pack(side="left", padx=8)
-        self._button(row, "Fast Gate", lambda: self._start_command("fast")).pack(side="left", padx=8)
 
-        run_panel = self._panel(parent, "Run")
-        run_panel.pack(fill="x", pady=(12, 0))
-        row2 = tk.Frame(run_panel, bg=PANEL)
-        row2.pack(fill="x", padx=14, pady=14)
-        self._button(row2, "Launch Project Runtime", lambda: self._start_command("launch-gui"), primary=True).pack(side="left", padx=(0, 8))
-        self._button(row2, "Open Project Folder", lambda: open_path(self.root_path)).pack(side="left", padx=8)
+    def _build_build_page(self, parent: Any) -> None:
+        self._section_title(parent, "Build & Run", "Build, verify and launch operations for the selected project.")
+        panel = self._panel(parent, "Development Operations")
+        panel.pack(fill="x")
+        self._action_grid(panel, (
+            ("Build Debug", lambda: self._start_command("build"), True),
+            ("Build Release", lambda: self._start_command("build-release"), False),
+            ("Quick Gate", lambda: self._start_command("quick"), False),
+            ("Fast Gate", lambda: self._start_command("fast"), False),
+            ("Launch Runtime", lambda: self._start_command("launch-gui"), True),
+            ("Open Project Folder", lambda: open_path(self.root_path), False),
+        ))
+
 
     def _build_updates_page(self, parent: Any) -> None:
-        tk = self.tk
-        self._section_title(parent, "Updates", "Fail-closed update authority with explicit apply and recovery evidence.")
+        self._section_title(parent, "Updates", "Validated patch intake, evidence and recovery.")
         panel = self._panel(parent, "Update Queue")
         panel.pack(fill="x")
-        row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=14, pady=14)
-        self._button(row, "Inspect Queue", lambda: self._start_command("patch-status"), primary=True).pack(side="left", padx=(0, 8))
-        self._button(row, "Apply Validated Queue", self._apply_updates).pack(side="left", padx=8)
-        self._button(row, "Refresh Health", self._refresh_status_async).pack(side="left", padx=8)
-
-        paths = self._panel(parent, "History & Evidence")
-        paths.pack(fill="x", pady=(12, 0))
-        r2 = tk.Frame(paths, bg=PANEL)
-        r2.pack(fill="x", padx=14, pady=14)
+        self._action_grid(panel, (
+            ("Inspect Queue", lambda: self._start_command("patch-status"), True),
+            ("Apply Validated Queue", self._apply_updates, False),
+            ("Refresh Health", self._refresh_status_async, False),
+            ("Open Patch Artifacts", lambda: open_path(self.root_path / "artifacts" / "patches"), False),
+        ))
+        history = self._panel(parent, "History")
+        history.pack(fill="x", pady=(10, 0))
         patch_root = lambda: self.root_path / "artifacts" / "patches"
-        self._button(r2, "Applied", lambda: open_path(patch_root() / "applied")).pack(side="left", padx=(0, 8))
-        self._button(r2, "Failed", lambda: open_path(patch_root() / "failed")).pack(side="left", padx=8)
-        self._button(r2, "Receipts", lambda: open_path(patch_root() / "receipts")).pack(side="left", padx=8)
-        self._button(r2, "Backups", lambda: open_path(patch_root() / "backups")).pack(side="left", padx=8)
+        self._action_grid(history, (
+            ("Applied", lambda: open_path(patch_root() / "applied"), False),
+            ("Failed", lambda: open_path(patch_root() / "failed"), False),
+            ("Receipts", lambda: open_path(patch_root() / "receipts"), False),
+            ("Backups", lambda: open_path(patch_root() / "backups"), False),
+        ))
+
 
     def _build_source_page(self, parent: Any) -> None:
-        tk = self.tk
-        self._section_title(parent, "Source Control", "GREEN-gated source control remains behind the selected project's PCC authority.")
+        self._section_title(parent, "Source Control", "GREEN-gated repository operations for the selected project.")
         panel = self._panel(parent, "Git / Repository")
         panel.pack(fill="x")
-        row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=14, pady=14)
-        self._button(row, "Status", lambda: self._start_command("git-status"), primary=True).pack(side="left", padx=(0, 8))
-        self._button(row, "Review Changes", lambda: self._start_command("git-review")).pack(side="left", padx=8)
-        self._button(row, "History", lambda: self._start_command("git-history")).pack(side="left", padx=8)
-        self._button(row, "Verify Authority", lambda: self._start_command("git-verify")).pack(side="left", padx=8)
+        self._action_grid(panel, (
+            ("Status", lambda: self._start_command("git-status"), True),
+            ("Review Changes", lambda: self._start_command("git-review"), False),
+            ("History", lambda: self._start_command("git-history"), False),
+            ("Verify Authority", lambda: self._start_command("git-verify"), False),
+            ("Commit Certified GREEN", self._commit_green, True),
+            ("Commit + Push GREEN", self._commit_push_green, False),
+            ("Push", lambda: self._start_command("push"), False),
+            ("Pull (FF only)", lambda: self._start_command("git-pull"), False),
+        ))
 
-        row2 = tk.Frame(panel, bg=PANEL)
-        row2.pack(fill="x", padx=14, pady=(0, 14))
-        self._button(row2, "Commit Certified GREEN", self._commit_green, primary=True).pack(side="left", padx=(0, 8))
-        self._button(row2, "Commit + Push GREEN", self._commit_push_green).pack(side="left", padx=8)
-        self._button(row2, "Push", lambda: self._start_command("push")).pack(side="left", padx=8)
-        self._button(row2, "Pull (FF only)", lambda: self._start_command("git-pull")).pack(side="left", padx=8)
 
     def _build_diagnostics_page(self, parent: Any) -> None:
-        tk = self.tk
-        self._section_title(parent, "Diagnostics & Recovery", "Detailed evidence stays in artifacts/logs while live progress remains visible below.")
-        panel = self._panel(parent, "Diagnostics")
+        self._section_title(parent, "Diagnostics", "Health, recovery and evidence-generation operations.")
+        panel = self._panel(parent, "Diagnostics & Recovery")
         panel.pack(fill="x")
-        row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=14, pady=14)
-        self._button(row, "PCC Self-Test", lambda: self._start_command("self-test"), primary=True).pack(side="left", padx=(0, 8))
-        self._button(row, "Doctor", lambda: self._start_command("doctor")).pack(side="left", padx=8)
-        self._button(row, "Root Hygiene", lambda: self._start_command("root-hygiene")).pack(side="left", padx=8)
-        self._button(row, "Repair Hygiene", lambda: self._start_command("root-hygiene-fix")).pack(side="left", padx=8)
-
-        row2 = tk.Frame(panel, bg=PANEL)
-        row2.pack(fill="x", padx=14, pady=(0, 14))
-        self._button(row2, "Create Debug Bundle", lambda: self._start_command("debug-bundle"), primary=True).pack(side="left", padx=(0, 8))
-        self._button(row2, "Verify Latest Debug", lambda: self._start_command("verify-latest-debug")).pack(side="left", padx=8)
-        self._button(row2, "Open Debug Folder", lambda: open_path(self.root_path / "artifacts" / "debug")).pack(side="left", padx=8)
-        self._button(row2, "Open Artifacts", lambda: open_path(self.root_path / "artifacts")).pack(side="left", padx=8)
+        self._action_grid(panel, (
+            ("PCC Self-Test", lambda: self._start_command("self-test"), True),
+            ("Doctor", lambda: self._start_command("doctor"), False),
+            ("Root Hygiene", lambda: self._start_command("root-hygiene"), False),
+            ("Repair Hygiene", lambda: self._start_command("root-hygiene-fix"), False),
+            ("Create Debug Bundle", lambda: self._start_command("debug-bundle"), True),
+            ("Verify Latest Debug", lambda: self._start_command("verify-latest-debug"), False),
+            ("Open Debug Folder", lambda: open_path(self.root_path / "artifacts" / "debug"), False),
+            ("Open Artifacts", lambda: open_path(self.root_path / "artifacts"), False),
+        ))
 
     def _build_logs_page(self, parent: Any) -> None:
         tk = self.tk
@@ -987,21 +1188,36 @@ class CortexPCCGui:
         scroll.pack(side="right", fill="y", pady=10, padx=(0, 8))
         self._configure_log_tags(self.log_text)
 
+
     def _build_commands_page(self, parent: Any) -> None:
         ttk = self.ttk
-        self._section_title(parent, "Registered Commands", "Project contract commands. Execution policy remains in the PCC Core / project adapter.")
+        self._section_title(
+            parent,
+            "Advanced Commands",
+            "Searchable project/PCC command registry. Normal work should use the curated operation pages.",
+        )
         panel = self._panel(parent)
         panel.pack(fill="both", expand=True)
-        self.commands_tree = ttk.Treeview(panel, columns=("key", "label", "risk", "program"), show="headings")
-        for key, title, width in (("key", "Key", 190), ("label", "Label", 300), ("risk", "Risk", 120), ("program", "Program", 130)):
+        self.commands_tree = ttk.Treeview(
+            panel,
+            columns=("key", "label", "risk", "program"),
+            show="headings",
+        )
+        for key, title, width in (
+            ("key", "Key", 150),
+            ("label", "Label", 230),
+            ("risk", "Risk", 80),
+            ("program", "Program", 100),
+        ):
             self.commands_tree.heading(key, text=title)
             self.commands_tree.column(key, width=width, anchor="w")
-        self.commands_tree.pack(fill="both", expand=True, padx=10, pady=10)
+        self.commands_tree.pack(fill="both", expand=True, padx=8, pady=8)
         self._reload_registered_commands()
 
     # ------------------------------------------------------------------
     # App / project navigation
     # ------------------------------------------------------------------
+
     def _show_app_tab(self, name: str) -> None:
         for key, frame in self._app_frames.items():
             frame.pack_forget()
@@ -1010,6 +1226,13 @@ class CortexPCCGui:
                 btn.configure(bg=PANEL, fg=TEXT)
         self._app_frames[name].pack(fill="both", expand=True)
         self._app_tab_buttons[name].configure(bg=PANEL_2, fg=CYAN)
+
+        if hasattr(self, "header_health_rail"):
+            if name == "Project Workspace":
+                if not self.header_health_rail.winfo_ismapped():
+                    self.header_health_rail.pack(fill="both", expand=True)
+            else:
+                self.header_health_rail.pack_forget()
 
     def _show_page(self, page: str) -> None:
         for name, frame in self._page_frames.items():
@@ -1242,20 +1465,49 @@ class CortexPCCGui:
     # ------------------------------------------------------------------
     # Live output / clipboard
     # ------------------------------------------------------------------
+    _SEMANTIC_LOG_RE = re.compile(
+        r"\b(PASS(?:ED)?|FAIL(?:ED|URE)?|WARN(?:ING)?|ERROR)\b",
+        re.IGNORECASE,
+    )
+
     def _configure_log_tags(self, widget: Any) -> None:
-        widget.tag_configure("pass", foreground=GREEN)
-        widget.tag_configure("warn", foreground=YELLOW)
-        widget.tag_configure("fail", foreground=RED)
-        widget.tag_configure("info", foreground=CYAN)
-        widget.tag_configure("muted", foreground=MUTED)
+        # Console output stays neutral. Only the semantic result token is colored;
+        # punctuation/brackets, paths, commands, hashes and surrounding prose remain
+        # the normal console foreground.
+        widget.tag_configure("semantic-pass", foreground=GREEN)
+        widget.tag_configure("semantic-warn", foreground=YELLOW)
+        widget.tag_configure("semantic-fail", foreground=RED)
+
+    @staticmethod
+    def _semantic_log_tag(token: str) -> str:
+        upper = token.upper()
+        if upper.startswith("PASS"):
+            return "semantic-pass"
+        if upper.startswith("WARN"):
+            return "semantic-warn"
+        return "semantic-fail"
+
+    def _insert_semantic_log(self, widget: Any, text: str) -> None:
+        cursor = 0
+        for match in self._SEMANTIC_LOG_RE.finditer(text):
+            start, end = match.span()
+            if start > cursor:
+                widget.insert("end", text[cursor:start])
+            token = text[start:end]
+            widget.insert("end", token, self._semantic_log_tag(token))
+            cursor = end
+        if cursor < len(text):
+            widget.insert("end", text[cursor:])
 
     def _append_log(self, text: str, tag: str = "") -> None:
+        # `tag` is retained for call-site compatibility, but intentionally does not
+        # color the entire line. Semantic token coloring is authoritative.
         for widget_name in ("console_text", "log_text"):
             widget = getattr(self, widget_name, None)
             if widget is None:
                 continue
             widget.configure(state="normal")
-            widget.insert("end", text, tag)
+            self._insert_semantic_log(widget, text)
             widget.see("end")
             widget.configure(state="disabled")
 
@@ -1471,7 +1723,7 @@ class CortexPCCGui:
         if not self.backend.supports(command):
             self._popup(
                 "Operation Not Available",
-                f"The selected project does not expose an operation mapped to '{command}'.\n\nUse Registered Commands to review what the project scanner discovered.",
+                f"The selected project does not expose an operation mapped to '{command}'.\n\nUse Advanced Commands to review what the project scanner discovered.",
                 kind="warning",
             )
             return
@@ -1489,6 +1741,8 @@ class CortexPCCGui:
         self.operation_label.configure(text=f"Running: {self._active_command}", fg=CYAN)
         self.console_job_label.configure(text=f"Running: {self._active_command}", fg=CYAN)
         self.stop_btn.configure(state="normal")
+        if not self.stop_btn.winfo_ismapped():
+            self.stop_btn.pack(fill="x", padx=10, pady=(3, 8))
         self.refresh_btn.configure(state="disabled")
         self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {self._active_command} ===\n", "info")
         self._append_log("[ProcessHost] Embedded capture ON / hidden inherited console + universal repo hygiene.\n", "info")
@@ -1533,6 +1787,7 @@ class CortexPCCGui:
                     self._active_proc = None
                     self._busy = False
                     self.stop_btn.configure(state="disabled")
+                    self.stop_btn.pack_forget()
                     color = GREEN if rc == 0 else RED
                     state = "PASS" if rc == 0 else f"FAIL ({rc})"
                     self.operation_label.configure(text=f"Last: {command} {state}", fg=color)
@@ -1545,6 +1800,7 @@ class CortexPCCGui:
                     self._active_proc = None
                     self._busy = False
                     self.stop_btn.configure(state="disabled")
+                    self.stop_btn.pack_forget()
                     self.operation_label.configure(text=f"Last: {command} FAIL", fg=RED)
                     self.console_job_label.configure(text=f"Last: {command} FAIL", fg=RED)
                     self._append_log(f"ERROR: {detail}\n", "fail")
@@ -1642,6 +1898,7 @@ class CortexPCCGui:
             "Current certified GREEN source",
         )
 
+
     def _ask_commit_message(self, *, push: bool) -> str | None:
         tk = self.tk
         default, basis = self._green_commit_default()
@@ -1656,29 +1913,75 @@ class CortexPCCGui:
         outer.pack(fill="both", expand=True)
         shell = tk.Frame(outer, bg=PANEL)
         shell.pack(fill="both", expand=True)
-        tk.Frame(shell, bg=CYAN, height=4).pack(fill="x")
+
+        result: list[str | None] = [None]
+
+        def close(value: str | None) -> None:
+            result[0] = value
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.destroy()
+
+        titlebar = tk.Frame(shell, bg=PANEL_2, height=44)
+        titlebar.pack(fill="x")
+        titlebar.pack_propagate(False)
+        tk.Label(
+            titlebar,
+            text="COMMIT + PUSH CERTIFIED GREEN" if push else "COMMIT CERTIFIED GREEN",
+            bg=PANEL_2,
+            fg=TEXT,
+            font=("Segoe UI Semibold", 12),
+        ).pack(side="left", padx=16)
+        close_btn = tk.Button(
+            titlebar,
+            text="×",
+            command=lambda: close(None),
+            bg=PANEL_2,
+            fg=MUTED,
+            activebackground=RED,
+            activeforeground=TEXT,
+            bd=0,
+            relief="flat",
+            cursor="hand2",
+            font=("Segoe UI Semibold", 15),
+            width=3,
+        )
+        close_btn.pack(side="right", fill="y")
 
         header = tk.Frame(shell, bg=PANEL)
-        header.pack(fill="x", padx=22, pady=(18, 8))
-        tk.Label(
-            header,
-            text="COMMIT + PUSH CERTIFIED GREEN" if push else "COMMIT CERTIFIED GREEN",
-            bg=PANEL,
-            fg=TEXT,
-            font=("Segoe UI Semibold", 15),
-        ).pack(anchor="w")
+        header.pack(fill="x", padx=18, pady=(14, 8))
         tk.Label(
             header,
             text=f"{self.contract.name}  ·  {basis}",
             bg=PANEL,
             fg=GREEN,
             font=("Segoe UI", 9),
-            wraplength=750,
+            wraplength=700,
             justify="left",
-        ).pack(anchor="w", pady=(5, 0))
+        ).pack(anchor="w")
+
+        git = self._last_status.get("git") or {}
+        green_state = "MATCH" if git.get("greenMatch") else ("STALE" if git.get("greenMarker") else "NONE")
+        branch = str(git.get("branch") or "unknown")
+        ahead = git.get("ahead")
+        behind = git.get("behind")
+        sync = "unknown" if ahead is None or behind is None else (f"{ahead} ahead / {behind} behind")
+        statebar = tk.Frame(shell, bg=PANEL_2)
+        statebar.pack(fill="x", padx=18, pady=(0, 10))
+        for label, value, color in (
+            ("GREEN", green_state, GREEN if green_state == "MATCH" else YELLOW),
+            ("Branch", branch, TEXT),
+            ("Sync", sync, GREEN if ahead == 0 and behind == 0 else YELLOW),
+        ):
+            cell = tk.Frame(statebar, bg=PANEL_2)
+            cell.pack(side="left", padx=12, pady=7)
+            tk.Label(cell, text=label, bg=PANEL_2, fg=MUTED, font=("Segoe UI", 7)).pack(anchor="w")
+            tk.Label(cell, text=value, bg=PANEL_2, fg=color, font=("Segoe UI Semibold", 9)).pack(anchor="w")
 
         body = tk.Frame(shell, bg=PANEL)
-        body.pack(fill="both", expand=True, padx=22, pady=(5, 12))
+        body.pack(fill="both", expand=True, padx=18, pady=(0, 10))
         tk.Label(body, text="Commit message", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 9)).pack(anchor="w")
         editor_frame = tk.Frame(body, bg="#07090b", highlightthickness=1, highlightbackground=BORDER)
         editor_frame.pack(fill="both", expand=True, pady=(6, 0))
@@ -1694,23 +1997,15 @@ class CortexPCCGui:
             font=("Consolas", 10),
             wrap="word",
             undo=True,
-            height=10,
+            height=12,
         )
         scroll = tk.Scrollbar(editor_frame, command=editor.yview, bg=PANEL)
         editor.configure(yscrollcommand=scroll.set)
-        editor.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=12)
-        scroll.pack(side="right", fill="y", padx=(5, 9), pady=9)
+        editor.pack(side="left", fill="both", expand=True, padx=(11, 0), pady=10)
+        scroll.pack(side="right", fill="y", padx=(5, 8), pady=8)
         editor.insert("1.0", default)
         editor.tag_add("sel", "1.0", "end-1c")
 
-        result: list[str | None] = [None]
-        def close(value: str | None) -> None:
-            result[0] = value
-            try:
-                dialog.grab_release()
-            except Exception:
-                pass
-            dialog.destroy()
         def accept() -> None:
             message = editor.get("1.0", "end-1c").strip()
             if not message:
@@ -1720,8 +2015,8 @@ class CortexPCCGui:
             close(message)
 
         actions = tk.Frame(shell, bg=PANEL)
-        actions.pack(fill="x", padx=22, pady=(0, 18))
-        tk.Label(actions, text="Esc = Cancel", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
+        actions.pack(fill="x", padx=18, pady=(0, 16))
+        tk.Label(actions, text="Esc = Cancel  ·  Ctrl+Enter = Commit", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
         self._button(actions, "Cancel", lambda: close(None), compact=True).pack(side="right", padx=(8, 0))
         self._button(
             actions,
@@ -1734,7 +2029,7 @@ class CortexPCCGui:
         dialog.bind("<Escape>", lambda _e: close(None))
         dialog.bind("<Control-Return>", lambda _e: accept())
         dialog.protocol("WM_DELETE_WINDOW", lambda: close(None))
-        self._center_modal(dialog, 820, 430)
+        self._center_modal(dialog, 760, 455)
         self._round_window(dialog)
         dialog.deiconify()
         dialog.lift()
