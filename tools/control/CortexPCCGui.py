@@ -40,8 +40,9 @@ from PCCVaultCatalog import (
     search_catalog as vault_search_catalog,
     vault_root as global_vault_root,
 )
+from PCCRepoHygiene import prepare as repo_hygiene_prepare
 
-GUI_VERSION = "PCC-GUI-0.7"
+GUI_VERSION = "PCC-GUI-0.9"
 
 BG = "#090b0e"
 PANEL = "#11151a"
@@ -68,6 +69,11 @@ class CortexPCCGui:
 
         self.registry = ProjectRegistry()
         self.root_path = root.resolve()
+        self._startup_hygiene: dict[str, Any] = {}
+        try:
+            self._startup_hygiene = repo_hygiene_prepare(self.root_path, apply=True)
+        except Exception as exc:
+            self._startup_hygiene = {"moved": 0, "error": str(exc)}
         self.contract = ProjectContract.load(self.root_path)
         self.backend: BackendClient | None = None
         self.backend_error = ""
@@ -87,6 +93,7 @@ class CortexPCCGui:
         self._last_status: dict[str, Any] = {}
         self._page_frames: dict[str, Any] = {}
         self._status_values: dict[str, Any] = {}
+        self._status_leds: dict[str, tuple[Any, Any]] = {}
         self._nav_buttons: dict[str, Any] = {}
         self._app_frames: dict[str, Any] = {}
         self._app_tab_buttons: dict[str, Any] = {}
@@ -102,8 +109,15 @@ class CortexPCCGui:
         self._refresh_projects()
         self._show_page("Dashboard")
         self._show_app_tab("Projects")
-        self._append_log(f"Project Control Center {GUI_VERSION} started.\n", "info")
+        self._append_log(f"[PASS] Project Control Center {GUI_VERSION} ACTIVE.\n", "pass")
         self._append_log(f"Active project: {self.contract.name} — {self.root_path}\n", "muted")
+        moved = int(self._startup_hygiene.get("moved", 0) or 0)
+        if self._startup_hygiene.get("error"):
+            self._append_log(f"[WARN] Startup repository hygiene could not complete: {self._startup_hygiene['error']}\n", "warn")
+        elif moved:
+            self._append_log(f"[PASS] Startup repository hygiene moved {moved} loose operational artifact(s) out of the repository root.\n", "pass")
+        else:
+            self._append_log("[PASS] Startup repository hygiene: root transport area clean.\n", "pass")
         self._refresh_status_async()
         self.window.after(60, self._drain_events)
 
@@ -157,6 +171,13 @@ class CortexPCCGui:
 
         header_actions = tk.Frame(header, bg=BG)
         header_actions.pack(side="right", fill="y")
+        tk.Label(
+            header_actions,
+            text=f"{GUI_VERSION} ACTIVE",
+            bg=BG,
+            fg=GREEN,
+            font=("Consolas", 9),
+        ).pack(side="left", padx=(0, 10), pady=12)
         self.refresh_btn = self._button(header_actions, "Refresh", self._refresh_clicked, compact=True)
         self.refresh_btn.pack(side="left", padx=4, pady=12)
         self.cli_btn = self._button(header_actions, "Open Project CLI", self._open_cli, compact=True)
@@ -260,7 +281,17 @@ class CortexPCCGui:
     def _build_workspace_tab(self, parent: Any) -> None:
         tk = self.tk
 
-        # A compact Havenwild-style project workspace occupies the upper region.
+        # Workspace-only health rail. It intentionally does not appear on Projects or Vault / Forge.
+        health_row = tk.Frame(parent, bg=BG, height=72)
+        health_row.pack(fill="x", padx=18, pady=(12, 4))
+        health_row.pack_propagate(False)
+        # Align the rail with the main workspace content column, leaving the operations rail clear.
+        tk.Frame(health_row, bg=BG, width=198).pack(side="left", fill="y")
+        health = tk.Frame(health_row, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
+        health.pack(side="left", fill="both", expand=True)
+        self._build_health_rail(health)
+
+        # A compact Havenwild-style project workspace occupies the region below the health rail.
         upper = tk.Frame(parent, bg=BG)
         upper.pack(fill="both", expand=True)
 
@@ -817,24 +848,33 @@ class CortexPCCGui:
     # ------------------------------------------------------------------
     # Project workspace pages
     # ------------------------------------------------------------------
+    def _build_health_rail(self, parent: Any) -> None:
+        tk = self.tk
+        left = tk.Frame(parent, bg=PANEL)
+        left.pack(side="left", fill="y", padx=(12, 8), pady=8)
+        tk.Label(left, text="PROJECT HEALTH", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8)).pack(anchor="w")
+        tk.Label(left, text="Live authority", bg=PANEL, fg=TEXT, font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 0))
+
+        rail = tk.Frame(parent, bg=PANEL)
+        rail.pack(side="left", fill="both", expand=True, padx=(4, 8), pady=5)
+        keys = ("Git", "GREEN", "Updates", "Hygiene", "PCC", "Runtime", "Sync")
+        for col, key in enumerate(keys):
+            cell = tk.Frame(rail, bg=PANEL)
+            cell.grid(row=0, column=col, sticky="nsew", padx=2)
+            rail.grid_columnconfigure(col, weight=1, uniform="health")
+            tk.Label(cell, text=key, bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 7)).pack(pady=(1, 0))
+            value = tk.Label(cell, text="Loading", bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 9))
+            value.pack(pady=(0, 0))
+            led = tk.Canvas(cell, width=12, height=12, bg=PANEL, highlightthickness=0, bd=0)
+            led.pack(pady=(1, 0))
+            oval = led.create_oval(2, 2, 10, 10, fill=MUTED, outline="")
+            self._status_values[key] = value
+            self._status_leds[key] = (led, oval)
+
     def _build_dashboard(self, parent: Any) -> None:
         tk = self.tk
-        self._section_title(parent, "Project Health", "Compact operational summary backed by the selected project's PCC authority.")
-
-        cards = tk.Frame(parent, bg=BG)
-        cards.pack(fill="x")
-        labels = ["Git", "GREEN", "Updates", "Hygiene", "PCC", "Runtime"]
-        for col, key in enumerate(labels):
-            card = self._panel(cards)
-            card.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 5, 5 if col < len(labels) - 1 else 0))
-            cards.grid_columnconfigure(col, weight=1)
-            tk.Label(card, text=key, bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8)).pack(anchor="w", padx=12, pady=(10, 1))
-            value = tk.Label(card, text="Loading", bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 11), anchor="w")
-            value.pack(fill="x", padx=12, pady=(0, 10))
-            self._status_values[key] = value
-
         actions = self._panel(parent, "Primary Actions")
-        actions.pack(fill="x", pady=(14, 10))
+        actions.pack(fill="x", pady=(0, 10))
         row = tk.Frame(actions, bg=PANEL)
         row.pack(fill="x", padx=14, pady=(4, 14))
         self._button(row, "FULL QUALITY GATE / CERTIFY GREEN", lambda: self._start_command("full"), primary=True).pack(side="left", padx=(0, 8))
@@ -993,8 +1033,14 @@ class CortexPCCGui:
         if self._busy:
             self._popup("Project Control Center", "Finish or stop the active PCC job before switching projects.", kind="warning")
             return
+        target_root = root.resolve()
+        activation_hygiene: dict[str, Any] = {}
         try:
-            contract = ProjectContract.load(root.resolve())
+            activation_hygiene = repo_hygiene_prepare(target_root, apply=True)
+        except Exception as exc:
+            activation_hygiene = {"moved": 0, "error": str(exc)}
+        try:
+            contract = ProjectContract.load(target_root)
         except Exception as exc:
             self._popup("Unable to Load Project", f"{root}\n\n{exc}", kind="error")
             return
@@ -1012,6 +1058,11 @@ class CortexPCCGui:
             self._vault_render_summary(vault_latest_summary(self.root_path))
         self._append_log(f"Active project changed to {self.contract.name}.\n", "info")
         self._append_log(f"Root: {self.root_path}\n", "muted")
+        if activation_hygiene.get("error"):
+            self._append_log(f"[WARN] Project activation hygiene: {activation_hygiene['error']}\n", "warn")
+        else:
+            moved = int(activation_hygiene.get("moved", 0) or 0)
+            self._append_log(f"[PASS] Project activation hygiene: {moved} loose operational artifact(s) moved.\n", "pass")
         if self.backend_error:
             self._append_log(f"PCC adapter: {self.backend_error}\n", "warn")
             self._render_adapter_unavailable()
@@ -1277,6 +1328,14 @@ class CortexPCCGui:
         label = self._status_values.get(key)
         if label:
             label.configure(text=text, fg=color)
+        led = self._status_leds.get(key)
+        if led:
+            canvas, oval = led
+            # LEDs carry the same authority color as the text. Unknown/loading stays gray/cyan.
+            try:
+                canvas.itemconfigure(oval, fill=color)
+            except Exception:
+                pass
 
     def _reset_status_cards(self) -> None:
         for key in self._status_values:
@@ -1289,6 +1348,7 @@ class CortexPCCGui:
         self._set_status_card("Hygiene", "Unknown", MUTED)
         self._set_status_card("PCC", "Needs adapter", YELLOW)
         self._set_status_card("Runtime", "Unknown", MUTED)
+        self._set_status_card("Sync", "Unknown", MUTED)
         lines = [
             f"Repository : {self.root_path}",
             f"Project    : {self.contract.name}",
@@ -1351,10 +1411,17 @@ class CortexPCCGui:
         behind = git.get("behind")
         if ahead is None or behind is None:
             sync = "Unknown"
+            sync_color = MUTED
         elif int(ahead) == 0 and int(behind) == 0:
             sync = "MATCH"
+            sync_color = GREEN
+        elif int(behind) > 0:
+            sync = f"{ahead}↑ {behind}↓"
+            sync_color = RED
         else:
-            sync = f"{ahead} ahead / {behind} behind"
+            sync = f"{ahead} ahead"
+            sync_color = YELLOW
+        self._set_status_card("Sync", sync, sync_color)
 
         provider = self.backend.provider_label if self.backend is not None else "Unavailable"
         toolchain = str(status.get("toolchain") or "").strip()
@@ -1424,7 +1491,7 @@ class CortexPCCGui:
         self.stop_btn.configure(state="normal")
         self.refresh_btn.configure(state="disabled")
         self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {self._active_command} ===\n", "info")
-        self._append_log("[ProcessHost] Embedded capture ON / descendant console windows suppressed.\n", "info")
+        self._append_log("[ProcessHost] Embedded capture ON / hidden inherited console + universal repo hygiene.\n", "info")
         self.footer.configure(text=f"[Job:Running] [{self._active_command}]", fg=CYAN)
 
         def work() -> None:

@@ -14,7 +14,7 @@ from typing import Any, Iterable, Sequence
 
 from PCCProjectDiscovery import discover_project_contract_data, discovery_summary
 
-SURFACE_VERSION = "PCC-SURFACE-0.3"
+SURFACE_VERSION = "PCC-SURFACE-0.4"
 
 
 class SurfaceError(RuntimeError):
@@ -350,8 +350,25 @@ class BackendClient:
                 return str(console)
         return str(exe)
 
-    def argv(self, command: str, extra: Sequence[str] = ()) -> list[str]:
+    def provider_argv(self, command: str, extra: Sequence[str] = ()) -> list[str]:
         return [self._provider_python(), str(self.script), command, "--root", str(self.root), *map(str, extra)]
+
+    def argv(self, command: str, extra: Sequence[str] = ()) -> list[str]:
+        provider = self.provider_argv(command, extra)
+        # All operator-triggered operations run through the universal host so repository
+        # transport hygiene and hidden-console inheritance are consistent for Cortex,
+        # Subspace, Windstead and future auto-bound projects. Status reads stay side-effect free.
+        if command == "status-json":
+            return provider
+        host = Path(__file__).resolve().parent / "PCCOperationHost.py"
+        if host.is_file():
+            return [
+                self._provider_python(), str(host),
+                "--root", str(self.root),
+                "--operation", command,
+                "--", *provider,
+            ]
+        return provider
 
     @staticmethod
     def _embedded_creationflags(*, process_group: bool = False) -> int:

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from PCCProjectDiscovery import discover_project_contract_data
+from PCCRepoHygiene import prepare as repo_hygiene_prepare
 
 AUTO_ADAPTER_VERSION = "PCC-AUTO-ADAPTER-0.2"
 
@@ -347,7 +348,7 @@ def _stream_command(root: Path, item: dict[str, Any], *, stdin_text: str = "") -
     return _stream_argv(root, argv, label=str(item.get("key") or "command"), stdin_text=stdin_text)
 
 
-def run_command(root: Path, command: str, *, message: str = "", assume_yes: bool = False) -> int:
+def _run_command_core(root: Path, command: str, *, message: str = "", assume_yes: bool = False) -> int:
     data = discover_project_contract_data(root)
     if command == "status-json":
         print(json.dumps(status_payload(root), separators=(",", ":")))
@@ -375,6 +376,37 @@ def run_command(root: Path, command: str, *, message: str = "", assume_yes: bool
     elif assume_yes or command == "patch-apply":
         stdin_text = "Y\n"
     return _stream_command(root, item, stdin_text=stdin_text)
+
+
+
+_AUTO_CLEAN_COMMANDS = {
+    "full", "quick", "fast", "build", "build-release", "self-test",
+    "commit-green", "commit-push-green", "push", "git-pull", "debug-bundle",
+}
+
+def run_command(root: Path, command: str, *, message: str = "", assume_yes: bool = False) -> int:
+    # When invoked directly (outside the GUI operation host), preserve the same universal
+    # repo-clean invariant.  The GUI host sets PCC_OPERATION_HOST_ACTIVE to avoid duplicate work.
+    hosted = os.environ.get("PCC_OPERATION_HOST_ACTIVE") == "1"
+    do_clean = command in _AUTO_CLEAN_COMMANDS and not hosted
+    if do_clean:
+        try:
+            result = repo_hygiene_prepare(root, apply=True)
+            print(f"[PASS] Pre-operation repository transport hygiene moved {int(result.get('moved', 0) or 0)} artifact(s).")
+        except Exception as exc:
+            print(f"[FAIL] Pre-operation repository transport hygiene failed: {exc}")
+            return 1
+    rc = 1
+    try:
+        rc = _run_command_core(root, command, message=message, assume_yes=assume_yes)
+        return rc
+    finally:
+        if do_clean:
+            try:
+                result = repo_hygiene_prepare(root, apply=True)
+                print(f"[PASS] Post-operation repository transport hygiene moved {int(result.get('moved', 0) or 0)} artifact(s).")
+            except Exception as exc:
+                print(f"[WARN] Post-operation repository transport hygiene failed: {exc}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
